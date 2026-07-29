@@ -81,8 +81,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Run component tests
-        # --passWithNoTests until Phase 5 adds the first component test.
-        run: npm run test:app -- --ci --passWithNoTests
+        run: npm run test:app -- --ci
 
   doctor:
     name: expo-doctor
