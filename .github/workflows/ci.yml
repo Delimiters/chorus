@@ -47,9 +47,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Run engine tests
-        # --passWithNoTests is temporary: the engine lands in Phase 1, which
-        # removes this flag. Until then there is genuinely nothing to run.
-        run: npm run test:core -- --ci --passWithNoTests
+        run: npm run test:core -- --ci
         env:
           TZ: ${{ matrix.tz }}
 
@@ -63,23 +61,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      # The gate activates with the engine it guards, in Phase 1. Running a 95%
-      # threshold against zero source files reports a meaningless pass, so skip
-      # rather than lie about it.
-      - name: Check whether the engine exists yet
-        id: engine
-        run: |
-          if [ -f src/core/recurrence/expand.ts ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Engine not present yet (Phase 1) — coverage gate skipped."
-          fi
       - name: Enforce coverage thresholds
-        if: steps.engine.outputs.exists == 'true'
         run: npm run test:coverage -- --ci
       - uses: actions/upload-artifact@v4
-        if: always() && steps.engine.outputs.exists == 'true'
+        if: always()
         with:
           name: coverage
           path: coverage/

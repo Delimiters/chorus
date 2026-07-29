@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 
 import { arbCivilDate, arbEpochDay, arbNthWeek, arbWeekday } from '../__testing__/arbitraries';
-import type { CivilDate, Weekday } from './types';
+import type { CivilDate } from './types';
 import {
   InvalidCivilDateError,
   addDays,

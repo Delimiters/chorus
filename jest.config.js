@@ -58,11 +58,13 @@ module.exports = {
     // Type-only modules emit no runtime code, so they report as 0% forever.
     '!src/core/**/types.ts',
   ],
+  // A threshold on a directory that doesn't exist yet fails the run, so each
+  // entry lands in the same commit as the code it guards.
+  // Phase 2 adds: 'src/core/rotation/' and 'src/core/occurrence/'.
   coverageThreshold: {
     'src/core/civil/': coverageThreshold,
     'src/core/recurrence/': coverageThreshold,
-    'src/core/rotation/': coverageThreshold,
-    'src/core/occurrence/': coverageThreshold,
+    'src/core/lib/': coverageThreshold,
   },
   coverageReporters: ['text-summary', 'lcov', 'json-summary'],
 };
