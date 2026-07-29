@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  static:
+    name: Typecheck & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+
+  core:
+    name: Engine (TZ ${{ matrix.tz }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The scheduling engine is Date-free and must produce byte-identical
+        # results everywhere. Kiritimati (UTC+14) and Niue (UTC-11) are the
+        # extremes; New York exercises DST transitions. This matrix is ~10 lines
+        # of YAML that retires an entire class of bug. See docs/TESTING.md.
+        tz: ['UTC', 'America/New_York', 'Pacific/Kiritimati', 'Pacific/Niue']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Run engine tests
+        # --passWithNoTests is temporary: the engine lands in Phase 1, which
+        # removes this flag. Until then there is genuinely nothing to run.
+        run: npm run test:core -- --ci --passWithNoTests
+        env:
+          TZ: ${{ matrix.tz }}
+
+  coverage:
+    name: Engine coverage gate
+    runs-on: ubuntu-latest
+    # Enabled in Phase 1 alongside the engine it gates. Running a 95% threshold
+    # against zero source files reports a meaningless pass.
+    if: ${{ hashFiles('src/core/recurrence/expand.ts') != '' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Enforce coverage thresholds
+        run: npm run test:coverage -- --ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  app:
+    name: Component tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Run component tests
+        # --passWithNoTests until Phase 5 adds the first component test.
+        run: npm run test:app -- --ci --passWithNoTests
+
+  doctor:
+    name: expo-doctor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx expo-doctor
