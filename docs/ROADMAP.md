@@ -8,7 +8,7 @@ Status legend: ☐ not started · ◐ in progress · ☑ done
 |---|---|---|
 | ☑ | **0 — Repo, tooling, CI, docs** | Blank themed app boots in Expo Go on the simulator; CI green |
 | ☑ | **1 — Civil dates + recurrence engine** | `npm run schedule:preview` prints correct dates for every rule, including Feb 31 → Feb 28 |
-| ◐ | **2 — Rotation + occurrence projector** | A pure function renders a week's agenda as text, including whose turn it is |
+| ☑ | **2 — Rotation + occurrence projector** | A pure function renders a week's agenda as text, including whose turn it is |
 | ☐ | **3 — Supabase schema, RLS, migrations** | CI shows "user B cannot read household A's chores" passing; `supabase db reset` works from scratch |
 | ☐ | **4 — Auth + onboarding** | Real sign-up, create a household, land on empty Today; session survives app restart |
 | ☐ | **5 — Design system + Today/Upcoming** | Seeded chores appear on the right days; tap to complete persists and undoes |
