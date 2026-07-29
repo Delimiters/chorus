@@ -1,0 +1,94 @@
+name: Database
+
+# CI is the source of truth for database tests. ubuntu-latest has Docker
+# natively, so the Supabase stack starts fast and free here — a Colima hiccup on
+# the dev machine must never block progress. See docs/TESTING.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      [
+        'supabase/**',
+        'test/integration/**',
+        'src/data/database.types.ts',
+        '.github/workflows/db.yml',
+      ]
+  pull_request:
+    paths:
+      [
+        'supabase/**',
+        'test/integration/**',
+        'src/data/database.types.ts',
+        '.github/workflows/db.yml',
+      ]
+  workflow_dispatch:
+
+concurrency:
+  group: db-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Migrations, policies & integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase
+        # Excluding what the policy tests don't need keeps startup down. Realtime
+        # is deliberately included: Phase 7 will add subscription authorization
+        # tests, and the publication is created by the migration.
+        run: supabase start -x imgproxy,studio,logflare,vector,supavisor,mailpit
+
+      # Proves the migrations apply to an empty database from scratch, which is
+      # the only thing that guarantees a new environment can be stood up. It also
+      # applies seed.sql, which the engine-over-db suite reads.
+      - name: Reset from scratch
+        run: supabase db reset
+
+      - name: Policy tests (pgTAP)
+        run: supabase test db
+
+      - name: Integration tests
+        run: npm run test:integration -- --ci --runInBand
+
+      # If the live schema and the migration files disagree, someone changed the
+      # database out of band. An empty diff is the only acceptable answer.
+      - name: Schema drift guard
+        run: |
+          DIFF="$(supabase db diff --schema public)"
+          if [ -n "$DIFF" ]; then
+            echo "::error::The database does not match the migrations. Diff:"
+            echo "$DIFF"
+            exit 1
+          fi
+          echo "No drift: the schema matches the migrations."
+
+      # Generated types are committed so the app can typecheck without a running
+      # database. This fails if someone changed the schema and forgot to
+      # regenerate them.
+      - name: Generated types are current
+        run: |
+          supabase gen types typescript --local --schema public > /tmp/database.types.ts
+          if ! diff -q /tmp/database.types.ts src/data/database.types.ts; then
+            echo "::error::src/data/database.types.ts is stale. Regenerate with:"
+            echo "  supabase gen types typescript --local --schema public > src/data/database.types.ts"
+            diff /tmp/database.types.ts src/data/database.types.ts || true
+            exit 1
+          fi
+          echo "Generated types match the schema."
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup || true

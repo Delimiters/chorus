@@ -128,6 +128,9 @@ module.exports = defineConfig([
   {
     files: ['test/integration/**/*.ts'],
     rules: {
+      // This code runs in plain Node against a local Postgres, not in the app
+      // bundle, so Expo's build-time env inlining doesn't apply.
+      'expo/no-dynamic-env-var': 'off',
       'no-restricted-syntax': [
         'error',
         {
