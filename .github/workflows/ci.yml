@@ -56,9 +56,6 @@ jobs:
   coverage:
     name: Engine coverage gate
     runs-on: ubuntu-latest
-    # Enabled in Phase 1 alongside the engine it gates. Running a 95% threshold
-    # against zero source files reports a meaningless pass.
-    if: ${{ hashFiles('src/core/recurrence/expand.ts') != '' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -66,10 +63,23 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      # The gate activates with the engine it guards, in Phase 1. Running a 95%
+      # threshold against zero source files reports a meaningless pass, so skip
+      # rather than lie about it.
+      - name: Check whether the engine exists yet
+        id: engine
+        run: |
+          if [ -f src/core/recurrence/expand.ts ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Engine not present yet (Phase 1) — coverage gate skipped."
+          fi
       - name: Enforce coverage thresholds
+        if: steps.engine.outputs.exists == 'true'
         run: npm run test:coverage -- --ci
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.engine.outputs.exists == 'true'
         with:
           name: coverage
           path: coverage/
