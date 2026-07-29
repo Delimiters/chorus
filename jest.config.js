@@ -55,6 +55,8 @@ module.exports = {
     '!src/core/**/*.test.ts',
     '!src/core/**/__testing__/**',
     '!src/core/**/__fixtures__/**',
+    // Type-only modules emit no runtime code, so they report as 0% forever.
+    '!src/core/**/types.ts',
   ],
   coverageThreshold: {
     'src/core/civil/': coverageThreshold,

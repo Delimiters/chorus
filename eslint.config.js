@@ -113,7 +113,13 @@ module.exports = defineConfig([
   // Tests may use Date to construct fixtures/expectations.
   {
     files: ['src/core/**/*.test.ts', 'src/core/**/__testing__/**/*.ts'],
-    rules: { 'no-restricted-globals': 'off', 'no-restricted-syntax': 'off' },
+    rules: {
+      'no-restricted-globals': 'off',
+      'no-restricted-syntax': 'off',
+      // `import fc from 'fast-check'` then `fc.assert(...)` is the documented
+      // usage; the rule mistakes every namespace member for a default-export slip.
+      'import/no-named-as-default-member': 'off',
+    },
   },
 
   // ── Integration tests: the service-role guard ──────────────────────────────
