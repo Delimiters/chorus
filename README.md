@@ -1,6 +1,8 @@
-# Chore Hero
+# Chorus
 
-A shared household chore app for two people. Chores recur on any schedule you can
+**Shared chores, shared reminders.**
+
+A household chore app for two people. Chores recur on any schedule you can
 describe, rotate fairly between housemates, and sync in real time.
 
 Built with Expo SDK 57, React Native, TypeScript, and Supabase.

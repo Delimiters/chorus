@@ -1,4 +1,4 @@
-# Chore Hero — a shared chore app for two people
+# Chorus — a shared chore app for two people
 
 ## Context
 
@@ -7,7 +7,7 @@ arbitrary recurring schedules, assignable to one person or rotated between them.
 No points/rewards system. iOS first, cross-platform eventually. Free tooling.
 Public repo under `Delimiters` so hiring managers can see the work.
 
-He attempted this before in native SwiftUI (`/Users/jake/repositories/chore-hero`).
+He attempted this before in native SwiftUI (`/Users/jake/repositories/chorus`).
 That prototype — ~4,900 lines, **entirely uncommitted** — looks good and has a
 thoughtful domain model, but it stalled at the prototype→product boundary. Its
 seven concrete failures drive this entire architecture:
@@ -43,7 +43,7 @@ derived makes them structurally impossible rather than merely fixed.
 | Backend | Supabase — auth (email+password), Postgres, RLS, Realtime |
 | State | TanStack Query v5 (server state) + Zustand (session/UI/draft only) |
 | Tests | Jest multi-project, `@testing-library/react-native`, fast-check, pgTAP, Maestro |
-| Repo | new public `github.com/Delimiters/chore-hero` at `/Users/jake/repositories/chore-hero` |
+| Repo | new public `github.com/Delimiters/chorus` at `/Users/jake/repositories/chorus` |
 | Design | polished custom design system, tokens, light/dark |
 | v1 scope | households + chores + recurrence + rotation, local reminders, realtime sync |
 | Roadmap | stats/history, remote push, widget (designed for, not built) |
@@ -60,11 +60,11 @@ and on-demand, never per-PR.
 
 ## Phase 0 — Repo, tooling, CI, docs
 
-1. `mv /Users/jake/repositories/chore-hero → chore-hero-swift-archive`; commit its
-   working tree and push to `Delimiters/chore-hero-archive` (private) so the
+1. `mv /Users/jake/repositories/chorus → chorus-swift-archive`; commit its
+   working tree and push to `Delimiters/chorus-archive` (private) so the
    uncommitted Swift work stops being one `git clean` from oblivion.
-2. `gh repo rename` the old `Delimiters/chore-hero` → `chore-hero-archive`; create
-   fresh **public** `Delimiters/chore-hero`.
+2. `gh repo rename` the old `Delimiters/chorus` → `chorus-archive`; create
+   fresh **public** `Delimiters/chorus`.
 3. `create-expo-app` SDK 57 + expo-router. TS strict incl. `noUncheckedIndexedAccess`
    and `exactOptionalPropertyTypes`. ESLint + Prettier.
 4. **The purity boundary, enforced not aspirational** — `eslint.config.js` forbids
@@ -346,8 +346,8 @@ materialized design that number would depend on whether a backfill job ran.
 
 ## What Jake needs to do (I can't)
 
-- Create a free Supabase account, then projects `chore-hero-dev` and
-  `chore-hero-test` (I'll wire up the keys).
+- Create a free Supabase account, then projects `chorus-dev` and
+  `chorus-test` (I'll wire up the keys).
 - Create a free Expo account for EAS builds (not needed until Phase 7/8).
 - Approve `brew install colima docker docker-compose`.
 - Eventually: $99/yr Apple Developer account — required for remote push and for
@@ -364,8 +364,8 @@ in `src/app/`, not `app/` at the repo root. We follow the template convention.
 Everything else under `src/` (`core/`, `data/`, `design/`, `features/`) is as
 planned.
 
-**Swift archive.** The old `Delimiters/chore-hero` remote already contained an
+**Swift archive.** The old `Delimiters/chorus` remote already contained an
 unrelated React Native scaffold from Dec 2024. Rather than discard it, the Swift
-prototype was pushed to `Delimiters/chore-hero-archive` on a **`swift-prototype`
+prototype was pushed to `Delimiters/chorus-archive` on a **`swift-prototype`
 branch**, with the old scaffold left on `main`. Build artifacts (85M `build/`,
 50M `TestResults.xcresult/`) were gitignored rather than committed.

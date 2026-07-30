@@ -12,7 +12,7 @@ import Index from './index';
 describe('Index screen', () => {
   it('renders the app name', async () => {
     await render(<Index />);
-    expect(screen.getByText('Chore Hero')).toBeOnTheScreen();
+    expect(screen.getByText('Chorus')).toBeOnTheScreen();
   });
 
   it('renders the phase subtitle', async () => {

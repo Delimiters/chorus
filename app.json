@@ -1,14 +1,16 @@
 {
   "expo": {
-    "name": "chore-hero",
-    "slug": "chore-hero",
+    "name": "Chorus",
+    "slug": "chorus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "chorehero",
+    "scheme": "chorus",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.delimiters.chorus",
+      "supportsTablet": false
     },
     "android": {
       "adaptiveIcon": {
@@ -17,7 +19,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.delimiters.chorus"
     },
     "web": {
       "output": "static",

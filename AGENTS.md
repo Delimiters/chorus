@@ -1,4 +1,4 @@
-# Chore Hero — agent operating instructions
+# Chorus — agent operating instructions
 
 A shared household chore app for two people. Expo SDK 57 + React Native + Supabase.
 

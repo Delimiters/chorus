@@ -9,7 +9,7 @@ export default function Index() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Chore Hero</Text>
+        <Text style={styles.title}>Chorus</Text>
         <Text style={styles.subtitle}>Phase 0 — foundations</Text>
       </View>
     </SafeAreaView>

@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Chore Hero — core schema
+-- Chorus — core schema
 --
 -- Design notes that matter for reading this file:
 --

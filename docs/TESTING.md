@@ -116,7 +116,7 @@ awaited:
 ```tsx
 it('renders', async () => {
   await render(<Screen />);
-  expect(screen.getByText('Chore Hero')).toBeOnTheScreen();
+  expect(screen.getByText('Chorus')).toBeOnTheScreen();
 });
 ```
 
