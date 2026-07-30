@@ -93,11 +93,6 @@ export function formatDayCaption(date: CivilDate, today: CivilDate): string {
   return MONTHS_SHORT[partsOf(date).month - 1] as string;
 }
 
-/** `2 days late` / `1 day late` */
-export function formatLateness(days: number): string {
-  return days === 1 ? '1 day late' : `${days} days late`;
-}
-
 /** Inclusive list of dates in a window, for building an agenda or a grid. */
 export function datesBetween(start: CivilDate, end: CivilDate): CivilDate[] {
   const out: CivilDate[] = [];

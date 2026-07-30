@@ -11,7 +11,7 @@ import type { CalendarConfig, CivilDate } from '../civil/types';
 import type { Schedule } from '../recurrence/types';
 import { buildTodayView, collapseSupersededMisses, groupFloating, isFloatingItem } from './agenda';
 import { projectOccurrences } from './project';
-import type { ChoreInput, CompletionInput, ProjectionInput } from './types';
+import type { ChoreInput, CompletionInput, ExceptionInput, ProjectionInput } from './types';
 
 const CAL: CalendarConfig = { weekStartsOn: 0 };
 const ME = 'me';
@@ -23,11 +23,12 @@ function project(
   today: CivilDate,
   window: { start: CivilDate; end: CivilDate },
   completions: CompletionInput[] = [],
+  exceptions: ExceptionInput[] = [],
 ) {
   const input: ProjectionInput = {
     chores,
     completions,
-    exceptions: [],
+    exceptions,
     memberIds: [ME, THEM],
     today,
   };
@@ -213,6 +214,113 @@ describe('collapsing superseded misses', () => {
     expect(items.filter((i) => i.status === 'completed')).toHaveLength(0);
     expect(items).toHaveLength(1);
     expect(items[0]?.dueOn).toBe('2026-01-10');
+  });
+
+  /**
+   * Exceptions were entirely absent from this file, which mattered: skips and
+   * reschedules are two of the three things the app actually stores, and both
+   * change which occurrence the collapse rule should treat as the survivor.
+   */
+  describe('with exceptions', () => {
+    const today = d('2026-01-10');
+    const window = { start: d('2026-01-01'), end: d('2026-01-10') };
+    const schedule = daily('2026-01-01');
+    const keyFor = (dueOn: CivilDate): string =>
+      project([chore({ schedule })], today, window).find((o) => o.dueOn === dueOn)
+        ?.occurrenceKey as string;
+
+    it('a skipped occurrence still supersedes the misses before it', () => {
+      // Skipping today means "not this time", not "give me yesterday's back".
+      const items = collapseSupersededMisses(
+        project(
+          [chore({ schedule })],
+          today,
+          window,
+          [],
+          [{ choreId: 'chore', occurrenceKey: keyFor(today), kind: 'skip', movedTo: null }],
+        ),
+        today,
+      );
+      expect(items.filter((i) => i.status === 'due' || i.status === 'overdue')).toHaveLength(0);
+      // And yesterday's did not crawl back onto the list.
+      expect(items.every((i) => i.dueOn === today)).toBe(true);
+    });
+
+    it('counts a skipped earlier occurrence as handled, not as missed', () => {
+      const items = collapseSupersededMisses(
+        project(
+          [chore({ schedule })],
+          today,
+          window,
+          [],
+          [
+            {
+              choreId: 'chore',
+              occurrenceKey: keyFor(d('2026-01-09')),
+              kind: 'skip',
+              movedTo: null,
+            },
+          ],
+        ),
+        today,
+      );
+      const survivor = items.find((i) => i.dueOn === today);
+      // Eight genuinely missed days, not nine — the skipped one was a decision.
+      expect(survivor?.missedBefore).toBe(8);
+    });
+
+    it('an occurrence rescheduled into the future stops being outstanding today', () => {
+      // The window must reach past the new date. The projector decides
+      // membership by the *effective* date, so a window ending today would not
+      // contain the moved occurrence at all — see the limitation noted in
+      // docs/RECURRENCE.md.
+      const items = collapseSupersededMisses(
+        project(
+          [chore({ schedule })],
+          today,
+          { start: d('2026-01-01'), end: d('2026-01-20') },
+          [],
+          [
+            {
+              choreId: 'chore',
+              occurrenceKey: keyFor(today),
+              kind: 'reschedule',
+              movedTo: d('2026-01-14'),
+            },
+          ],
+        ),
+        today,
+      );
+      // It moved off today, and — the point of the test — yesterday's did not
+      // take its place. A newer occurrence supersedes by existing, not by
+      // staying where the rule put it.
+      expect(items.filter((i) => i.status === 'due' || i.status === 'overdue')).toHaveLength(0);
+      expect(items.find((i) => i.rescheduled)?.dueOn).toBe('2026-01-14');
+    });
+
+    it('an occurrence rescheduled onto today becomes the survivor', () => {
+      const moved = collapseSupersededMisses(
+        project(
+          [chore({ schedule })],
+          today,
+          window,
+          [],
+          [
+            {
+              choreId: 'chore',
+              occurrenceKey: keyFor(d('2026-01-03')),
+              kind: 'reschedule',
+              movedTo: today,
+            },
+          ],
+        ),
+        today,
+      );
+      const outstanding = moved.filter((i) => i.status === 'due' || i.status === 'overdue');
+      // Both today's own occurrence and the one moved onto today are real work.
+      expect(outstanding).toHaveLength(2);
+      expect(outstanding.every((i) => i.dueOn === today)).toBe(true);
+    });
   });
 
   it('collapses each person separately for a fan-out chore', () => {
@@ -439,6 +547,73 @@ describe('the Today view', () => {
     // Two dated rows plus one floating group that still has slots left.
     expect(view.outstandingCount).toBe(3);
     expect(view.floating).toHaveLength(1);
+  });
+
+  /**
+   * These are the tests that matter for floating chores, because zero
+   * completions is the one input on which a correct implementation and a broken
+   * one agree. The screen previously grouped *after* filtering out completed
+   * slots, so every floating row read "0 of N" and a finished chore fell out of
+   * its group into N identical Done rows. With no completions, neither showed.
+   */
+  const plants: ChoreInput = {
+    id: 'f',
+    title: 'Plants',
+    schedule: {
+      rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 3 },
+      startsOn: d('2026-01-04'),
+      endsOn: null,
+      timeOfDay: null,
+    },
+    assignment: { kind: 'anyone' },
+    archived: false,
+  };
+  const week = { start: d('2026-01-04'), end: d('2026-01-10') };
+
+  /** Completes the first `n` slots of the floating chore, today. */
+  const completeSlots = (n: number): CompletionInput[] =>
+    project([plants], today, week)
+      .filter((o) => o.choreId === 'f')
+      .sort((a, b) => a.slot - b.slot)
+      .slice(0, n)
+      .map((o) => ({
+        choreId: o.choreId,
+        occurrenceKey: o.occurrenceKey,
+        completedOn: today,
+        completedBy: ME,
+      }));
+
+  const plantsView = (n: number) =>
+    buildTodayView(
+      collapseSupersededMisses(project([plants], today, week, completeSlots(n)), today),
+      today,
+      ME,
+    );
+
+  it('counts completed slots against a floating chore, not away from it', () => {
+    const group = plantsView(1).floating[0];
+    expect(group?.total).toBe(3);
+    expect(group?.done).toBe(1);
+    expect(group?.nextSlot).not.toBeNull();
+  });
+
+  it('keeps a finished floating chore as one row rather than three done rows', () => {
+    const view = plantsView(3);
+    expect(view.floating).toHaveLength(1);
+    expect(view.floating[0]?.done).toBe(3);
+    expect(view.floating[0]?.nextSlot).toBeNull();
+    // The point of the grouping: not three identical "Plants" rows in Done.
+    expect(view.done).toEqual([]);
+  });
+
+  it('stops counting a finished floating chore as outstanding', () => {
+    expect(plantsView(2).outstandingCount).toBe(1);
+    expect(plantsView(3).outstandingCount).toBe(0);
+  });
+
+  it('counts each completed slot in the day total, since each was a job done', () => {
+    expect(plantsView(0).doneCount).toBe(0);
+    expect(plantsView(2).doneCount).toBe(2);
   });
 
   it('is empty when there is genuinely nothing to do', () => {

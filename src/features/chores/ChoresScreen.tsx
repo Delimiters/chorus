@@ -29,7 +29,7 @@ export function ChoresScreen() {
   const [showArchived, setShowArchived] = useState(false);
 
   const query = useQuery({
-    queryKey: [...qk.chores(householdId ?? '__none__'), { archived: showArchived }],
+    queryKey: qk.choreList(householdId ?? '__none__', { archived: showArchived }),
     queryFn:
       householdId === null
         ? skipToken

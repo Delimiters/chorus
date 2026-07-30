@@ -29,9 +29,18 @@ export function TodayScreen() {
   const { colors } = useTheme();
   const userId = useUserId();
   const members = useMembers();
-  const { view, chores, today, isLoading, error, unreadable } = useToday_View();
+  const { view, chores, today, isLoading, error, unreadable, refetch } = useToday_View();
   const toggle = useToggleCompletion();
   const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   /** Who is who, for ink and name lookups. */
   const byMember = useMemo(() => {
@@ -106,7 +115,7 @@ export function TodayScreen() {
   };
 
   if (isLoading) return <LoadingState label="Loading your chores" />;
-  if (error) return <ErrorState message={error.message} />;
+  if (error) return <ErrorState message={error.message} onRetry={refetch} />;
 
   const nothingToDo = view.outstandingCount === 0;
 
@@ -117,10 +126,7 @@ export function TodayScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              setTimeout(() => setRefreshing(false), 400);
-            }}
+            onRefresh={refresh}
             tintColor={colors.textFaint}
           />
         }

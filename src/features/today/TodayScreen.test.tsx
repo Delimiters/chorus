@@ -79,6 +79,7 @@ function buildView(completions: CompletionInput[] = []) {
 }
 
 const mockToggle = jest.fn();
+const mockRefetch = jest.fn(async () => {});
 let mockView = buildView();
 let mockError: Error | null = null;
 let mockLoading = false;
@@ -91,6 +92,7 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     isLoading: mockLoading,
     error: mockError,
     unreadable: [] as string[],
+    refetch: mockRefetch,
   }),
   useToggleCompletion: () => ({ mutate: mockToggle }),
 }));
@@ -116,6 +118,7 @@ function renderScreen() {
 
 beforeEach(() => {
   mockToggle.mockClear();
+  mockRefetch.mockClear();
   mockView = buildView();
   mockError = null;
   mockLoading = false;

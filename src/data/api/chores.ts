@@ -89,6 +89,39 @@ export async function listChores(
   return { chores, unreadable };
 }
 
+function toCompletion(row: {
+  chore_id: string;
+  occurrence_key: string;
+  completed_on: string;
+  completed_by: string;
+}): CompletionInput {
+  return {
+    choreId: row.chore_id,
+    occurrenceKey: row.occurrence_key,
+    completedOn: row.completed_on as CivilDate,
+    completedBy: row.completed_by,
+  };
+}
+
+const COMPLETION_COLUMNS = 'chore_id, occurrence_key, completed_on, completed_by';
+
+/**
+ * Completions for occurrences **due** in a window, whenever they were done.
+ *
+ * `due_on`, not `completed_on`, and the distinction is load-bearing. The agenda
+ * projects occurrences by due date and then asks "is this one complete?" — so a
+ * completion is relevant exactly when its occurrence is on screen, regardless of
+ * which day the tick happened.
+ *
+ * Filtering on `completed_on` instead had a nasty failure: tick a chore early
+ * from Upcoming, and by the time its due date came round the completion sat
+ * outside the window, so the row read *overdue* forever. Ticking it again hit
+ * the unique constraint, which the API maps to success, so the UI never
+ * recovered. A completion done outside the window is not noise — it is the
+ * answer to the question being asked.
+ *
+ * Stats will want the other column, and can have its own query when it lands.
+ */
 export async function listCompletions(
   householdId: string,
   from: CivilDate,
@@ -96,48 +129,71 @@ export async function listCompletions(
 ): Promise<readonly CompletionInput[]> {
   const { data, error } = await supabase
     .from('chore_completions')
-    .select('chore_id, occurrence_key, completed_on, completed_by')
-    .eq('household_id', householdId)
-    // Filtered on completed_on rather than due_on: a chore done late belongs to
-    // the day it was done, which is what the Done section shows.
-    .gte('completed_on', from)
-    .lte('completed_on', to);
-  if (error) fail(error);
-
-  return (data ?? []).map((row) => ({
-    choreId: row.chore_id,
-    occurrenceKey: row.occurrence_key,
-    completedOn: row.completed_on as CivilDate,
-    completedBy: row.completed_by,
-  }));
-}
-
-/**
- * Completions for occurrences *due* in a window, whenever they were done.
- *
- * The agenda needs both: what was done today (for the Done section) and whether
- * a given occurrence is complete (for its checkbox), and those are different
- * date columns.
- */
-export async function listCompletionsByDue(
-  householdId: string,
-  from: CivilDate,
-  to: CivilDate,
-): Promise<readonly CompletionInput[]> {
-  const { data, error } = await supabase
-    .from('chore_completions')
-    .select('chore_id, occurrence_key, completed_on, completed_by')
+    .select(COMPLETION_COLUMNS)
     .eq('household_id', householdId)
     .gte('due_on', from)
     .lte('due_on', to);
   if (error) fail(error);
+  return (data ?? []).map(toCompletion);
+}
 
-  return (data ?? []).map((row) => ({
-    choreId: row.chore_id,
-    occurrenceKey: row.occurrence_key,
-    completedOn: row.completed_on as CivilDate,
-    completedBy: row.completed_by,
-  }));
+/**
+ * Completions for a specific handful of chores, unbounded by date.
+ *
+ * For the one-time chores that live outside the agenda window — see
+ * {@link listOneTimeChores}. They have one occurrence each, so this is a few
+ * rows, not a table scan.
+ */
+export async function listCompletionsForChores(
+  householdId: string,
+  choreIds: readonly string[],
+): Promise<readonly CompletionInput[]> {
+  if (choreIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('chore_completions')
+    .select(COMPLETION_COLUMNS)
+    .eq('household_id', householdId)
+    .in('chore_id', choreIds);
+  if (error) fail(error);
+  return (data ?? []).map(toCompletion);
+}
+
+/**
+ * Every unarchived one-time chore, regardless of date.
+ *
+ * These cannot come from the agenda window, which is a few weeks wide: "renew
+ * the passport", set eight months ago and never done, is outside any sane
+ * range. The collapse rule promises a one-time chore never expires, and this is
+ * what makes that true rather than merely stated. See docs/DESIGN_SYSTEM.md.
+ *
+ * Deliberately unfiltered by date. A `once` rule carries its own `dueOn`, which
+ * need not equal the schedule's `startsOn`, so a date filter here would quietly
+ * drop the very chores this query exists to find. `schedule_kind` is a generated
+ * column, so the narrowing is still an index lookup rather than a jsonb scan.
+ *
+ * Completed ones come back too and are filtered out by projection. If a
+ * household ever accumulates enough finished one-time chores for that to matter,
+ * the fix is archiving them on completion — not truncating this query, which
+ * would silently lose work.
+ */
+export async function listOneTimeChores(householdId: string): Promise<ChoreListResult> {
+  const { data, error } = await supabase
+    .from('chores')
+    .select('id, title, notes, schedule, assignment, archived_at')
+    .eq('household_id', householdId)
+    .eq('schedule_kind', 'once')
+    .is('archived_at', null)
+    .order('starts_on');
+  if (error) fail(error);
+
+  const chores: Chore[] = [];
+  const unreadable: string[] = [];
+  for (const row of data ?? []) {
+    const parsed = toChore(row);
+    if ('chore' in parsed) chores.push(parsed.chore);
+    else unreadable.push(parsed.error);
+  }
+  return { chores, unreadable };
 }
 
 export async function listExceptions(

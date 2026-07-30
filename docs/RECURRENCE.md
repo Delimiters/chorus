@@ -149,6 +149,31 @@ expand(rule, [a, c])  ===  expand(rule, [a, b]) ++ expand(rule, [b+1, c])
 for any split point `b`. That's the highest-value property test in the suite —
 any off-by-one at any window edge, in any rule, fails it.
 
+### Membership uses the effective date, and supersession uses the original one
+
+A rescheduled occurrence has two dates: where the rule put it (`originalDueOn`)
+and where somebody moved it (`dueOn`). Membership uses the second, so something
+moved out of a window drops away and something moved in appears — which is what
+a calendar should do.
+
+The agenda's collapse rule uses the **first**, and must. Push today's dishes to
+Friday and yesterday's must stay superseded: what supersedes an older occurrence
+is that a newer one *was generated*, not where it subsequently ended up. Using
+the effective date let yesterday's become "the latest one at or before today"
+and reappear on Today — the same resurrection bug as counting only outstanding
+occurrences, wearing a different hat.
+
+**Known limitation.** The two rules meet badly at the window edge. If an
+occurrence is rescheduled *past the end of the window*, the projector never emits
+it, so the collapse cannot know it exists, and the previous occurrence resurfaces
+as overdue. Today's window reaches about a week forward, so this needs a
+reschedule of more than ~7 days to trigger. Nothing in the app can do that yet —
+the reschedule UI lands in Phase 6, and this must be settled with it. The likely
+fix is for the projector to emit occurrences whose *original* date is in the
+window even when the effective one is not, flagged so only the collapse sees
+them; that keeps composability, which is a property of rule expansion rather
+than of exception application.
+
 ## Bounds
 
 Three guards keep computation finite:

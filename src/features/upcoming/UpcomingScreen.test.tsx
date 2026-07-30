@@ -10,7 +10,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilDate } from '@/core/civil/types';
-import { collapseSupersededMisses } from '@/core/occurrence/agenda';
+import { toAgendaItems } from '@/core/occurrence/agenda';
 import { projectOccurrences } from '@/core/occurrence/project';
 import type { ChoreInput } from '@/core/occurrence/types';
 import { ThemeProvider } from '@/design/theme';
@@ -67,10 +67,12 @@ const mockItems = (() => {
     CAL,
     { start: d('2026-06-28'), end: d('2026-09-05') },
   );
-  return collapseSupersededMisses(projected, mockToday);
+  // Uncollapsed, which is what `useOccurrences` hands the calendar.
+  return toAgendaItems(projected, mockToday);
 })();
 
 const mockToggle = jest.fn();
+const mockRefetch = jest.fn(async () => {});
 
 jest.mock('@/data/hooks/useOccurrences', () => ({
   useOccurrences: () => ({
@@ -80,6 +82,7 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     isLoading: false,
     error: null,
     unreadable: [] as string[],
+    refetch: mockRefetch,
   }),
   useToggleCompletion: () => ({ mutate: mockToggle }),
 }));
@@ -107,6 +110,7 @@ function renderScreen() {
 
 beforeEach(() => {
   mockToggle.mockClear();
+  mockRefetch.mockClear();
 });
 
 describe('Upcoming', () => {
@@ -124,6 +128,19 @@ describe('Upcoming', () => {
     // Trash falls on Fridays, and the label is singular for one.
     expect(screen.getByLabelText('Fri 31, 1 chore')).toBeOnTheScreen();
     expect(screen.getByLabelText('Sun 26, nothing due')).toBeOnTheScreen();
+  });
+
+  it('keeps a dot on a past day that a later occurrence superseded', async () => {
+    // The regression this guards: the collapse rule ran in the shared data hook,
+    // so every superseded past occurrence was gone before the grid saw it. Fri 3,
+    // 10 and 17 July showed nothing — and the hand-over those dots make visible
+    // is the only reason a calendar earns its place here.
+    await renderScreen();
+    await fireEvent.press(screen.getByLabelText('Expand to the whole month'));
+
+    expect(screen.getByLabelText('Fri 3, 1 chore')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Fri 10, 1 chore')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Fri 17, 1 chore')).toBeOnTheScreen();
   });
 
   it('expands to the whole month and back', async () => {

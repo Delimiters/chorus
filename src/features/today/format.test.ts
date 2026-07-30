@@ -13,7 +13,6 @@ import {
   formatDayLong,
   formatDayShort,
   formatFlexibleWindow,
-  formatLateness,
   formatRelativeDay,
   monthName,
   weekdayShort,
@@ -92,13 +91,6 @@ describe('flexible windows', () => {
 
   it('uses a date once the weekday would be ambiguous', () => {
     expect(formatFlexibleWindow(from, d('2026-08-08'), today)).toBe('until Sat 8 Aug');
-  });
-});
-
-describe('lateness', () => {
-  it('pluralises', () => {
-    expect(formatLateness(1)).toBe('1 day late');
-    expect(formatLateness(2)).toBe('2 days late');
   });
 });
 

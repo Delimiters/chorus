@@ -66,7 +66,7 @@ export function collapseSupersededMisses(
   const untouched: ProjectedOccurrence[] = [];
 
   for (const occ of projected) {
-    if (compareCivil(occ.dueOn, today) > 0) {
+    if (compareCivil(positionOf(occ), today) > 0) {
       untouched.push(occ);
       continue;
     }
@@ -79,28 +79,33 @@ export function collapseSupersededMisses(
   const kept: AgendaItem[] = [];
 
   for (const group of past.values()) {
-    const sorted = [...group].sort((a, b) => compareCivil(a.dueOn, b.dueOn) || a.slot - b.slot);
+    const sorted = [...group].sort(
+      (a, b) => compareCivil(positionOf(a), positionOf(b)) || a.slot - b.slot,
+    );
     const survivor = sorted[sorted.length - 1] as ProjectedOccurrence;
+    const survivorAt = positionOf(survivor);
 
     // Floating rules put several slots on the same date; those are concurrent
     // work rather than one superseding another, so they all survive.
-    const latest = sorted.filter((o) => o.dueOn === survivor.dueOn);
-    const earlier = sorted.filter((o) => o.dueOn !== survivor.dueOn);
+    const latest = sorted.filter((o) => positionOf(o) === survivorAt);
+    const earlier = sorted.filter((o) => positionOf(o) !== survivorAt);
 
-    // Only unfinished earlier occurrences count as "missed".
+    // Only unfinished earlier occurrences count as "missed". A skipped one was a
+    // decision, not a failure.
     const missedBefore = earlier.filter((o) => o.status === 'overdue' || o.status === 'due').length;
 
     for (const occ of latest) {
       kept.push(toAgendaItem(occ, today, missedBefore));
     }
 
-    // An earlier occurrence completed TODAY still belongs in the Done section —
-    // ticking something off should not make it vanish. Anything else from the
-    // past is history and lives in the chore's detail, not on the agenda.
     for (const occ of earlier) {
-      if (occ.status === 'completed' && occ.completedOn === today) {
-        kept.push(toAgendaItem(occ, today, 0));
-      }
+      // Completed TODAY: ticking something off should not make it vanish.
+      const doneToday = occ.status === 'completed' && occ.completedOn === today;
+      // Deliberately moved to today or later: somebody said "do it then", and
+      // the app should not overrule them. Moved to a day that has itself already
+      // passed is just another miss, and collapses like one.
+      const movedHere = occ.rescheduled && compareCivil(occ.dueOn, survivorAt) >= 0;
+      if (doneToday || movedHere) kept.push(toAgendaItem(occ, today, 0));
     }
   }
 
@@ -108,6 +113,44 @@ export function collapseSupersededMisses(
     (a, b) =>
       compareCivil(a.dueOn, b.dueOn) || a.choreTitle.localeCompare(b.choreTitle) || a.slot - b.slot,
   );
+}
+
+/**
+ * Where an occurrence sits in the sequence, as opposed to where it now falls.
+ *
+ * For a rescheduled occurrence these differ, and supersession cares about the
+ * former. Push today's dishes to Friday and yesterday's must stay superseded:
+ * what supersedes an older occurrence is that a newer one *was generated*, not
+ * where it subsequently ended up. Using the effective date instead let
+ * yesterday's become "the latest one at or before today" and reappear — the same
+ * resurrection bug as counting only outstanding occurrences, wearing a hat.
+ */
+function positionOf(occ: ProjectedOccurrence): CivilDate {
+  return occ.originalDueOn ?? occ.dueOn;
+}
+
+/**
+ * Occurrences as agenda items, with nothing collapsed away.
+ *
+ * For the calendar, which wants to show what the schedule actually said on each
+ * past day. Collapsing is a Today-screen decision — a past occurrence there is
+ * an obligation, and superseded ones are noise; on a calendar it is a record,
+ * and hiding it erases the rotation hand-over the grid exists to make visible.
+ *
+ * `missedBefore` is zero throughout: nothing here supersedes anything.
+ */
+export function toAgendaItems(
+  projected: readonly ProjectedOccurrence[],
+  today: CivilDate,
+): readonly AgendaItem[] {
+  return projected
+    .map((occ) => toAgendaItem(occ, today, 0))
+    .sort(
+      (a, b) =>
+        compareCivil(a.dueOn, b.dueOn) ||
+        a.choreTitle.localeCompare(b.choreTitle) ||
+        a.slot - b.slot,
+    );
 }
 
 function toAgendaItem(
@@ -234,22 +277,38 @@ export function buildTodayView(
   today: CivilDate,
   userId: string,
 ): TodayView {
-  const outstanding = items.filter((i) => i.status === 'due' || i.status === 'overdue');
-  const { floating, dated } = groupFloating(outstanding);
+  /**
+   * Group **before** filtering by status, not after.
+   *
+   * Filtering first was a bug: a group's `done` count is computed from the slots
+   * it is given, so dropping the completed ones first made every floating row
+   * read "0 of N", and a fully-finished chore lost its group entirely and landed
+   * in Done as N identical rows — exactly the noise grouping exists to prevent.
+   */
+  const { floating, dated } = groupFloating(items);
 
   // A floating group is "mine" if its next slot is; ownership is per-occurrence.
   const isMine = (item: AgendaItem): boolean =>
     item.assignee.kind === 'anyone' ||
     (item.assignee.kind === 'member' && item.assignee.memberId === userId);
 
-  const done = items.filter((i) => i.status === 'completed' && i.completedOn === today);
+  const isOutstanding = (i: AgendaItem): boolean => i.status === 'due' || i.status === 'overdue';
+  const outstandingDated = dated.filter(isOutstanding);
+  const done = dated.filter((i) => i.status === 'completed' && i.completedOn === today);
+
+  // A finished floating group stays in its own band rather than moving to Done —
+  // one struck-through row with full pips, not three rows saying the same thing.
+  const floatingDoneToday = floating.reduce(
+    (n, g) => n + g.slots.filter((s) => s.status === 'completed' && s.completedOn === today).length,
+    0,
+  );
 
   return {
     floating,
-    mine: dated.filter(isMine),
-    theirs: dated.filter((i) => !isMine(i)),
+    mine: outstandingDated.filter(isMine),
+    theirs: outstandingDated.filter((i) => !isMine(i)),
     done,
-    outstandingCount: dated.length + floating.filter((g) => g.nextSlot !== null).length,
-    doneCount: done.length,
+    outstandingCount: outstandingDated.length + floating.filter((g) => g.nextSlot !== null).length,
+    doneCount: done.length + floatingDoneToday,
   };
 }

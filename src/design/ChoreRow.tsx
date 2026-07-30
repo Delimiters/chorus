@@ -17,6 +17,7 @@ import { inkColor, inkSoft } from './inks';
 import { useTheme } from './theme';
 import { MIN_TARGET, radius, space } from './tokens';
 import { Txt } from './components';
+import { formatLateness } from './format';
 
 // ── Checkbox ────────────────────────────────────────────────────────────────
 
@@ -128,7 +129,10 @@ export function Pips({ done, total }: { done: number; total: number }) {
   return (
     <View
       style={{ flexDirection: 'row', gap: 3, alignItems: 'center' }}
-      accessibilityLabel={`${done} of ${total} done`}
+      // No label: the visible "N of M" sits right beside it, and announcing the
+      // same fact twice is worse than not announcing it.
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
     >
       {Array.from({ length: total }, (_, i) => (
         <View
@@ -213,11 +217,7 @@ export function ChoreRow({
         </Txt>
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-          {overdue ? (
-            <Chip tone="overdue">
-              {item.daysOverdue === 1 ? '1 day late' : `${item.daysOverdue} days late`}
-            </Chip>
-          ) : null}
+          {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
 
           {turnLabel !== null ? (
             <Chip tone="ink" ink={ink}>
@@ -292,7 +292,14 @@ export function FloatingRow({
         label={`Mark one ${group.choreTitle} done. ${group.done} of ${group.total} done.`}
       />
 
-      <Pressable onPress={onOpen} accessibilityRole="button" style={{ flex: 1, gap: 4 }}>
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        accessibilityLabel={`${group.choreTitle}, ${group.done} of ${group.total} done, ${
+          turnLabel ?? 'anyone can do it'
+        }. Open options.`}
+        style={{ flex: 1, gap: 4 }}
+      >
         <Txt
           variant="bodyStrong"
           style={finished ? { textDecorationLine: 'line-through' } : undefined}

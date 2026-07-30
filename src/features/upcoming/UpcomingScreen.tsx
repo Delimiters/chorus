@@ -51,7 +51,11 @@ export function UpcomingScreen() {
     return { start, end };
   }, [selected, weekStartsOn]);
 
-  const { items, chores, isLoading, error } = useOccurrences(window);
+  // `items`, not `agenda`: the calendar shows what the schedule said on each
+  // day. Collapsing superseded misses is a Today decision, and applying it here
+  // erased every past dot — including the rotation hand-overs the grid exists
+  // to make visible.
+  const { items, chores, isLoading, error, refetch } = useOccurrences(window);
 
   const byMember = useMemo(() => {
     const map = new Map<string, { name: string; ink: string }>();
@@ -110,7 +114,7 @@ export function UpcomingScreen() {
   }, [items, selected, today]);
 
   if (isLoading) return <LoadingState />;
-  if (error) return <ErrorState message={error.message} />;
+  if (error) return <ErrorState message={error.message} onRetry={refetch} />;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>

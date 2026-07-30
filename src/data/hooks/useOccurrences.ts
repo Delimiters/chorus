@@ -19,6 +19,7 @@ import type { CalendarConfig, CivilDate, DateWindow } from '@/core/civil/types';
 import {
   buildTodayView,
   collapseSupersededMisses,
+  toAgendaItems,
   type AgendaItem,
 } from '@/core/occurrence/agenda';
 import { projectOccurrences } from '@/core/occurrence/project';
@@ -28,7 +29,9 @@ import {
   completeOccurrence,
   listChores,
   listCompletions,
+  listCompletionsForChores,
   listExceptions,
+  listOneTimeChores,
   rescheduleOccurrence,
   skipOccurrence,
   uncompleteOccurrence,
@@ -57,7 +60,16 @@ export function quantiseWindow(
 }
 
 interface OccurrencesResult {
+  /**
+   * Every projected occurrence in the window, uncollapsed.
+   *
+   * The calendar wants these: collapsing is a Today-screen product decision, and
+   * applying it here stripped the grid of every superseded past dot — which is
+   * the one thing the grid exists to show.
+   */
   readonly items: readonly AgendaItem[];
+  /** The same occurrences with superseded misses collapsed. What Today shows. */
+  readonly agenda: readonly AgendaItem[];
   readonly chores: readonly Chore[];
   readonly today: CivilDate;
   readonly window: DateWindow;
@@ -66,6 +78,8 @@ interface OccurrencesResult {
   readonly error: Error | null;
   /** Chores whose stored shape the engine could not read. */
   readonly unreadable: readonly string[];
+  /** Refetch everything this household's agenda is built from. */
+  readonly refetch: () => Promise<void>;
 }
 
 /**
@@ -122,7 +136,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
       calendar,
       window,
     );
-    return collapseSupersededMisses(projected, today);
+    return toAgendaItems(projected, today);
   }, [
     choresQuery.data,
     completionsQuery.data,
@@ -133,8 +147,23 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
     window,
   ]);
 
+  const agenda = useMemo(() => collapseSupersededMisses(items, today), [items, today]);
+
+  /**
+   * Broad rather than surgical, and deliberately so — a household's whole
+   * dataset is a few kilobytes, and this runs on pull-to-refresh and on a failed
+   * load, both of which want "get me back to the truth", not "get me back to a
+   * carefully reasoned subset of the truth".
+   */
+  const queryClient = useQueryClient();
+  const refetch = useCallback(async () => {
+    if (householdId === null) return;
+    await queryClient.invalidateQueries({ queryKey: qk.household(householdId) });
+  }, [householdId, queryClient]);
+
   return {
     items,
+    agenda,
     chores: choresQuery.data?.chores ?? [],
     today,
     window,
@@ -145,8 +174,87 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
       (completionsQuery.error as Error | null) ??
       (exceptionsQuery.error as Error | null),
     unreadable: choresQuery.data?.unreadable ?? [],
+    refetch,
   };
 }
+
+/**
+ * One-time chores still outstanding from before the agenda window.
+ *
+ * The collapse rule says a one-time chore never expires, but the window it
+ * collapses is only a few weeks wide — so "renew the passport", set eight months
+ * ago, was silently absent from Today and the screen cheerfully said "All clear".
+ * The guarantee was true of the function and false of the product.
+ *
+ * These need their own fetch precisely because no sane window contains them.
+ */
+function useLingeringOneTimeChores(
+  today: CivilDate,
+  calendar: CalendarConfig,
+  before: CivilDate,
+): { items: readonly AgendaItem[]; error: Error | null } {
+  const householdId = useActiveHouseholdId();
+  const members = useMembers();
+
+  const choresQuery = useQuery({
+    queryKey: qk.oneTimeChores(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => listOneTimeChores(householdId),
+  });
+
+  const choreIds = useMemo(
+    () => (choresQuery.data?.chores ?? []).map((c) => c.id),
+    [choresQuery.data],
+  );
+
+  const completionsQuery = useQuery({
+    queryKey: qk.completionsForChores(householdId ?? '__none__', choreIds),
+    queryFn:
+      householdId === null ? skipToken : () => listCompletionsForChores(householdId, choreIds),
+    enabled: householdId !== null && choreIds.length > 0,
+  });
+
+  const items = useMemo(() => {
+    const chores = choresQuery.data?.chores ?? [];
+    if (chores.length === 0) return [];
+
+    // Wide enough to hold any of them; each yields exactly one occurrence, so
+    // the width costs nothing. Bounded above by the agenda window's start, so an
+    // occurrence never appears both here and there.
+    const projected = projectOccurrences(
+      {
+        chores,
+        completions: (completionsQuery.data ?? []) as CompletionInput[],
+        exceptions: [],
+        memberIds: (members.data ?? []).map((m) => m.userId),
+        today,
+      },
+      calendar,
+      { start: addDays(before, -MAX_LOOKBACK_DAYS), end: addDays(before, -1) },
+    );
+    // Only what is still outstanding. A one-time chore finished last March is
+    // history, and Today is not a history screen.
+    return toAgendaItems(
+      projected.filter((o) => o.status === 'due' || o.status === 'overdue'),
+      today,
+    );
+  }, [choresQuery.data, completionsQuery.data, members.data, today, calendar, before]);
+
+  return {
+    items,
+    error: (choresQuery.error as Error | null) ?? (completionsQuery.error as Error | null),
+  };
+}
+
+/**
+ * How far back Today reaches for a forgotten one-time chore.
+ *
+ * Not 366, which is what this wanted to be: the projector pads the window by 31
+ * days on each side to catch occurrences rescheduled across the edge, so a
+ * year-long request came to 428 days and tripped the 400-day cap — loudly, which
+ * is exactly what that guard is for. 330 leaves room for the padding and still
+ * covers "I set this eleven months ago and forgot".
+ */
+const MAX_LOOKBACK_DAYS = 330;
 
 /** The Today screen's data, arranged as the design specifies. */
 export function useToday_View() {
@@ -161,12 +269,14 @@ export function useToday_View() {
   const window = useMemo(() => quantiseWindow(today, weekStartsOn, 2, 1), [today, weekStartsOn]);
 
   const occurrences = useOccurrences(window);
+  const lingering = useLingeringOneTimeChores(today, occurrences.calendar, window.start);
+
   const view = useMemo(
-    () => buildTodayView(occurrences.items, today, userId ?? ''),
-    [occurrences.items, today, userId],
+    () => buildTodayView([...lingering.items, ...occurrences.agenda], today, userId ?? ''),
+    [lingering.items, occurrences.agenda, today, userId],
   );
 
-  return { ...occurrences, view };
+  return { ...occurrences, view, error: occurrences.error ?? lingering.error };
 }
 
 // ── Mutations ───────────────────────────────────────────────────────────────
@@ -209,9 +319,18 @@ export function useToggleCompletion() {
 
     onMutate: async ({ item, complete }) => {
       if (householdId === null || userId === null) return;
-      // Every completions query, whatever its window — the occurrence may appear
-      // in more than one.
-      const prefix = qk.household(householdId);
+      /**
+       * Every completions query, whatever its window — the occurrence may appear
+       * in more than one — and **nothing but** completions queries.
+       *
+       * This used to patch the whole `household` prefix and guard with
+       * `Array.isArray`, which is not the discriminator it looks like: `members`
+       * is an array under that prefix too, so a completion row got appended to
+       * the member list and the House tab threw reading `displayName` off it.
+       * `exceptions` is worse — the filter *removed* the reschedule for the very
+       * occurrence being ticked, so the row jumped back to its original date.
+       */
+      const prefix = qk.completionsAll(householdId);
       await queryClient.cancelQueries({ queryKey: prefix });
       const snapshot = queryClient.getQueriesData({ queryKey: prefix });
 
