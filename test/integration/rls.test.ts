@@ -292,3 +292,63 @@ describe('the anonymous role', () => {
     }
   });
 });
+
+describe('PostgREST embeds', () => {
+  // Regression guard. household_members.user_id originally referenced
+  // auth.users, which is not an exposed schema — so PostgREST could not embed
+  // profiles and the member list came back as a 400. See the
+  // reference_profiles_for_api_embedding migration.
+  it('can embed profiles from household_members', async () => {
+    const { client, userId } = await createUser(uniqueEmail('embed'), 'Embed');
+    const created = await client.rpc('create_household', { household_name: 'Embed House' });
+    expect(created.error).toBeNull();
+
+    const { data, error } = await client
+      .from('household_members')
+      .select('user_id, role, profiles!inner(display_name, accent)')
+      .eq('household_id', created.data as string);
+
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+    expect(data?.[0]?.profiles).toMatchObject({ display_name: 'Embed', accent: 'blue' });
+
+    await deleteUsers([userId]);
+  });
+
+  it('can embed the completer of a chore', async () => {
+    // The same embed the history view needs: "completed by Sam".
+    const { client, userId } = await createUser(uniqueEmail('completer'), 'Completer');
+    const created = await client.rpc('create_household', { household_name: 'Completer House' });
+    const householdId = created.data as string;
+
+    const chore = await client
+      .from('chores')
+      .insert({
+        household_id: householdId,
+        title: 'Dishes',
+        schedule: DAILY,
+        created_by: userId,
+      })
+      .select('id')
+      .single();
+
+    await client.from('chore_completions').insert({
+      household_id: householdId,
+      chore_id: chore.data?.id as string,
+      occurrence_key: 'v1:embed:2026-01-04:0:-',
+      due_on: '2026-01-04',
+      completed_on: '2026-01-04',
+      completed_by: userId,
+    });
+
+    const { data, error } = await client
+      .from('chore_completions')
+      .select('occurrence_key, profiles!inner(display_name)')
+      .eq('household_id', householdId);
+
+    expect(error).toBeNull();
+    expect(data?.[0]?.profiles).toMatchObject({ display_name: 'Completer' });
+
+    await deleteUsers([userId]);
+  });
+});

@@ -1,12 +1,53 @@
-import { Stack } from 'expo-router';
+/**
+ * Root layout. Providers, and nothing else.
+ *
+ * The auth listener is mounted here — exactly once for the app's lifetime — so
+ * there is a single writer of session state. See src/stores/sessionStore.ts.
+ */
+
+import { QueryClientProvider } from '@tanstack/react-query';
+import { Slot } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-export default function RootLayout() {
+import { useAuthListener } from '@/data/hooks/useAuth';
+import { createQueryClient, wireFocusManager, wireOnlineManager } from '@/data/queryClient';
+import { ThemeProvider, useTheme } from '@/design/theme';
+
+function Providers() {
+  useAuthListener();
+  const { isDark } = useTheme();
+
+  useEffect(() => {
+    const stopFocus = wireFocusManager();
+    const stopOnline = wireOnlineManager();
+    return () => {
+      stopFocus();
+      stopOnline();
+    };
+  }, []);
+
   return (
-    <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }} />
-      <StatusBar style="auto" />
-    </SafeAreaProvider>
+    <>
+      <Slot />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+    </>
+  );
+}
+
+export default function RootLayout() {
+  // The client is created once and held in state rather than at module scope, so
+  // a fast refresh doesn't blow away the cache mid-session.
+  const [queryClient] = useState(createQueryClient);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <Providers />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 }
