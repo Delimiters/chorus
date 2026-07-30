@@ -9,7 +9,13 @@
 import { addDays, civilDate } from '../civil/date';
 import type { CalendarConfig, CivilDate } from '../civil/types';
 import type { Schedule } from '../recurrence/types';
-import { buildTodayView, collapseSupersededMisses, groupFloating, isFloatingItem } from './agenda';
+import {
+  buildTodayView,
+  collapseSupersededMisses,
+  groupFloating,
+  isFloatingItem,
+  toAgendaItems,
+} from './agenda';
 import { projectOccurrences } from './project';
 import type { ChoreInput, CompletionInput, ExceptionInput, ProjectionInput } from './types';
 
@@ -622,6 +628,94 @@ describe('the Today view', () => {
     expect(view.theirs).toEqual([]);
     expect(view.floating).toEqual([]);
     expect(view.outstandingCount).toBe(0);
+  });
+});
+
+describe('several floating chores at once', () => {
+  it('orders the band alphabetically, so the rows do not shuffle between renders', () => {
+    const today = d('2026-01-07');
+    const floatingEvery = (id: string, title: string, times: number): ChoreInput =>
+      chore({
+        id,
+        title,
+        schedule: {
+          rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: times },
+          startsOn: d('2026-01-04'),
+          endsOn: null,
+          timeOfDay: null,
+        },
+      });
+
+    const { floating } = groupFloating(
+      collapseSupersededMisses(
+        project([floatingEvery('z', 'Vacuum', 2), floatingEvery('a', 'Plants', 3)], today, {
+          start: d('2026-01-04'),
+          end: d('2026-01-10'),
+        }),
+        today,
+      ),
+    );
+
+    // By title, not by insertion order or id — the projector's order is an
+    // implementation detail and must not leak into the screen.
+    expect(floating.map((g) => g.choreTitle)).toEqual(['Plants', 'Vacuum']);
+    expect(floating.map((g) => g.total)).toEqual([3, 2]);
+  });
+});
+
+describe('uncollapsed agenda items', () => {
+  const today = d('2026-01-10');
+  const window = { start: d('2026-01-01'), end: d('2026-01-10') };
+
+  it('keeps every occurrence, including the ones the collapse rule would drop', () => {
+    // What the calendar wants: a record of what the schedule said on each day.
+    // Collapsing here erased every superseded past dot from the month grid.
+    const projected = project([chore({ schedule: daily('2026-01-01') })], today, window);
+    const items = toAgendaItems(projected, today);
+
+    expect(items).toHaveLength(projected.length);
+    expect(items).toHaveLength(10);
+    // Whereas the agenda keeps exactly one.
+    expect(collapseSupersededMisses(projected, today)).toHaveLength(1);
+  });
+
+  it('marks nothing as missed, because nothing here supersedes anything', () => {
+    const items = toAgendaItems(
+      project([chore({ schedule: daily('2026-01-01') })], today, window),
+      today,
+    );
+    expect(items.every((i) => i.missedBefore === 0)).toBe(true);
+  });
+
+  it('still derives days overdue, which is a property of the occurrence', () => {
+    const items = toAgendaItems(
+      project([chore({ schedule: weeklyOn('2026-01-04', 0) })], d('2026-01-07'), {
+        start: d('2026-01-04'),
+        end: d('2026-01-07'),
+      }),
+      d('2026-01-07'),
+    );
+    expect(items[0]?.daysOverdue).toBe(3);
+  });
+
+  it('sorts by date, then title, then slot', () => {
+    const items = toAgendaItems(
+      project(
+        [
+          chore({ id: 'b', title: 'Zebra', schedule: daily('2026-01-09') }),
+          chore({ id: 'a', title: 'Apple', schedule: daily('2026-01-09') }),
+        ],
+        today,
+        { start: d('2026-01-09'), end: d('2026-01-10') },
+      ),
+      today,
+    );
+    expect(items.map((i) => `${i.dueOn} ${i.choreTitle}`)).toEqual([
+      '2026-01-09 Apple',
+      '2026-01-09 Zebra',
+      '2026-01-10 Apple',
+      '2026-01-10 Zebra',
+    ]);
   });
 });
 

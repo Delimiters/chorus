@@ -191,9 +191,12 @@ export interface FloatingGroup {
   readonly slots: readonly AgendaItem[];
   /** The next slot to complete, or null when the group is finished. */
   readonly nextSlot: AgendaItem | null;
-  /** True once the period has passed with slots outstanding. */
-  readonly overdue: boolean;
 }
+
+// No `overdue` field, deliberately. Floating periods are contiguous, so a missed
+// week is always replaced by the current one — "you didn't water the plants last
+// week" becomes "water the plants this week", which is the intent. There is
+// nothing for the flag to mean.
 
 /** True when an occurrence's completion window spans more than its due date. */
 export function isFloatingItem(occ: ProjectedOccurrence): boolean {
@@ -243,7 +246,6 @@ export function groupFloating(items: readonly AgendaItem[]): {
       done,
       slots: ordered,
       nextSlot: outstanding[0] ?? null,
-      overdue: outstanding.some((s) => s.status === 'overdue'),
     });
   }
 
