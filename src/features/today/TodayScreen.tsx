@@ -12,11 +12,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSignOut } from '@/data/hooks/useAuth';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { Button, LoadingState, Stack, Txt } from '@/design/components';
-import { useColors } from '@/design/theme';
-import { accentColor, radius, space } from '@/design/tokens';
+import { useTheme } from '@/design/theme';
+import { inkColor } from '@/design/inks';
+import { radius, space } from '@/design/tokens';
 
 export function TodayScreen() {
-  const colors = useColors();
+  const { colors, isDark } = useTheme();
   const household = useHousehold();
   const members = useMembers();
   const signOut = useSignOut();
@@ -54,7 +55,7 @@ export function TodayScreen() {
                   width: 32,
                   height: 32,
                   borderRadius: radius.pill,
-                  backgroundColor: accentColor(member.accent, colors),
+                  backgroundColor: inkColor(member.accent, isDark),
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}

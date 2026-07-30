@@ -33,11 +33,12 @@ values
   ('fb000000-0000-0000-0000-000000000002', 'House B',
    'f2222222-2222-2222-2222-222222222222', 'UTC');
 
-insert into public.household_members (household_id, user_id, role)
+-- Distinct inks: household_members has a unique (household_id, accent).
+insert into public.household_members (household_id, user_id, role, accent)
 values
-  ('fa000000-0000-0000-0000-000000000001', 'f1111111-1111-1111-1111-111111111111', 'owner'),
-  ('fa000000-0000-0000-0000-000000000001', 'f3333333-3333-3333-3333-333333333333', 'member'),
-  ('fb000000-0000-0000-0000-000000000002', 'f2222222-2222-2222-2222-222222222222', 'owner');
+  ('fa000000-0000-0000-0000-000000000001', 'f1111111-1111-1111-1111-111111111111', 'owner', 'blue'),
+  ('fa000000-0000-0000-0000-000000000001', 'f3333333-3333-3333-3333-333333333333', 'member', 'pink'),
+  ('fb000000-0000-0000-0000-000000000002', 'f2222222-2222-2222-2222-222222222222', 'owner', 'blue');
 
 insert into public.chores (id, household_id, title, schedule, created_by)
 values

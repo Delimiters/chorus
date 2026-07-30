@@ -347,12 +347,13 @@ describe('PostgREST embeds', () => {
 
     const { data, error } = await client
       .from('household_members')
-      .select('user_id, role, profiles!inner(display_name, accent)')
+      .select('user_id, role, accent, profiles!inner(display_name)')
       .eq('household_id', created.data as string);
 
     expect(error).toBeNull();
     expect(data).toHaveLength(1);
-    expect(data?.[0]?.profiles).toMatchObject({ display_name: 'Embed', accent: 'blue' });
+    expect(data?.[0]?.profiles).toMatchObject({ display_name: 'Embed' });
+    expect(data?.[0]?.accent).toBe('blue');
 
     await deleteUsers([userId]);
   });
@@ -392,5 +393,47 @@ describe('PostgREST embeds', () => {
     expect(data?.[0]?.profiles).toMatchObject({ display_name: 'Completer' });
 
     await deleteUsers([userId]);
+  });
+});
+
+describe('ink assignment', () => {
+  // Regression guard. household_members.accent is unique per household, and
+  // redeem_invite originally relied on the column default — so every second
+  // member arrived as 'blue', collided with the owner, and joining failed
+  // outright with a unique violation.
+  it('gives each person joining a household a different ink', async () => {
+    const owner = await createUser(uniqueEmail('ink-owner'), 'Owner');
+    const joiner = await createUser(uniqueEmail('ink-joiner'), 'Joiner');
+    const third = await createUser(uniqueEmail('ink-third'), 'Third');
+
+    const created = await owner.client.rpc('create_household', { household_name: 'Ink House' });
+    const householdId = created.data as string;
+
+    const admin = adminClient();
+    for (const client of [joiner.client, third.client]) {
+      const code = uniqueInviteCode();
+      const invite = await admin.from('household_invites').insert({
+        household_id: householdId,
+        code,
+        created_by: owner.userId,
+      });
+      expect(invite.error).toBeNull();
+
+      const redeem = await client.rpc('redeem_invite', { invite_code: code });
+      expect(redeem.error).toBeNull();
+    }
+
+    const { data } = await owner.client
+      .from('household_members')
+      .select('accent')
+      .eq('household_id', householdId);
+
+    const inks = (data ?? []).map((r) => r.accent);
+    expect(inks).toHaveLength(3);
+    expect(new Set(inks).size).toBe(3);
+    // The founder takes the first ink, so the design's default look survives.
+    expect(inks).toContain('blue');
+
+    await deleteUsers([owner.userId, joiner.userId, third.userId]);
   });
 });

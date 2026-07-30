@@ -47,19 +47,14 @@ values
    now(), now(), now())
 on conflict do nothing;
 
-update public.profiles set accent = 'blue'
-  where id = '11111111-1111-1111-1111-111111111111';
-update public.profiles set accent = 'pink'
-  where id = '22222222-2222-2222-2222-222222222222';
-
 insert into public.households (id, name, time_zone, week_starts_on, created_by)
 values ('a0000000-0000-0000-0000-00000000000a', 'The House',
         'America/Denver', 0, '11111111-1111-1111-1111-111111111111');
 
-insert into public.household_members (household_id, user_id, role, sort_order)
+insert into public.household_members (household_id, user_id, role, sort_order, accent)
 values
-  ('a0000000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'owner', 0),
-  ('a0000000-0000-0000-0000-00000000000a', '22222222-2222-2222-2222-222222222222', 'member', 1);
+  ('a0000000-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'owner', 0, 'blue'),
+  ('a0000000-0000-0000-0000-00000000000a', '22222222-2222-2222-2222-222222222222', 'member', 1, 'pink');
 
 -- One chore per recurrence shape. `startsOn` is a Sunday so weekly anchoring is
 -- easy to reason about by hand.

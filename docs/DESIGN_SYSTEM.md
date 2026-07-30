@@ -30,12 +30,19 @@ sole signal, nobody is blocked — but the enhancement should still work for the
 
 1. **Colour is never the only signal.** Non-negotiable. Any row distinguished by
    ink is also distinguished by words.
-2. **A documented subset of the palette is CVD-safe and AA-contrast.** Those inks
-   differ in *lightness* as well as hue, which is what survives deuteranopia and
-   protanopia. They are marked in the picker so someone who needs them can find
-   them without hunting. The full-saturation set stays the default for everyone
-   else — the fix is to make the accessible option *available*, not to mute the
-   palette for everybody.
+2. **One verified combination works under colour vision deficiency.**
+   Distinguishability is a property of a *combination*, not of a colour — an ink
+   is only "safe" relative to what sits beside it, so flagging individual
+   swatches would be meaningless. `CVD_FRIENDLY_SET` (blue, ochre, slate) is
+   offered in the picker as a preset, and `inks.test.ts` verifies it by
+   simulating both deuteranopia and protanopia and measuring ΔE, so the claim
+   fails the build if anyone tweaks a hex.
+
+   **Three is close to the ceiling.** Red-green deficiency flattens the palette
+   onto a blue-yellow axis, so a fourth clearly-separable hue is not really
+   available — a property of human vision, not of this palette. Beyond three
+   people the always-present text carries it, which is why rule 1 is the
+   load-bearing one. The rest of the palette stays chosen for looks.
 3. **Dynamic Type is supported.** Layouts reflow rather than truncate.
 
 ## Palette
