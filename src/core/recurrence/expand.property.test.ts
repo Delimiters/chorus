@@ -8,11 +8,13 @@
 
 import fc from 'fast-check';
 
-import { arbCalendarConfig, arbWindow, arbWindowWithSplit } from '../__testing__/arbitraries';
+import { arbCalendarConfig, arbWindow } from '../__testing__/arbitraries';
 import {
   arbMonthlyByDay,
   arbMonthlyFloating,
   arbSchedule,
+  arbScheduleAndWindow,
+  arbScheduleWindowAndSplit,
   arbSchedulableRule,
   arbWeekly,
   arbWeeklyFloating,
@@ -39,10 +41,35 @@ const arbSafeWindow = () => arbWindow(180);
 describe('P1 — determinism', () => {
   it('produces identical output for identical input', () => {
     fc.assert(
-      fc.property(arbSchedule(), arbCalendarConfig(), arbSafeWindow(), (schedule, cal, window) => {
+      fc.property(arbScheduleAndWindow(), arbCalendarConfig(), ({ schedule, window }, cal) => {
         expect(expand(schedule, cal, window)).toEqual(expand(schedule, cal, window));
       }),
     );
+  });
+});
+
+describe('the generators actually generate occurrences', () => {
+  // A meta-test, because the original generators drew startsOn and the window
+  // independently across a 70-year range: measured, 93.8% of runs produced zero
+  // occurrences, so every property below was asserting almost nothing. That is
+  // why two real expansion bugs survived a property suite. If this regresses,
+  // the rest of this file quietly stops testing anything.
+  it('produces a non-empty expansion in most runs', () => {
+    let empty = 0;
+    let total = 0;
+    fc.assert(
+      fc.property(arbScheduleAndWindow(), arbCalendarConfig(), ({ schedule, window }, cal) => {
+        total += 1;
+        if (expand(schedule, cal, window).length === 0) empty += 1;
+      }),
+      // Seeded: this measures the generators, so it must not itself be flaky.
+      { numRuns: 500, seed: 20260730 },
+    );
+    // `unscheduled` is one of eight rule kinds and always yields nothing, and
+    // `once` yields at most one occurrence, so a perfect score is impossible.
+    // The bar is "nothing like the 94% that let two real bugs through".
+    expect(empty / total).toBeLessThan(0.5);
+    console.log(`generator coverage: ${(100 - (empty / total) * 100).toFixed(1)}% non-empty`);
   });
 });
 
@@ -52,16 +79,16 @@ describe('P2 — window composability', () => {
   it('expanding a window equals expanding its two halves', () => {
     fc.assert(
       fc.property(
-        arbSchedule(),
+        arbScheduleWindowAndSplit(),
         arbCalendarConfig(),
-        arbWindowWithSplit(180),
-        (schedule, cal, { window, splitAfter }) => {
+        ({ schedule, window, splitAfter }, cal) => {
           const whole = expand(schedule, cal, window);
           const left = expand(schedule, cal, { start: window.start, end: splitAfter });
           const right = expand(schedule, cal, { start: addDays(splitAfter, 1), end: window.end });
           expect([...left, ...right]).toEqual([...whole]);
         },
       ),
+      { numRuns: 300 },
     );
   });
 });
@@ -69,7 +96,7 @@ describe('P2 — window composability', () => {
 describe('P3 — ordering and key uniqueness', () => {
   it('is sorted by (dueOn, slot)', () => {
     fc.assert(
-      fc.property(arbSchedule(), arbCalendarConfig(), arbSafeWindow(), (schedule, cal, window) => {
+      fc.property(arbScheduleAndWindow(), arbCalendarConfig(), ({ schedule, window }, cal) => {
         const result = expand(schedule, cal, window);
         for (let i = 1; i < result.length; i += 1) {
           const prev = result[i - 1] as Occurrence;
@@ -85,7 +112,7 @@ describe('P3 — ordering and key uniqueness', () => {
   // Directly kills the prototype's collapse-by-dedupe bug.
   it('never produces two occurrences with the same key', () => {
     fc.assert(
-      fc.property(arbSchedule(), arbCalendarConfig(), arbSafeWindow(), (schedule, cal, window) => {
+      fc.property(arbScheduleAndWindow(), arbCalendarConfig(), ({ schedule, window }, cal) => {
         const keys = expand(schedule, cal, window).map((o) => o.occurrenceKey);
         expect(new Set(keys).size).toBe(keys.length);
       }),
@@ -94,7 +121,7 @@ describe('P3 — ordering and key uniqueness', () => {
 
   it('gives every occurrence a distinct index', () => {
     fc.assert(
-      fc.property(arbSchedule(), arbCalendarConfig(), arbSafeWindow(), (schedule, cal, window) => {
+      fc.property(arbScheduleAndWindow(), arbCalendarConfig(), ({ schedule, window }, cal) => {
         const indices = expand(schedule, cal, window).map((o) => o.occurrenceIndex);
         expect(new Set(indices).size).toBe(indices.length);
       }),
@@ -217,7 +244,7 @@ describe('P8 — once and unscheduled', () => {
 describe('P9 — bounds', () => {
   it('never produces an occurrence outside the window', () => {
     fc.assert(
-      fc.property(arbSchedule(), arbCalendarConfig(), arbSafeWindow(), (schedule, cal, window) => {
+      fc.property(arbScheduleAndWindow(), arbCalendarConfig(), ({ schedule, window }, cal) => {
         for (const occ of expand(schedule, cal, window)) {
           expect(isWithin(occ.dueOn, window.start, window.end)).toBe(true);
         }
@@ -255,7 +282,7 @@ describe('P9 — bounds', () => {
       endsOn: null,
       timeOfDay: null,
     };
-    const cal: CalendarConfig = { weekStartsOn: 0, timeZone: 'UTC' };
+    const cal: CalendarConfig = { weekStartsOn: 0 };
     const start = '2020-01-01' as CivilDate;
     expect(() => expand(schedule, cal, { start, end: addDays(start, MAX_WINDOW_DAYS) })).toThrow(
       WindowTooWideError,
@@ -279,8 +306,8 @@ describe('P15 — week-start independence', () => {
           endsOn: null,
           timeOfDay: null,
         };
-        const sunday = expand(schedule, { weekStartsOn: 0, timeZone: 'UTC' }, window);
-        const monday = expand(schedule, { weekStartsOn: 1, timeZone: 'UTC' }, window);
+        const sunday = expand(schedule, { weekStartsOn: 0 }, window);
+        const monday = expand(schedule, { weekStartsOn: 1 }, window);
         // everyNWeeks > 1 legitimately shifts which weeks are on-cycle, so
         // compare the weekday sets rather than exact dates in that case.
         if (rule.kind === 'weekly' && rule.everyNWeeks === 1) {
@@ -301,7 +328,7 @@ describe('P15 — week-start independence', () => {
         };
         for (const weekStartsOn of [0, 1] as const) {
           const byPeriod = new Map<string, number>();
-          for (const occ of expand(schedule, { weekStartsOn, timeZone: 'UTC' }, window)) {
+          for (const occ of expand(schedule, { weekStartsOn }, window)) {
             byPeriod.set(occ.periodKey, (byPeriod.get(occ.periodKey) ?? 0) + 1);
           }
           for (const count of byPeriod.values()) {
@@ -400,7 +427,7 @@ describe('occurrence identity', () => {
       endsOn: null,
       timeOfDay: null,
     };
-    const cal: CalendarConfig = { weekStartsOn: 0, timeZone: 'UTC' };
+    const cal: CalendarConfig = { weekStartsOn: 0 };
     const window = { start: '2026-01-01' as CivilDate, end: '2026-01-03' as CivilDate };
     const a = expandOccurrences(CHORE, schedule, cal, window, 'alice');
     const b = expandOccurrences(CHORE, schedule, cal, window, 'bob');

@@ -11,7 +11,7 @@ import { describeRule } from './describe';
 import { expandOccurrences } from './expand';
 import type { RecurrenceRule, Schedule } from './types';
 
-const CAL: CalendarConfig = { weekStartsOn: 0, timeZone: 'UTC' };
+const CAL: CalendarConfig = { weekStartsOn: 0 };
 const unknownRule = { kind: 'yearly', everyNYears: 1 } as unknown as RecurrenceRule;
 
 const scheduleWith = (rule: RecurrenceRule): Schedule => ({

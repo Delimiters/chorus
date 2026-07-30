@@ -7,19 +7,27 @@ name: Database
 on:
   push:
     branches: [main]
-    paths:
-      [
+    paths: [
         'supabase/**',
         'test/integration/**',
-        'src/data/database.types.ts',
+        # engine-over-db.test.ts exists to catch drift between src/core and the
+        # database, so a change to either has to run it. Without these, the one
+        # test designed to catch that drift never fired on the changes most
+        # likely to cause it.
+        'src/core/**',
+        'src/data/**',
         '.github/workflows/db.yml',
       ]
   pull_request:
-    paths:
-      [
+    paths: [
         'supabase/**',
         'test/integration/**',
-        'src/data/database.types.ts',
+        # engine-over-db.test.ts exists to catch drift between src/core and the
+        # database, so a change to either has to run it. Without these, the one
+        # test designed to catch that drift never fired on the changes most
+        # likely to cause it.
+        'src/core/**',
+        'src/data/**',
         '.github/workflows/db.yml',
       ]
   workflow_dispatch:

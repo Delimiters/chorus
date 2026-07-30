@@ -26,16 +26,7 @@ export const arbNthWeek = (): fc.Arbitrary<NthWeek> => fc.constantFrom<NthWeek>(
 
 /** Only Sunday and Monday: the two conventions any real household uses. */
 export const arbCalendarConfig = (): fc.Arbitrary<CalendarConfig> =>
-  fc.record({
-    weekStartsOn: fc.constantFrom<Weekday>(0, 1),
-    timeZone: fc.constantFrom(
-      'UTC',
-      'America/Denver',
-      'America/New_York',
-      'Pacific/Kiritimati',
-      'Pacific/Niue',
-    ),
-  });
+  fc.record({ weekStartsOn: fc.constantFrom<Weekday>(0, 1) });
 
 /**
  * A window of at most `maxSpanDays`, so property tests stay fast while still

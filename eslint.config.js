@@ -50,7 +50,17 @@ module.exports = defineConfig([
   expoConfig,
   prettier,
   {
-    ignores: ['dist/*', '.expo/*', 'node_modules/*', 'coverage/*', 'build/*'],
+    // `dir/*` matches only direct children; generated output is nested, so these
+    // need `**`. Without it, eslint lints minified web build artifacts.
+    ignores: [
+      'dist/**',
+      '.expo/**',
+      'node_modules/**',
+      'coverage/**',
+      'build/**',
+      'supabase/.temp/**',
+      'web-build/**',
+    ],
   },
 
   // ── The purity boundary ────────────────────────────────────────────────────
@@ -119,6 +129,25 @@ module.exports = defineConfig([
       // `import fc from 'fast-check'` then `fc.assert(...)` is the documented
       // usage; the rule mistakes every namespace member for a default-export slip.
       'import/no-named-as-default-member': 'off',
+    },
+  },
+
+  // ── Nothing testable inside the router tree ────────────────────────────────
+  // Every file under src/app is a route. A test file there gets bundled into the
+  // app, which puts `expect` in the production bundle and breaks the web build.
+  // Screens live in src/features; src/app holds thin re-export wrappers.
+  {
+    files: ['src/app/**/*.test.ts', 'src/app/**/*.test.tsx', 'src/app/**/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Program',
+          message:
+            'Test files must not live under src/app — expo-router treats every file there ' +
+            'as a route and bundles it. Put the screen in src/features and test it there.',
+        },
+      ],
     },
   },
 

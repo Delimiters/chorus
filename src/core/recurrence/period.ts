@@ -11,7 +11,7 @@
  * anywhere that could merge them.
  */
 
-import { partsOf, startOfWeek, toEpochDay } from '../civil/date';
+import { partsOf, startOfWeek } from '../civil/date';
 import type { CivilDate, Weekday } from '../civil/types';
 
 /**
@@ -29,27 +29,27 @@ export function dayPeriodKey(date: CivilDate): string {
 }
 
 /**
- * `'2026-W31'` — the period key for week-floating rules.
+ * `'W:2026-08-02'` — the period key for week-floating rules, naming the week by
+ * its start date.
  *
- * The week number counts from the week containing the rule's own anchor, not
- * from an ISO calendar, because the household's `weekStartsOn` may not match
- * ISO's Monday. Deriving it from the week-start date keeps it consistent under
- * either setting.
+ * An earlier version used a week ordinal (`'2026-W31'`), which had two problems.
+ * The ordinal was computed from the household's `weekStartsOn` but did not encode
+ * it, so changing that preference produced the *same key for a different week* —
+ * a completion silently reattached to the wrong week, which is worse than
+ * orphaning because nothing is visibly wrong. It also mislabelled year
+ * boundaries: the first week of 2027 came out as `2026-W53`.
+ *
+ * A start date is unambiguous. If `weekStartsOn` ever changes, the key changes
+ * too, so a stale completion visibly detaches instead of quietly moving.
  */
 export function weekPeriodKey(date: CivilDate, weekStartsOn: Weekday): string {
-  const weekStart = startOfWeek(date, weekStartsOn);
-  const { year } = partsOf(weekStart);
-  // Week ordinal within the year, based on the household's week boundaries.
-  const firstDayOfYear = `${String(year).padStart(4, '0')}-01-01` as CivilDate;
-  const firstWeekStart = startOfWeek(firstDayOfYear, weekStartsOn);
-  const week = Math.floor((toEpochDay(weekStart) - toEpochDay(firstWeekStart)) / 7) + 1;
-  return `${String(year).padStart(4, '0')}-W${String(week).padStart(2, '0')}`;
+  return `W:${startOfWeek(date, weekStartsOn)}`;
 }
 
-/** `'2026-07'` — the period key for month-floating rules. */
+/** `'M:2026-07'` — the period key for month-floating rules. */
 export function monthPeriodKey(date: CivilDate): string {
   const { year, month } = partsOf(date);
-  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
+  return `M:${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;
 }
 
 /**

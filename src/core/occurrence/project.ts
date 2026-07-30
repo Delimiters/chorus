@@ -84,9 +84,19 @@ export function projectOccurrences(
 
         // A reschedule moves the occurrence but keeps its identity — same key,
         // same index, therefore same rotation turn and same completion record.
+        //
+        // The flexible range collapses to the new date: moving something to a
+        // specific day means that day, so a rescheduled floating slot is no
+        // longer "any time this week". Without this, status would be computed
+        // against the range the occurrence had before it moved.
         const effective: Occurrence =
           exception?.kind === 'reschedule' && exception.movedTo !== null
-            ? { ...occ, dueOn: exception.movedTo }
+            ? {
+                ...occ,
+                dueOn: exception.movedTo,
+                flexibleFrom: exception.movedTo,
+                flexibleUntil: exception.movedTo,
+              }
             : occ;
 
         // Window membership is decided by the *effective* date, so something
@@ -94,13 +104,20 @@ export function projectOccurrences(
         if (!isWithin(effective.dueOn, window.start, window.end)) continue;
 
         const completion = completions.get(occ.occurrenceKey);
-        const status = statusOf(effective.dueOn, input.today, completion, exception);
+        const status = statusOf(effective, input.today, completion, exception);
 
         out.push({
           ...effective,
           choreTitle: chore.title,
           status,
-          assignee: assigneeFor(effective, chore.assignment, cal, chore.schedule.startsOn),
+          // Resolved from the ORIGINAL occurrence, not the moved one.
+          //
+          // Date-based rotation cadences read `dueOn`, so passing the moved
+          // occurrence let a reschedule hand the chore to the other person:
+          // moving alice's Wednesday to the following Monday produced
+          // bob/bob/alice instead of alice/bob/alice — bob twice in a row and
+          // alice's turn silently gone. A reschedule moves *when*, never *whose*.
+          assignee: assigneeFor(occ, chore.assignment, cal, chore.schedule.startsOn),
           completedOn: completion?.completedOn ?? null,
           completedBy: completion?.completedBy ?? null,
           daysLate: completion
@@ -117,21 +134,27 @@ export function projectOccurrences(
 }
 
 /**
- * Derived status. Nothing here is stored, which is why there is no state
- * machine and no migration when the rules change.
+ * Derived status. Nothing here is stored, which is why there is no state machine
+ * and no migration when the rules change.
+ *
+ * Compares against the occurrence's **flexible window**, not just `dueOn`. For
+ * anchored rules those are the same date and this reduces to the obvious
+ * comparison. For floating rules they are not: every slot of "3x a week" shares
+ * `dueOn = the period start`, so comparing to `dueOn` alone reported all three
+ * as overdue from Monday onward — a chore you have until Saturday to do, marked
+ * late on Tuesday. That is `flexibleUntil`'s entire purpose and it was unused.
  */
 function statusOf(
-  dueOn: CivilDate,
+  occ: Occurrence,
   today: CivilDate,
   completion: CompletionInput | undefined,
   exception: ExceptionInput | undefined,
 ): OccurrenceStatus {
   if (completion) return 'completed';
   if (exception?.kind === 'skip') return 'skipped';
-  const delta = compareCivil(dueOn, today);
-  if (delta < 0) return 'overdue';
-  if (delta === 0) return 'due';
-  return 'upcoming';
+  if (compareCivil(today, occ.flexibleFrom) < 0) return 'upcoming';
+  if (compareCivil(today, occ.flexibleUntil) > 0) return 'overdue';
+  return 'due';
 }
 
 /** Due date, then chore title, then slot — stable and readable. */

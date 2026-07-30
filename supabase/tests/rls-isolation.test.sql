@@ -10,7 +10,7 @@ create extension if not exists pgtap with schema extensions;
 -- while proving nothing. See docs/TESTING.md.
 
 begin;
-select plan(17);
+select plan(18);
 
 -- ── Fixture: two households, three users ──────────────────────────────────
 --
@@ -137,7 +137,14 @@ select is(
   'bob updating a house A chore affects nothing'
 );
 
-delete from public.chores where id = 'fc000000-0000-0000-0000-000000000001';
+-- DELETE on chores is revoked entirely: a hard delete would cascade away the
+-- completion log the stats feature depends on. Archiving is the only removal.
+select throws_ok(
+  $$ delete from public.chores where id = 'fc000000-0000-0000-0000-000000000001' $$,
+  '42501',
+  null,
+  'nobody can hard-delete a chore, because it would erase its completion history'
+);
 
 -- ═══ Alice (House A) sees her own data, and only hers ══════════════════════
 select pg_temp.become('f1111111-1111-1111-1111-111111111111');

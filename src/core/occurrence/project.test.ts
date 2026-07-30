@@ -11,7 +11,7 @@ import {
 } from './project';
 import type { ChoreInput, CompletionInput, ExceptionInput, ProjectionInput } from './types';
 
-const CAL: CalendarConfig = { weekStartsOn: 0, timeZone: 'America/Denver' };
+const CAL: CalendarConfig = { weekStartsOn: 0 };
 const TODAY = civilDate('2026-01-07'); // Wednesday
 const d = (s: string): CivilDate => civilDate(s);
 

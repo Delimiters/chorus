@@ -8,19 +8,29 @@
 
 -- Supabase's auth schema needs the encrypted password and a confirmed email for
 -- password sign-in to work locally.
+--
+-- The empty strings below are load-bearing and non-obvious. GoTrue scans these
+-- token columns into non-nullable Go strings, so a NULL makes every sign-in fail
+-- with a 500 "Database error querying schema" — which looks like a server problem
+-- rather than a bad seed. They must be '' and not left to default.
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
-  email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data
+  email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data,
+  confirmation_token, recovery_token, email_change,
+  email_change_token_new, email_change_token_current,
+  phone_change, phone_change_token, reauthentication_token
 )
 values
   ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-000000000000',
    'authenticated', 'authenticated', 'jake@example.test',
    crypt('password123', gen_salt('bf')), now(), now(), now(),
-   '{"provider":"email","providers":["email"]}', '{"display_name":"Jake"}'),
+   '{"provider":"email","providers":["email"]}', '{"display_name":"Jake"}',
+   '', '', '', '', '', '', '', ''),
   ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-000000000000',
    'authenticated', 'authenticated', 'sam@example.test',
    crypt('password123', gen_salt('bf')), now(), now(), now(),
-   '{"provider":"email","providers":["email"]}', '{"display_name":"Sam"}')
+   '{"provider":"email","providers":["email"]}', '{"display_name":"Sam"}',
+   '', '', '', '', '', '', '', '')
 on conflict (id) do nothing;
 
 insert into auth.identities (

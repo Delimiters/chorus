@@ -16,14 +16,33 @@ describe('period keys', () => {
     expect(dayPeriodKey(civilDate('2026-07-29'))).toBe('2026-07-29');
   });
 
-  it('uses YYYY-MM for month periods', () => {
-    expect(monthPeriodKey(civilDate('2026-07-29'))).toBe('2026-07');
-    expect(monthPeriodKey(civilDate('2026-01-01'))).toBe('2026-01');
+  it('names month periods by year and month', () => {
+    expect(monthPeriodKey(civilDate('2026-07-29'))).toBe('M:2026-07');
+    expect(monthPeriodKey(civilDate('2026-01-01'))).toBe('M:2026-01');
   });
 
-  it('uses YYYY-Www for week periods', () => {
-    // 2026-01-01 is a Thursday; with Sunday weeks its week begins 2025-12-28.
-    expect(weekPeriodKey(civilDate('2026-07-29'), 0)).toMatch(/^\d{4}-W\d{2}$/);
+  it('names week periods by their start date', () => {
+    // 2026-07-29 is a Wednesday; its Sunday-start week begins 2026-07-26.
+    expect(weekPeriodKey(civilDate('2026-07-29'), 0)).toBe('W:2026-07-26');
+    expect(weekPeriodKey(civilDate('2026-07-29'), 1)).toBe('W:2026-07-27');
+  });
+
+  // The bug this format replaced: a week ordinal computed from weekStartsOn but
+  // not encoding it produced the SAME key for DIFFERENT weeks, so a completion
+  // silently reattached to the wrong week instead of visibly orphaning.
+  it('gives different weeks different keys under different week starts', () => {
+    const sunday = weekPeriodKey(civilDate('2026-02-01'), 0);
+    const monday = weekPeriodKey(civilDate('2026-02-01'), 1);
+    expect(sunday).not.toBe(monday);
+  });
+
+  // The ordinal form also mislabelled year boundaries: the first week of 2027
+  // came out as 2026-W53.
+  it('does not mislabel weeks that straddle a year boundary', () => {
+    const key = weekPeriodKey(civilDate('2027-01-01'), 0);
+    expect(key).toBe('W:2026-12-27');
+    // Unambiguous: the date says exactly which week this is.
+    expect(key).not.toMatch(/W\d/);
   });
 
   it('gives every day in the same week the same key', () => {

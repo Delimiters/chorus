@@ -113,7 +113,6 @@ function main(): void {
 
   const cal: CalendarConfig = {
     weekStartsOn: Number(flags.get('week-starts-on') ?? 0) as Weekday,
-    timeZone: flags.get('tz') ?? 'UTC',
   };
   const from = civilDate(flags.get('from') ?? todayUtc());
   const days = Math.min(Number(flags.get('days') ?? 120), MAX_WINDOW_DAYS);

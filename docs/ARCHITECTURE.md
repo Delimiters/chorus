@@ -21,10 +21,18 @@ exists.
   src/features/     screen-level composition (Today, ChoreForm, onboarding)
        ↓
   src/design/       tokens, theme, component primitives
-  src/data/         Supabase client, TanStack Query hooks, realtime
+  src/data/         Supabase client, TanStack Query hooks, realtime, `today`
+  src/stores/       Zustand: session, UI, drafts — the state that must be
+                    readable outside React
        ↓
   src/core/         ★ the scheduling engine — pure, synchronous, dependency-free
 ```
+
+Note that `src/app/` holds **thin route wrappers only**; screens live in
+`src/features/`. That is not stylistic: expo-router treats every file under
+`src/app/` as a route, so a co-located test file gets bundled into the app — which
+once put `expect` into the web bundle and broke the build outright. A lint rule
+now forbids test files there.
 
 ### `src/core` — the purity boundary
 

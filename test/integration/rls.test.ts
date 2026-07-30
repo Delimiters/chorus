@@ -163,12 +163,54 @@ describe('household isolation', () => {
       expect(check.data?.title).toBe('Dishes');
     });
 
-    it('bob deleting alice’s chore affects nothing', async () => {
-      const { error } = await bob.from('chores').delete().eq('id', choreA);
-      expect(error).toBeNull();
+    it('nobody can hard-delete a chore, not even its own household', async () => {
+      // DELETE is revoked outright: cascading it would erase the completion log
+      // the stats feature depends on, and the schema comment promises history
+      // survives deleting a chore. Archiving is the only removal the app offers.
+      for (const [who, client] of [
+        ['bob', bob],
+        ['alice', alice],
+      ] as const) {
+        const { error } = await client.from('chores').delete().eq('id', choreA);
+        expect(error).not.toBeNull();
+        expect(error?.code).toBe('42501');
+        expect(who).toBeTruthy();
+      }
 
       const check = await alice.from('chores').select('id').eq('id', choreA);
       expect(check.data).toHaveLength(1);
+    });
+
+    it('archiving is the supported way to remove a chore, and keeps completions', async () => {
+      const key = 'v1:archive-keeps-history:2026-01-09:0:-';
+      await alice.from('chore_completions').insert({
+        household_id: houseA,
+        chore_id: choreA,
+        occurrence_key: key,
+        due_on: '2026-01-09',
+        completed_on: '2026-01-09',
+        completed_by: aliceId,
+      });
+
+      const archived = await alice
+        .from('chores')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', choreA)
+        .select('id, archived_at')
+        .single();
+      expect(archived.error).toBeNull();
+      expect(archived.data?.archived_at).not.toBeNull();
+
+      // The whole point: history outlives the chore's removal.
+      const history = await alice
+        .from('chore_completions')
+        .select('occurrence_key')
+        .eq('occurrence_key', key);
+      expect(history.data).toHaveLength(1);
+
+      // Put it back so later tests see the chore unarchived.
+      await alice.from('chores').update({ archived_at: null }).eq('id', choreA);
+      await alice.from('chore_completions').delete().eq('occurrence_key', key);
     });
 
     it('alice cannot forge a completion attributed to bob', async () => {
@@ -290,5 +332,65 @@ describe('the anonymous role', () => {
       expect(data ?? []).toEqual([]);
       if (error) expect(['42501', 'PGRST301', '42P01']).toContain(error.code);
     }
+  });
+});
+
+describe('PostgREST embeds', () => {
+  // Regression guard. household_members.user_id originally referenced
+  // auth.users, which is not an exposed schema — so PostgREST could not embed
+  // profiles and the member list came back as a 400. See the
+  // reference_profiles_for_api_embedding migration.
+  it('can embed profiles from household_members', async () => {
+    const { client, userId } = await createUser(uniqueEmail('embed'), 'Embed');
+    const created = await client.rpc('create_household', { household_name: 'Embed House' });
+    expect(created.error).toBeNull();
+
+    const { data, error } = await client
+      .from('household_members')
+      .select('user_id, role, profiles!inner(display_name, accent)')
+      .eq('household_id', created.data as string);
+
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+    expect(data?.[0]?.profiles).toMatchObject({ display_name: 'Embed', accent: 'blue' });
+
+    await deleteUsers([userId]);
+  });
+
+  it('can embed the completer of a chore', async () => {
+    // The same embed the history view needs: "completed by Sam".
+    const { client, userId } = await createUser(uniqueEmail('completer'), 'Completer');
+    const created = await client.rpc('create_household', { household_name: 'Completer House' });
+    const householdId = created.data as string;
+
+    const chore = await client
+      .from('chores')
+      .insert({
+        household_id: householdId,
+        title: 'Dishes',
+        schedule: DAILY,
+        created_by: userId,
+      })
+      .select('id')
+      .single();
+
+    await client.from('chore_completions').insert({
+      household_id: householdId,
+      chore_id: chore.data?.id as string,
+      occurrence_key: 'v1:embed:2026-01-04:0:-',
+      due_on: '2026-01-04',
+      completed_on: '2026-01-04',
+      completed_by: userId,
+    });
+
+    const { data, error } = await client
+      .from('chore_completions')
+      .select('occurrence_key, profiles!inner(display_name)')
+      .eq('household_id', householdId);
+
+    expect(error).toBeNull();
+    expect(data?.[0]?.profiles).toMatchObject({ display_name: 'Completer' });
+
+    await deleteUsers([userId]);
   });
 });

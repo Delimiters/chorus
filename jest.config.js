@@ -28,7 +28,10 @@ module.exports = {
     {
       displayName: 'app',
       preset: 'jest-expo',
-      testMatch: ['<rootDir>/src/**/*.test.tsx', '<rootDir>/src/**/*.test.native.ts'],
+      // Everything outside src/core: components, and any module that touches a
+      // React Native or Expo API and therefore needs the preset.
+      testMatch: ['<rootDir>/src/**/*.test.tsx', '<rootDir>/src/**/*.test.ts'],
+      testPathIgnorePatterns: ['/node_modules/', '<rootDir>/src/core/'],
       setupFilesAfterEnv: ['<rootDir>/test/setup-app.ts'],
       moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
     },
