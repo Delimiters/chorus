@@ -34,11 +34,19 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 /**
- * Conservative chunk size. SecureStore's documented limit is 2048 bytes; this
- * leaves headroom for multi-byte UTF-8 characters, since we split by JavaScript
- * string index rather than by byte.
+ * Chunk size in **characters**, chosen against a 2048-**byte** limit.
+ *
+ * The previous value of 1536 characters was justified as "leaving headroom for
+ * multi-byte UTF-8" — which had it backwards: 1536 characters of 3-byte UTF-8 is
+ * 4608 bytes, more than double the limit the chunking exists to respect. Any
+ * session carrying a CJK or emoji display name could have exceeded it, producing
+ * exactly the silent-signout failure described above.
+ *
+ * 512 characters is safe for the worst realistic case: 4 bytes per character
+ * (astral-plane emoji) is 2048 bytes exactly, and typical JWT payloads are ASCII
+ * at 1 byte each.
  */
-const CHUNK_SIZE = 1536;
+const CHUNK_SIZE = 512;
 
 /** Suffix for the entry recording how many chunks a value occupies. */
 const MANIFEST = '.chunks';

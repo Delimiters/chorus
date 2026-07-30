@@ -17,8 +17,8 @@ import type { CalendarConfig } from '../civil/types';
 import { expandOccurrences } from './expand';
 import type { RecurrenceRule, Schedule } from './types';
 
-const SUNDAY_WEEKS: CalendarConfig = { weekStartsOn: 0, timeZone: 'America/Denver' };
-const MONDAY_WEEKS: CalendarConfig = { weekStartsOn: 1, timeZone: 'America/Denver' };
+const SUNDAY_WEEKS: CalendarConfig = { weekStartsOn: 0 };
+const MONDAY_WEEKS: CalendarConfig = { weekStartsOn: 1 };
 
 interface GoldenCase {
   readonly description: string;

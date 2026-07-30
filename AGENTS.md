@@ -65,11 +65,39 @@ A phase is complete only when **all** of these hold:
 - CI is green on the branch (including the four-timezone engine matrix)
 - Engine coverage stays at or above 95% lines and branches
 - The phase's demo criterion in `docs/ROADMAP.md` actually works when run
+- **A retrospective review has run and its findings are triaged** (see below)
 - `docs/ROADMAP.md` is updated to reflect real status
 
 Do not mark a phase done with failing tests, partial implementation, or an
 unverified demo. If something is blocked, finish everything else and say plainly
 what was left and why.
+
+## Retrospective review, after every phase
+
+Spawn a subagent to review the phase's work with **fresh context and no stake in
+defending the choices**. Ask it to be critical, to cite specific files and lines,
+and to separate real defects from opinion. Then **verify its high-severity claims
+yourself before acting** — a reviewer can be confidently wrong too.
+
+This is not ceremony. The first retrospective (after Phase 4) found five real
+engine defects and, more usefully, found that two of the flagship property tests
+did not test what they claimed:
+
+- The composability property — described in its own file as "*the* highest-value
+  property in the suite" — compared two **empty arrays in 93.8% of runs**, because
+  the generators drew `startsOn` and the window independently across a 70-year
+  range. Measured, then fixed to 56% non-empty. A meta-test now guards it.
+- "Rotation is completion-independent" called the function twice with **identical
+  arguments** and asserted equality. That is determinism restated; it would have
+  passed had the function been entirely wrong.
+- Three of the five defects sat exactly where a test stepped around the
+  assertion: an empty `else` branch, a missing period-count check, an omitted
+  `assignee` field.
+
+The lesson worth carrying: **a test that documents the shape of a guarantee
+without checking it is worse than no test**, because it buys false confidence.
+When writing a property, ask what input would make it vacuous, and assert that
+the input isn't vacuous.
 
 ## Environment constraints
 

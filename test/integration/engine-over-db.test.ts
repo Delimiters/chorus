@@ -26,7 +26,7 @@ const HOUSEHOLD = 'a0000000-0000-0000-0000-00000000000a';
 const JAKE = '11111111-1111-1111-1111-111111111111';
 const SAM = '22222222-2222-2222-2222-222222222222';
 
-const CAL: CalendarConfig = { weekStartsOn: 0, timeZone: 'America/Denver' };
+const CAL: CalendarConfig = { weekStartsOn: 0 };
 
 /** Reads seeded chores with the admin client — setup, not an assertion target. */
 async function loadChores(): Promise<ChoreInput[]> {

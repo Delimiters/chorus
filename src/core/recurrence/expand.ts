@@ -36,6 +36,7 @@ import {
   partsOf,
   startOfMonth,
   startOfWeek,
+  weekdayOf,
   weeksBetween,
 } from '../civil/date';
 import type { CalendarConfig, CivilDate, DateWindow, Weekday } from '../civil/types';
@@ -89,7 +90,12 @@ export function expandOccurrences(
       return [];
 
     case 'once':
-      return isSameOrAfter(rule.dueOn, from) && isSameOrBefore(rule.dueOn, to)
+      // Deliberately bounded by the WINDOW only, not by startsOn/endsOn. Those
+      // position a recurring sequence and are meaningless for a single dated
+      // task — and clamping to them made "add a one-time thing I should have
+      // done yesterday" write a row that appeared on no screen, which is
+      // postmortem failure #5 in mirror image.
+      return isSameOrAfter(rule.dueOn, window.start) && isSameOrBefore(rule.dueOn, window.end)
         ? [build(rule.dueOn, dayPeriodKey(rule.dueOn), 0, 0, rule.dueOn, rule.dueOn)]
         : [];
 
@@ -97,7 +103,7 @@ export function expandOccurrences(
       return expandDaily(schedule.startsOn, rule.everyNDays, from, to, build);
 
     case 'weekly':
-      return expandWeekly(schedule.startsOn, rule.everyNWeeks, rule.weekdays, cal, from, to, build);
+      return expandWeekly(schedule.startsOn, rule.everyNWeeks, rule.weekdays, from, to, build);
 
     case 'weeklyFloating':
       return expandWeeklyFloating(
@@ -198,30 +204,46 @@ function expandDaily(
 
 // ── Weekly (anchored to specific weekdays) ──────────────────────────────────
 
+/**
+ * Anchored weekly rules.
+ *
+ * The cycle is phased off the **anchor date**, not off the household's week
+ * start. That is deliberate and was originally wrong: phasing off
+ * `startOfWeek(anchor, weekStartsOn)` made "every other Tuesday" produce
+ * completely different dates depending on a display preference —
+ *
+ *   weekStartsOn 0 -> 2026-01-06, 01-20, 02-03 …
+ *   weekStartsOn 1 -> 2026-01-13, 01-27, 02-10 …
+ *
+ * — so toggling Sunday/Monday in settings silently rescheduled every biweekly
+ * chore by a week and orphaned its completions. "Every other Tuesday" means
+ * every 14 days from the anchor; the week start has no business in that
+ * arithmetic. It still governs floating rules, where the period genuinely is a
+ * calendar week, and display.
+ */
 function expandWeekly(
   anchor: CivilDate,
   everyNWeeks: number,
   weekdays: readonly Weekday[],
-  cal: CalendarConfig,
   from: CivilDate,
   to: CivilDate,
   build: Build,
 ): Occurrence[] {
-  const anchorWeek = startOfWeek(anchor, cal.weekStartsOn);
   const sorted = [...weekdays].sort((a, b) => a - b);
 
-  // First on-cycle week at or before `from`, so occurrences earlier in that
-  // week are still considered.
-  const weeksIn = weeksBetween(anchorWeek, startOfWeek(from, cal.weekStartsOn), cal.weekStartsOn);
-  const firstCycle = Math.max(0, Math.floor(weeksIn / everyNWeeks));
+  // Cycle 0 is the 7-day block beginning at the anchor. Stepping back one cycle
+  // from `from` guarantees occurrences early in that block are still considered.
+  const daysIn = daysBetween(anchor, from);
+  const firstCycle = Math.max(0, Math.floor(daysIn / (everyNWeeks * 7)));
 
   const out: Occurrence[] = [];
   for (let cycle = firstCycle; ; cycle += 1) {
-    const weekStart = addDays(anchorWeek, cycle * everyNWeeks * 7);
-    if (compareCivil(weekStart, to) > 0) break;
+    const blockStart = addDays(anchor, cycle * everyNWeeks * 7);
+    if (compareCivil(blockStart, to) > 0) break;
 
     for (const [slot, weekday] of sorted.entries()) {
-      const dueOn = addDays(weekStart, offsetToWeekday(weekday, cal.weekStartsOn));
+      // Days forward from the anchor's own weekday to the requested weekday.
+      const dueOn = addDays(blockStart, offsetToWeekday(weekday, weekdayOf(anchor)));
       if (compareCivil(dueOn, from) < 0 || compareCivil(dueOn, to) > 0) continue;
       out.push(build(dueOn, dayPeriodKey(dueOn), 0, cycle * sorted.length + slot, dueOn, dueOn));
     }
@@ -229,9 +251,9 @@ function expandWeekly(
   return sortOccurrences(out);
 }
 
-/** Days from a week's start to the given weekday within that same week. */
-function offsetToWeekday(weekday: Weekday, weekStartsOn: Weekday): number {
-  return (((weekday - weekStartsOn) % 7) + 7) % 7;
+/** Days forward from `origin` weekday to `weekday`, within one 7-day block. */
+function offsetToWeekday(weekday: Weekday, origin: Weekday): number {
+  return (((weekday - origin) % 7) + 7) % 7;
 }
 
 // ── Weekly floating ("N times per week, any days") ──────────────────────────
@@ -255,19 +277,27 @@ function expandWeeklyFloating(
     if (compareCivil(weekStart, to) > 0) break;
 
     const weekEnd = addDays(weekStart, 6);
-    // All slots anchor to the week's start; the flexible range is the week.
-    // They differ only by slot index, which is exactly what stops them
-    // deduplicating into one.
-    if (compareCivil(weekStart, from) < 0 || compareCivil(weekStart, to) > 0) continue;
+
+    // The occurrence anchors at the later of the period start and the schedule
+    // start, so a chore created mid-week still produces that week's occurrences.
+    // Previously the partial period was skipped entirely: "gym 3x a week" created
+    // on a Tuesday produced nothing at all until the following Sunday.
+    //
+    // Anchoring to max(periodStart, anchor) rather than to the window keeps
+    // window composability intact, because the date still does not depend on
+    // which window is being expanded.
+    const dueOn = maxCivil(weekStart, anchor);
+    const flexibleFrom = dueOn;
+    if (compareCivil(dueOn, from) < 0 || compareCivil(dueOn, to) > 0) continue;
 
     for (let slot = 0; slot < timesPerPeriod; slot += 1) {
       out.push(
         build(
-          weekStart,
+          dueOn,
           weekPeriodKey(weekStart, cal.weekStartsOn),
           slot,
           cycle * timesPerPeriod + slot,
-          weekStart,
+          flexibleFrom,
           weekEnd,
         ),
       );
@@ -352,17 +382,21 @@ function expandMonthlyFloating(
   for (let cycle = firstCycle; ; cycle += 1) {
     const monthStart = addMonthsClamped(startOfMonth(anchor), cycle * everyNMonths);
     if (compareCivil(monthStart, to) > 0) break;
-    if (compareCivil(monthStart, from) < 0) continue;
 
     const monthEnd = endOfMonth(monthStart);
+    // See the weekly-floating note: anchor at max(periodStart, schedule anchor)
+    // so a chore created mid-month still produces that month's occurrences.
+    const dueOn = maxCivil(monthStart, anchor);
+    if (compareCivil(dueOn, from) < 0 || compareCivil(dueOn, to) > 0) continue;
+
     for (let slot = 0; slot < timesPerPeriod; slot += 1) {
       out.push(
         build(
-          monthStart,
+          dueOn,
           monthPeriodKey(monthStart),
           slot,
           cycle * timesPerPeriod + slot,
-          monthStart,
+          dueOn,
           monthEnd,
         ),
       );

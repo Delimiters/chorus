@@ -39,6 +39,10 @@ export interface DateWindow {
  */
 export interface CalendarConfig {
   readonly weekStartsOn: Weekday;
-  /** IANA zone, e.g. `'America/Denver'`. Used only at the app edge, never in the engine. */
-  readonly timeZone: string;
 }
+
+// Deliberately NOT here: the household's IANA timezone. It was threaded through
+// the entire Date-free engine and read by nothing, which is an invitation to the
+// exact bug the lint rules exist to prevent — someone eventually reaches for it
+// and calls Intl. The timezone lives at the edge, in src/data/today.ts, whose
+// only job is converting an instant into the CivilDate the engine receives.

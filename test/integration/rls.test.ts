@@ -163,12 +163,54 @@ describe('household isolation', () => {
       expect(check.data?.title).toBe('Dishes');
     });
 
-    it('bob deleting alice’s chore affects nothing', async () => {
-      const { error } = await bob.from('chores').delete().eq('id', choreA);
-      expect(error).toBeNull();
+    it('nobody can hard-delete a chore, not even its own household', async () => {
+      // DELETE is revoked outright: cascading it would erase the completion log
+      // the stats feature depends on, and the schema comment promises history
+      // survives deleting a chore. Archiving is the only removal the app offers.
+      for (const [who, client] of [
+        ['bob', bob],
+        ['alice', alice],
+      ] as const) {
+        const { error } = await client.from('chores').delete().eq('id', choreA);
+        expect(error).not.toBeNull();
+        expect(error?.code).toBe('42501');
+        expect(who).toBeTruthy();
+      }
 
       const check = await alice.from('chores').select('id').eq('id', choreA);
       expect(check.data).toHaveLength(1);
+    });
+
+    it('archiving is the supported way to remove a chore, and keeps completions', async () => {
+      const key = 'v1:archive-keeps-history:2026-01-09:0:-';
+      await alice.from('chore_completions').insert({
+        household_id: houseA,
+        chore_id: choreA,
+        occurrence_key: key,
+        due_on: '2026-01-09',
+        completed_on: '2026-01-09',
+        completed_by: aliceId,
+      });
+
+      const archived = await alice
+        .from('chores')
+        .update({ archived_at: new Date().toISOString() })
+        .eq('id', choreA)
+        .select('id, archived_at')
+        .single();
+      expect(archived.error).toBeNull();
+      expect(archived.data?.archived_at).not.toBeNull();
+
+      // The whole point: history outlives the chore's removal.
+      const history = await alice
+        .from('chore_completions')
+        .select('occurrence_key')
+        .eq('occurrence_key', key);
+      expect(history.data).toHaveLength(1);
+
+      // Put it back so later tests see the chore unarchived.
+      await alice.from('chores').update({ archived_at: null }).eq('id', choreA);
+      await alice.from('chore_completions').delete().eq('occurrence_key', key);
     });
 
     it('alice cannot forge a completion attributed to bob', async () => {

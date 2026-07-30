@@ -7,15 +7,15 @@
 
 import fc from 'fast-check';
 
-import { arbCalendarConfig } from '../__testing__/arbitraries';
 import { addDays, civilDate } from '../civil/date';
 import type { CalendarConfig, CivilDate } from '../civil/types';
+import { projectOccurrences } from '../occurrence/project';
 import { expandOccurrences } from '../recurrence/expand';
 import type { Occurrence, Schedule } from '../recurrence/types';
 import { assigneeFor, nextSegmentOffset, segmentFor } from './assign';
 import type { Assignment, RotationCadence, RotationSegment } from './types';
 
-const CAL: CalendarConfig = { weekStartsOn: 0, timeZone: 'UTC' };
+const CAL: CalendarConfig = { weekStartsOn: 0 };
 const ANCHOR = civilDate('2026-01-04'); // a Sunday
 
 const arbRoster = (min = 1, max = 5): fc.Arbitrary<readonly string[]> =>
@@ -108,20 +108,146 @@ describe('P10 — rotation fairness', () => {
 });
 
 describe('P11 — rotation is completion-independent', () => {
-  // The core structural fix. Nothing about completing, skipping, or ignoring a
-  // chore is an input to assigneeFor, so no amount of neglect can stall it.
-  it('resolves identically regardless of any completion history', () => {
+  // The core structural guard against the prototype's stuck rotation.
+  //
+  // This used to call `assigneeFor` twice with IDENTICAL arguments and assert
+  // equality — which is determinism restated, and would have passed even if the
+  // function were entirely wrong. It constructed no completions at all. The real
+  // property has to run through the projector, because that is the only place
+  // completions and exceptions exist. Stated properly, it catches the bug where
+  // a reschedule moved the rotation turn to the other person.
+  it('assignees are identical under arbitrary completions and exceptions', () => {
     fc.assert(
-      fc.property(arbRoster(2, 4), arbCadence(), arbCalendarConfig(), (roster, cadence, cal) => {
-        const assignment = rotateWith(roster, cadence);
-        const occurrences = dailyOccurrences(30);
+      fc.property(
+        arbRoster(2, 4),
+        arbCadence(),
+        // Arbitrary sets of deviations over the same window.
+        fc.uniqueArray(fc.nat({ max: 29 }), { maxLength: 12 }),
+        fc.uniqueArray(fc.nat({ max: 29 }), { maxLength: 8 }),
+        (roster, cadence, completedIndexes, skippedIndexes) => {
+          const assignment = rotateWith(roster, cadence);
+          const chore = {
+            id: 'chore',
+            title: 'Rotating chore',
+            schedule: {
+              rule: { kind: 'daily' as const, everyNDays: 1 },
+              startsOn: ANCHOR,
+              endsOn: null,
+              timeOfDay: null,
+            },
+            assignment,
+            archived: false,
+          };
+          const window = { start: ANCHOR, end: addDays(ANCHOR, 29) };
+          const base = {
+            chores: [chore],
+            memberIds: [...roster],
+            today: addDays(ANCHOR, 15),
+          };
 
-        const first = occurrences.map((o) => assigneeFor(o, assignment, cal, ANCHOR));
-        // Calling again after "time passes" and "things happen" — there is no
-        // channel through which either could matter.
-        const second = occurrences.map((o) => assigneeFor(o, assignment, cal, ANCHOR));
-        expect(second).toEqual(first);
-      }),
+          const clean = projectOccurrences(
+            { ...base, completions: [], exceptions: [] },
+            CAL,
+            window,
+          );
+
+          // Turn the index sets into real completions and skips.
+          const completions = completedIndexes
+            .map((i) => clean[i])
+            .filter((o): o is NonNullable<typeof o> => o !== undefined)
+            .map((o) => ({
+              choreId: 'chore',
+              occurrenceKey: o.occurrenceKey,
+              completedOn: o.dueOn,
+              completedBy: roster[0] as string,
+            }));
+          const exceptions = skippedIndexes
+            .map((i) => clean[i])
+            .filter((o): o is NonNullable<typeof o> => o !== undefined)
+            // Skip only where there is no completion, so the two don't collide.
+            .filter((o) => !completions.some((c) => c.occurrenceKey === o.occurrenceKey))
+            .map((o) => ({
+              choreId: 'chore',
+              occurrenceKey: o.occurrenceKey,
+              kind: 'skip' as const,
+              movedTo: null,
+            }));
+
+          const withHistory = projectOccurrences({ ...base, completions, exceptions }, CAL, window);
+
+          // Same occurrences, same assignees. Only status may differ.
+          const assigneesOf = (list: readonly { occurrenceKey: string; assignee: unknown }[]) =>
+            list.map((o) => [o.occurrenceKey, JSON.stringify(o.assignee)]);
+          expect(assigneesOf(withHistory)).toEqual(assigneesOf(clean));
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it('a reschedule moves the date but never the assignee', () => {
+    // The specific case the old test missed by using an occurrence-based cadence,
+    // the one cadence where `dueOn` is not an input at all.
+    fc.assert(
+      fc.property(
+        arbCadence(),
+        fc.nat({ max: 10 }),
+        fc.integer({ min: 1, max: 20 }),
+        (cadence, targetIndex, moveBy) => {
+          const assignment = rotateWith(['alice', 'bob'], cadence);
+          const chore = {
+            id: 'chore',
+            title: 'Rotating chore',
+            schedule: {
+              rule: { kind: 'weekly' as const, everyNWeeks: 1, weekdays: [3 as const] },
+              startsOn: ANCHOR,
+              endsOn: null,
+              timeOfDay: null,
+            },
+            assignment,
+            archived: false,
+          };
+          const window = { start: ANCHOR, end: addDays(ANCHOR, 90) };
+          const base = {
+            chores: [chore],
+            memberIds: ['alice', 'bob'],
+            today: addDays(ANCHOR, 45),
+            completions: [],
+          };
+
+          const before = projectOccurrences({ ...base, exceptions: [] }, CAL, window);
+          const target = before[targetIndex];
+          if (target === undefined) return;
+
+          const after = projectOccurrences(
+            {
+              ...base,
+              exceptions: [
+                {
+                  choreId: 'chore',
+                  occurrenceKey: target.occurrenceKey,
+                  kind: 'reschedule' as const,
+                  movedTo: addDays(target.dueOn, moveBy),
+                },
+              ],
+            },
+            CAL,
+            window,
+          );
+
+          const moved = after.find((o) => o.occurrenceKey === target.occurrenceKey);
+          if (moved === undefined) return; // moved outside the window
+          expect(moved.assignee).toEqual(target.assignee);
+
+          // And nobody else's turn changed either.
+          for (const other of after) {
+            if (other.occurrenceKey === target.occurrenceKey) continue;
+            const original = before.find((o) => o.occurrenceKey === other.occurrenceKey);
+            expect(other.assignee).toEqual(original?.assignee);
+          }
+        },
+      ),
+      { numRuns: 200 },
     );
   });
 

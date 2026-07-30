@@ -150,9 +150,13 @@ no completions, no clock, no mutable state:
 
 ```
 segment  = last s in segments where s.effectiveFrom <= occ.dueOn
-turn     = floor(distance(segment.effectiveFrom, occ) / cadence.every)
+turn     = floor(distance(schedule.startsOn, occ) / cadence.every)
 assignee = segment.memberIds[(turn + segment.offset) % segment.memberIds.length]
 ```
+
+(As built, the turn is measured from `schedule.startsOn` rather than from the
+segment, so appending a segment never renumbers existing turns — the segment's
+`offset` shifts *who* holds a turn, not *which* turn a date is.)
 
 Failure 2 becomes structurally impossible: the turn is a function of the *date*,
 so an unfinished week still advances.

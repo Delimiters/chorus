@@ -7,8 +7,8 @@
 
 import fc from 'fast-check';
 
-import { fromEpochDay } from '../civil/date';
-import type { CivilDate, NthWeek, Weekday } from '../civil/types';
+import { addDays, fromEpochDay } from '../civil/date';
+import type { CivilDate, DateWindow, NthWeek, Weekday } from '../civil/types';
 import type { RecurrenceRule, Schedule } from '../recurrence/types';
 import { arbCivilDate, arbEpochDay, arbNthWeek, arbWeekday } from './arbitraries';
 
@@ -110,7 +110,14 @@ export const arbSchedule = (options: ScheduleOptions = {}): fc.Arbitrary<Schedul
     .tuple(
       options.rule ?? arbRecurrenceRule(),
       arbEpochDay(),
-      fc.option(fc.integer({ min: 0, max: 800 }), { nil: null }),
+      // Mostly unbounded, stated explicitly rather than via fc.option's `freq`
+      // (which is the probability of *nil*, and is easy to get backwards). A
+      // short `endsOn` combined with an independently drawn window is how the
+      // original generator made ~94% of property runs compare two empty arrays.
+      fc.oneof(
+        { weight: 8, arbitrary: fc.constant(null) },
+        { weight: 2, arbitrary: fc.integer({ min: 30, max: 800 }) },
+      ),
     )
     .map(([rule, startEpochDay, endOffset]) => ({
       rule,
@@ -118,6 +125,58 @@ export const arbSchedule = (options: ScheduleOptions = {}): fc.Arbitrary<Schedul
       endsOn: endOffset === null ? null : (fromEpochDay(startEpochDay + endOffset) as CivilDate),
       timeOfDay: null,
     }));
+
+/**
+ * A schedule paired with a window that actually overlaps it.
+ *
+ * THIS MATTERS MORE THAN IT LOOKS. The original generators drew `startsOn`
+ * uniformly across 1990-2060 and the window as an independent 180-day slice of
+ * the same 70-year range, so the two almost never intersected: measured, 93.8%
+ * of runs produced zero occurrences and the mean was 0.82. Every property that
+ * quantifies over occurrences — composability, ordering, key uniqueness, bounds
+ * — was therefore asserting almost nothing, which is why two real expansion bugs
+ * survived a property-based suite.
+ *
+ * Here the window is positioned relative to the schedule's own anchor, so the
+ * interesting region is where the tests actually look.
+ */
+export const arbScheduleAndWindow = (
+  options: ScheduleOptions & { maxSpanDays?: number } = {},
+): fc.Arbitrary<{ schedule: Schedule; window: DateWindow }> => {
+  const span = options.maxSpanDays ?? 180;
+  return arbSchedule(options).chain((schedule) =>
+    fc
+      .tuple(fc.integer({ min: -30, max: 200 }), fc.integer({ min: 0, max: span }))
+      .map(([offset, width]) => ({
+        schedule,
+        window: {
+          start: addDays(schedule.startsOn, offset),
+          end: addDays(schedule.startsOn, offset + width),
+        },
+      })),
+  );
+};
+
+/** As {@link arbScheduleAndWindow}, plus a split point strictly inside the window. */
+export const arbScheduleWindowAndSplit = (
+  options: ScheduleOptions & { maxSpanDays?: number } = {},
+): fc.Arbitrary<{ schedule: Schedule; window: DateWindow; splitAfter: CivilDate }> => {
+  const span = options.maxSpanDays ?? 180;
+  return arbSchedule(options).chain((schedule) =>
+    fc
+      .tuple(fc.integer({ min: -30, max: 200 }), fc.integer({ min: 1, max: span }))
+      .chain(([offset, width]) =>
+        fc.integer({ min: 0, max: width - 1 }).map((cut) => ({
+          schedule,
+          window: {
+            start: addDays(schedule.startsOn, offset),
+            end: addDays(schedule.startsOn, offset + width),
+          },
+          splitAfter: addDays(schedule.startsOn, offset + cut),
+        })),
+      ),
+  );
+};
 
 /** A schedule guaranteed to be unbounded, for tests about infinite sequences. */
 export const arbUnboundedSchedule = (rule?: fc.Arbitrary<RecurrenceRule>): fc.Arbitrary<Schedule> =>

@@ -7,7 +7,7 @@ import { assigneeFor, fanOut, rosterOn, turnFor } from './assign';
 import type { Assignment, RotationCadence } from './types';
 import { isFanOut } from './types';
 
-const CAL: CalendarConfig = { weekStartsOn: 0, timeZone: 'UTC' };
+const CAL: CalendarConfig = { weekStartsOn: 0 };
 const ANCHOR = civilDate('2026-01-04');
 
 const schedule: Schedule = {

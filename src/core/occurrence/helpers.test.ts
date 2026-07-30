@@ -4,7 +4,7 @@ import { expandOccurrences } from '../recurrence/expand';
 import type { Occurrence } from '../recurrence/types';
 import { keyForSubject } from './project';
 
-const CAL: CalendarConfig = { weekStartsOn: 0, timeZone: 'UTC' };
+const CAL: CalendarConfig = { weekStartsOn: 0 };
 const ANCHOR = civilDate('2026-01-04');
 
 const occurrence = (): Occurrence =>

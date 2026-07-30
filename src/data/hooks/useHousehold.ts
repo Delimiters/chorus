@@ -6,7 +6,7 @@
  * set from server data.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Localization from 'expo-localization';
 import { useEffect } from 'react';
 
@@ -48,21 +48,29 @@ export function useMyHouseholds() {
   });
 }
 
+/**
+ * The active household.
+ *
+ * `skipToken` rather than `enabled: false` with a placeholder key. `enabled`
+ * stops the fetch but NOT the cache read, and the placeholder key used here was
+ * `qk.myHouseholds()` — the key `useMyHouseholds` populates. So with no active
+ * household this returned a `Household[]` while its type said
+ * `Household | null`, and TypeScript could not see it. `skipToken` disables the
+ * query without borrowing somebody else's cache entry.
+ */
 export function useHousehold() {
   const householdId = useActiveHouseholdId();
   return useQuery({
-    queryKey: householdId === null ? qk.myHouseholds() : qk.household(householdId),
-    queryFn: () => getHousehold(householdId as string),
-    enabled: householdId !== null,
+    queryKey: qk.household(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => getHousehold(householdId),
   });
 }
 
 export function useMembers() {
   const householdId = useActiveHouseholdId();
   return useQuery({
-    queryKey: householdId === null ? qk.myHouseholds() : qk.members(householdId),
-    queryFn: () => listMembers(householdId as string),
-    enabled: householdId !== null,
+    queryKey: qk.members(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => listMembers(householdId),
   });
 }
 
