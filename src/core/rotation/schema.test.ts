@@ -1,4 +1,4 @@
-import { safeParseAssignment } from './schema';
+import { parseAssignment, safeParseAssignment } from './schema';
 
 const validSegment = {
   effectiveFrom: '2026-01-04',
@@ -99,5 +99,48 @@ describe('assignment validation', () => {
       ],
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe('parseAssignment', () => {
+  it('returns the parsed assignment', () => {
+    expect(parseAssignment({ kind: 'anyone' })).toEqual({ kind: 'anyone' });
+    expect(
+      parseAssignment({
+        kind: 'rotate',
+        cadence: { unit: 'week', every: 2 },
+        segments: [validSegment],
+      }),
+    ).toMatchObject({ kind: 'rotate', cadence: { unit: 'week', every: 2 } });
+  });
+
+  it('throws on invalid input, unlike the safe variant', () => {
+    expect(() => parseAssignment({ kind: 'nope' })).toThrow();
+  });
+
+  it('accepts a single segment, where there is no previous one to compare against', () => {
+    // Exercises the ordering refinement's first-element branch.
+    expect(() =>
+      parseAssignment({
+        kind: 'rotate',
+        cadence: { unit: 'occurrence', every: 1 },
+        segments: [{ effectiveFrom: '2026-01-04', memberIds: ['alice'], offset: 0 }],
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts two segments with the same effective date', () => {
+    // Ordering is non-strict: equal dates are in order. segmentFor picks the
+    // last matching segment, so a same-day append is well defined.
+    expect(() =>
+      parseAssignment({
+        kind: 'rotate',
+        cadence: { unit: 'occurrence', every: 1 },
+        segments: [
+          { effectiveFrom: '2026-01-04', memberIds: ['alice'], offset: 0 },
+          { effectiveFrom: '2026-01-04', memberIds: ['bob'], offset: 0 },
+        ],
+      }),
+    ).not.toThrow();
   });
 });

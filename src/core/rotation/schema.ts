@@ -57,9 +57,10 @@ export const assignmentSchema = z.discriminatedUnion('kind', [
       // that applies, so out-of-order data is a sign something wrote them wrong.
       .refine(
         (segments) =>
-          segments.every(
-            (s, i) => i === 0 || s.effectiveFrom >= (segments[i - 1]?.effectiveFrom ?? ''),
-          ),
+          segments.every((s, i) => {
+            const previous = segments[i - 1];
+            return previous === undefined || s.effectiveFrom >= previous.effectiveFrom;
+          }),
         'Rotation segments must be in chronological order',
       ),
   }),
