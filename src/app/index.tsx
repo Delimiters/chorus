@@ -25,5 +25,5 @@ export default function Index() {
   // avoids showing onboarding to someone who does.
   if (!resolved) return <LoadingState />;
 
-  return hasHousehold ? <Redirect href="/today" /> : <Redirect href="/welcome" />;
+  return hasHousehold ? <Redirect href="/(app)/(tabs)" /> : <Redirect href="/welcome" />;
 }

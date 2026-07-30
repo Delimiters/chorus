@@ -1,95 +1,178 @@
 /**
- * Today — placeholder.
+ * Today.
  *
- * The real agenda arrives in Phase 5, on top of the projector. This exists so
- * Phase 4's demo is complete: sign up, create a household, land somewhere real,
- * and see that the session and household actually resolved.
+ * Nine times out of ten this is the only screen either person opens. It answers
+ * one question — what needs doing, and is it mine — and gets out of the way.
+ *
+ * Yours first, then everyone else's, then what's already been done. Seeing what
+ * your housemate did is half the reason to share a list, and it's the thing that
+ * stops you having to ask.
  */
 
-import { ScrollView, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useSignOut } from '@/data/hooks/useAuth';
-import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
-import { Button, LoadingState, Stack, Txt } from '@/design/components';
+import type { AgendaItem, FloatingGroup } from '@/core/occurrence/agenda';
+import { describeRule } from '@/core/recurrence/describe';
+import { useMembers } from '@/data/hooks/useHousehold';
+import { useToday_View, useToggleCompletion } from '@/data/hooks/useOccurrences';
+import { ChoreRow, FloatingRow, SectionHeader } from '@/design/ChoreRow';
+import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
-import { inkColor } from '@/design/inks';
-import { radius, space } from '@/design/tokens';
+import { space } from '@/design/tokens';
+import { useUserId } from '@/stores/sessionStore';
+import { EmptyToday } from './EmptyToday';
+import { formatDayLong, formatFlexibleWindow } from './format';
 
 export function TodayScreen() {
-  const { colors, isDark } = useTheme();
-  const household = useHousehold();
+  const { colors } = useTheme();
+  const userId = useUserId();
   const members = useMembers();
-  const signOut = useSignOut();
+  const { view, chores, today, isLoading, error, unreadable } = useToday_View();
+  const toggle = useToggleCompletion();
+  const [refreshing, setRefreshing] = useState(false);
 
-  if (household.isLoading) return <LoadingState />;
+  /** Who is who, for ink and name lookups. */
+  const byMember = useMemo(() => {
+    const map = new Map<string, { name: string; ink: string }>();
+    for (const member of members.data ?? []) {
+      map.set(member.userId, { name: member.displayName, ink: member.accent });
+    }
+    return map;
+  }, [members.data]);
+
+  const scheduleFor = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const chore of chores) map.set(chore.id, describeRule(chore.schedule.rule));
+    return map;
+  }, [chores]);
+
+  /**
+   * Ink and turn label for a row.
+   *
+   * The two always travel together: a coloured mark without words would leave
+   * anyone with colour vision deficiency guessing. See docs/DESIGN_SYSTEM.md.
+   */
+  const ownership = (
+    assignee: AgendaItem['assignee'],
+  ): { ink: string | null; turnLabel: string | null } => {
+    if (assignee.kind !== 'member') return { ink: null, turnLabel: null };
+    const member = byMember.get(assignee.memberId);
+    if (member === undefined) return { ink: null, turnLabel: null };
+    return {
+      ink: member.ink,
+      // "Your turn" for you, first name for everyone else — nobody says
+      // "Jake's turn" about themselves.
+      turnLabel: assignee.memberId === userId ? 'Your turn' : `${member.name}'s turn`,
+    };
+  };
+
+  const renderRow = (item: AgendaItem) => {
+    const { ink, turnLabel } = ownership(item.assignee);
+    return (
+      <ChoreRow
+        key={item.occurrenceKey}
+        item={item}
+        ink={ink}
+        turnLabel={turnLabel}
+        scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
+        onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
+        onOpen={() => {
+          /* The occurrence sheet arrives in Phase 6. */
+        }}
+      />
+    );
+  };
+
+  const renderFloating = (group: FloatingGroup) => {
+    const next = group.nextSlot;
+    const { ink, turnLabel } = next ? ownership(next.assignee) : { ink: null, turnLabel: null };
+    return (
+      <FloatingRow
+        key={`${group.choreId}:${group.periodKey}:${group.subject ?? '-'}`}
+        group={group}
+        ink={ink}
+        turnLabel={turnLabel}
+        windowLabel={formatFlexibleWindow(group.flexibleFrom, group.flexibleUntil, today)}
+        onToggle={() => {
+          if (next) toggle.mutate({ item: next, complete: true });
+        }}
+        onOpen={() => {
+          /* The occurrence sheet arrives in Phase 6. */
+        }}
+      />
+    );
+  };
+
+  if (isLoading) return <LoadingState label="Loading your chores" />;
+  if (error) return <ErrorState message={error.message} />;
+
+  const nothingToDo = view.outstandingCount === 0;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }}>
-      <ScrollView contentContainerStyle={{ padding: space.xl, gap: space.xl }}>
-        <Stack gap={space.xs}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
+      <ScrollView
+        contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl, gap: 2 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              setTimeout(() => setRefreshing(false), 400);
+            }}
+            tintColor={colors.textFaint}
+          />
+        }
+      >
+        <Stack gap={2} style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
           <Txt variant="display" accessibilityRole="header">
             Today
           </Txt>
-          <Txt tone="muted">{household.data?.name ?? 'Your household'}</Txt>
-        </Stack>
-
-        <Stack gap={space.sm}>
-          <Txt variant="label" tone="faint">
-            Who lives here
-          </Txt>
-          {members.data?.map((member) => (
-            <View
-              key={member.userId}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: space.md,
-                backgroundColor: colors.sunken,
-                borderRadius: radius.md,
-                padding: space.md,
-              }}
-            >
-              <View
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: radius.pill,
-                  backgroundColor: inkColor(member.accent, isDark),
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Txt variant="bodyStrong" style={{ color: '#FFFFFF' }}>
-                  {member.displayName.slice(0, 1).toUpperCase()}
-                </Txt>
-              </View>
-              <Stack gap={0}>
-                <Txt variant="bodyStrong">{member.displayName}</Txt>
-                <Txt variant="small" tone="faint">
-                  {member.role}
-                </Txt>
-              </Stack>
-            </View>
-          ))}
-        </Stack>
-
-        <Stack gap={space.sm}>
-          <Txt variant="label" tone="faint">
-            Next
-          </Txt>
-          <Txt tone="muted">
-            Chores and the agenda land in the next phase. The household, the members and the session
-            are all real — everything below this is built on them.
+          <Txt variant="mono" tone="faint">
+            {formatDayLong(today).toUpperCase()}
+            {view.doneCount > 0 ? ` · ${view.doneCount} DONE` : ''}
           </Txt>
         </Stack>
 
-        <Button
-          label="Sign out"
-          variant="secondary"
-          onPress={() => signOut.mutate()}
-          loading={signOut.isPending}
-        />
+        {unreadable.length > 0 ? (
+          <View style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
+            <Txt variant="small" tone="danger">
+              {unreadable.length} chore{unreadable.length === 1 ? '' : 's'} could not be read and{' '}
+              {unreadable.length === 1 ? 'is' : 'are'} hidden.
+            </Txt>
+          </View>
+        ) : null}
+
+        {nothingToDo ? <EmptyToday done={view.done} byMember={byMember} userId={userId} /> : null}
+
+        {view.floating.length > 0 ? (
+          <>
+            <SectionHeader title={formatFlexibleWindow.sectionTitle} />
+            <Stack gap={space.xs}>{view.floating.map(renderFloating)}</Stack>
+          </>
+        ) : null}
+
+        {view.mine.length > 0 ? (
+          <>
+            <SectionHeader title="Yours" count={view.mine.length} />
+            <Stack gap={space.xs}>{view.mine.map(renderRow)}</Stack>
+          </>
+        ) : null}
+
+        {view.theirs.length > 0 ? (
+          <>
+            <SectionHeader title="Everyone else" count={view.theirs.length} />
+            <Stack gap={space.xs}>{view.theirs.map(renderRow)}</Stack>
+          </>
+        ) : null}
+
+        {view.done.length > 0 ? (
+          <>
+            <SectionHeader title="Done" count={view.done.length} />
+            <Stack gap={space.xs}>{view.done.map(renderRow)}</Stack>
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
