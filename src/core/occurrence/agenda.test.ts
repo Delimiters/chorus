@@ -275,11 +275,35 @@ describe('collapsing superseded misses', () => {
       expect(survivor?.missedBefore).toBe(8);
     });
 
-    it('an occurrence rescheduled into the future stops being outstanding today', () => {
-      // The window must reach past the new date. The projector decides
-      // membership by the *effective* date, so a window ending today would not
-      // contain the moved occurrence at all — see the limitation noted in
-      // docs/RECURRENCE.md.
+    it('an occurrence rescheduled past the end of the window still supersedes', () => {
+      // The window ends today, so the moved occurrence falls outside it — the
+      // projector emits it anyway, marked `displaced`, precisely so this works.
+      // Without that, yesterday's became "the latest one at or before today"
+      // and came back as overdue.
+      const items = collapseSupersededMisses(
+        project(
+          [chore({ schedule })],
+          today,
+          window,
+          [],
+          [
+            {
+              choreId: 'chore',
+              occurrenceKey: keyFor(today),
+              kind: 'reschedule',
+              movedTo: d('2026-01-14'),
+            },
+          ],
+        ),
+        today,
+      );
+      expect(items.filter((i) => i.status === 'due' || i.status === 'overdue')).toHaveLength(0);
+      // And the displaced occurrence is not rendered either — its date is
+      // outside what the caller asked for.
+      expect(items).toHaveLength(0);
+    });
+
+    it('an occurrence rescheduled within the window shows on its new date', () => {
       const items = collapseSupersededMisses(
         project(
           [chore({ schedule })],

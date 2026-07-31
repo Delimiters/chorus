@@ -7,7 +7,7 @@
 
 import fc from 'fast-check';
 
-import { addDays, fromEpochDay } from '../civil/date';
+import { addDays, fromEpochDay, toEpochDay } from '../civil/date';
 import type { CivilDate, DateWindow, NthWeek, Weekday } from '../civil/types';
 import type { RecurrenceRule, Schedule } from '../recurrence/types';
 import { arbCivilDate, arbEpochDay, arbNthWeek, arbWeekday } from './arbitraries';
@@ -119,12 +119,25 @@ export const arbSchedule = (options: ScheduleOptions = {}): fc.Arbitrary<Schedul
         { weight: 2, arbitrary: fc.integer({ min: 30, max: 800 }) },
       ),
     )
-    .map(([rule, startEpochDay, endOffset]) => ({
-      rule,
-      startsOn: fromEpochDay(startEpochDay),
-      endsOn: endOffset === null ? null : (fromEpochDay(startEpochDay + endOffset) as CivilDate),
-      timeOfDay: null,
-    }));
+    .map(([rule, startEpochDay, endOffset]) => {
+      // `once` carries its own date, and the schema normalises `startsOn` to
+      // match it — see the transform in schema.ts. Generating the two
+      // independently would produce a state the app cannot hold, and did: the
+      // bounds property failed on a one-time chore due the day before its own
+      // start date. A generator that draws unreachable states tests a program
+      // that does not exist.
+      const start = rule.kind === 'once' ? toEpochDay(rule.dueOn) : startEpochDay;
+      return {
+        rule,
+        startsOn: fromEpochDay(start),
+        // Measured from the same anchor, or `endsOn` lands before `startsOn`
+        // whenever the two are drawn from different places — which the schema
+        // rejects, so the generator would again be producing an unreachable
+        // state.
+        endsOn: endOffset === null ? null : (fromEpochDay(start + endOffset) as CivilDate),
+        timeOfDay: null,
+      };
+    });
 
 /**
  * A schedule paired with a window that actually overlaps it.
@@ -182,7 +195,8 @@ export const arbScheduleWindowAndSplit = (
 export const arbUnboundedSchedule = (rule?: fc.Arbitrary<RecurrenceRule>): fc.Arbitrary<Schedule> =>
   fc.tuple(rule ?? arbSchedulableRule(), arbEpochDay()).map(([r, start]) => ({
     rule: r,
-    startsOn: fromEpochDay(start),
+    // Same normalisation as `arbSchedule` — see the note there.
+    startsOn: r.kind === 'once' ? r.dueOn : fromEpochDay(start),
     endsOn: null,
     timeOfDay: null,
   }));

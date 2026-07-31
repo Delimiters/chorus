@@ -114,7 +114,26 @@ export const scheduleSchema = z
   .refine((schedule) => schedule.endsOn === null || schedule.endsOn >= schedule.startsOn, {
     message: 'The end date must not precede the start date',
     path: ['endsOn'],
-  });
+  })
+  /**
+   * A `once` rule carries its own date, so `startsOn` is vestigial for it — and
+   * two fields that must agree but are stored separately will eventually
+   * disagree. This one already had: the seed writes `startsOn: 2026-01-04` on a
+   * chore due 2026-02-14.
+   *
+   * Normalised rather than rejected. Rejecting would fail existing rows for a
+   * field that means nothing on this rule, and "the occurrence is on the date
+   * you named" is what the author meant either way. This is what makes the
+   * bounds property (P9 — nothing before `startsOn`) true universally instead of
+   * true-except-for-one-kind; an expander that honoured `startsOn` here would
+   * instead make a one-time chore dated before it permanently invisible, which
+   * is the bug this replaced.
+   */
+  .transform((schedule) =>
+    schedule.rule.kind === 'once' && schedule.startsOn !== schedule.rule.dueOn
+      ? { ...schedule, startsOn: schedule.rule.dueOn }
+      : schedule,
+  );
 
 /** Parses and validates a schedule, throwing on invalid input. */
 export function parseSchedule(value: unknown): Schedule {

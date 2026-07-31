@@ -99,9 +99,27 @@ export function projectOccurrences(
               }
             : occ;
 
-        // Window membership is decided by the *effective* date, so something
-        // moved out drops away and something moved in appears.
-        if (!isWithin(effective.dueOn, window.start, window.end)) continue;
+        /**
+         * Window membership is decided by the *effective* date, so something
+         * moved out drops away and something moved in appears.
+         *
+         * With one exception, and it is load-bearing. An occurrence rescheduled
+         * *out* of the window is still emitted, marked `displaced`, because the
+         * agenda's collapse rule needs to know it exists: push today's dishes
+         * past the end of the window and, without this, yesterday's would
+         * become "the latest one at or before today" and resurface as overdue.
+         * Supersession is about what the rule generated, not where it landed.
+         *
+         * Displaced occurrences are not for display — `toAgendaItems` drops
+         * them, and `collapseSupersededMisses` consumes them without returning
+         * them. See docs/RECURRENCE.md.
+         */
+        const inWindow = isWithin(effective.dueOn, window.start, window.end);
+        const displaced =
+          !inWindow &&
+          exception?.kind === 'reschedule' &&
+          isWithin(occ.dueOn, window.start, window.end);
+        if (!inWindow && !displaced) continue;
 
         const completion = completions.get(occ.occurrenceKey);
         const status = statusOf(effective, input.today, completion, exception);
@@ -125,6 +143,7 @@ export function projectOccurrences(
             : 0,
           rescheduled: exception?.kind === 'reschedule',
           originalDueOn: exception?.kind === 'reschedule' ? occ.dueOn : null,
+          displaced,
         });
       }
     }
