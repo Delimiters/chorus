@@ -1,0 +1,17 @@
+# Maestro configuration.
+#
+# `appId` is the *development build's* bundle identifier, not Expo Go's
+# (host.exp.Exponent). Driving Expo Go works for a quick local pass but is not
+# what CI does: a flow launching Expo Go has to navigate its project list first,
+# which is another app's UI and breaks whenever Expo changes it.
+appId: com.delimiters.chorus
+
+# Ordered, and numbered so the order is visible in the directory listing. They
+# are not independent: everything after the first needs an account and a
+# household, and running them in a different order would fail in ways that look
+# like product bugs.
+#
+# The glob excludes this file — a config that matches itself is a flow that
+# tries to run a config.
+flows:
+  - '0*.yaml'

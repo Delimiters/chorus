@@ -1,0 +1,38 @@
+# Sign up, land in a household, see an empty Today.
+#
+# First because everything else depends on it, and because it is the only path
+# that exercises `create_household` — the RPC that also allocates the member's
+# ink. A failure here is usually a migration that did not apply.
+appId: com.delimiters.chorus
+name: Sign up and create a household
+---
+- clearState
+- launchApp
+
+- assertVisible: 'Chorus'
+- tapOn: 'Create one'
+
+# A fresh address every run: reusing one fails on the second run with "already
+# registered", which reads as a broken signup rather than a stale fixture.
+- tapOn:
+    id: 'Your name'
+- inputText: 'Alex'
+- tapOn:
+    id: 'Email'
+- inputText: ${'e2e-' + Date.now() + '@example.test'}
+- tapOn:
+    id: 'Password'
+- inputText: 'password123'
+- tapOn: 'Create account'
+
+# No household yet, so the app must land on onboarding rather than Today.
+- assertVisible: 'Create a household'
+- tapOn: 'Create a household'
+- tapOn:
+    id: 'Household'
+- inputText: 'Test House'
+- tapOn: 'Create household'
+
+# An empty Today — not a spinner, and not somebody else's chores.
+- assertVisible: 'Today'
+- assertVisible: 'Nothing due. Enjoy it.'

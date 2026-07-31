@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The same mark without a ground, for the Android adaptive foreground and
+       the splash. Scaled to ~62% so it survives the circular and squircle
+       masks Android applies without clipping. -->
+  <g transform="translate(512 512) scale(0.62) translate(-512 -512)">
+    <circle cx="410" cy="512" r="255" fill="#2B4ACB"/>
+    <circle cx="614" cy="512" r="255" fill="#D42B85"/>
+    <path d="M 512 278.289 A 255 255 0 0 1 512 745.711 A 255 255 0 0 1 512 278.289 Z" fill="#5B2E9E"/>
+  </g>
+</svg>
