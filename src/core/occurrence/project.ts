@@ -127,6 +127,7 @@ export function projectOccurrences(
         out.push({
           ...effective,
           choreTitle: chore.title,
+          timeOfDay: chore.schedule.timeOfDay,
           status,
           // Resolved from the ORIGINAL occurrence, not the moved one.
           //

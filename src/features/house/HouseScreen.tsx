@@ -7,6 +7,7 @@
  * That is the whole feature.
  */
 
+import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -26,6 +27,7 @@ import { useActiveHouseholdId } from '@/stores/sessionStore';
 import { skipToken, useQuery } from '@tanstack/react-query';
 
 export function HouseScreen() {
+  const router = useRouter();
   const { colors, isDark } = useTheme();
   const householdId = useActiveHouseholdId();
   const household = useHousehold();
@@ -153,7 +155,8 @@ export function HouseScreen() {
           </Stack>
         )}
 
-        <View style={{ paddingTop: space.xxl }}>
+        <View style={{ paddingTop: space.xxl, gap: space.sm }}>
+          <Button label="Settings" variant="ghost" onPress={() => router.push('/settings')} />
           <Button
             label="Sign out"
             variant="secondary"
