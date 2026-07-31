@@ -28,18 +28,6 @@ module.exports = {
     {
       displayName: 'app',
       preset: 'jest-expo',
-      /**
-       * Jest's default is 5s, which was never a decision anybody made about
-       * this preset. The *first* test in a component file pays the whole
-       * jest-expo module-init and first-render cost — about 275ms on this
-       * machine and past 5s on a loaded CI runner, which failed exactly one
-       * test out of 175: the first one in the largest file.
-       *
-       * Raised rather than worked around. A test that passes locally and fails
-       * when the runner is busy is the flaky-test problem in miniature, and the
-       * cost here is real work, not a hang.
-       */
-      testTimeout: 20_000,
       // Everything outside src/core: components, and any module that touches a
       // React Native or Expo API and therefore needs the preset.
       testMatch: ['<rootDir>/src/**/*.test.tsx', '<rootDir>/src/**/*.test.ts'],
