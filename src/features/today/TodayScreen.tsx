@@ -204,6 +204,10 @@ export function TodayScreen() {
         weekStartsOn={(household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6}
         onClose={() => setOpen(null)}
         onToggleComplete={(item) => toggle.mutate({ item, complete: item.status !== 'completed' })}
+        error={
+          ((skip.error ?? reschedule.error ?? clear.error ?? toggle.error) as Error | null)
+            ?.message ?? null
+        }
         onSkip={(item) => skip.mutate(item)}
         onReschedule={(item, movedTo) => reschedule.mutate({ item, movedTo })}
         onClearException={(item) => clear.mutate(item)}

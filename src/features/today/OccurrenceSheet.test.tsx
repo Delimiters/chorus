@@ -195,6 +195,36 @@ describe('the quiet marker', () => {
   });
 });
 
+describe('when an action fails', () => {
+  it('says so instead of closing as though it worked', async () => {
+    // Rescheduling was rejected by the database for weeks and this sheet simply
+    // closed: the row did not move, nothing explained why, and it looked like
+    // the tap had been ignored.
+    const h = renderSheet();
+    await h.rendered;
+    expect(screen.queryByText(/could not/i)).toBeNull();
+
+    const withError = render(
+      <ThemeProvider>
+        <OccurrenceSheet
+          item={item()}
+          today={TODAY}
+          weekStartsOn={0}
+          error="Could not reach the server."
+          onClose={jest.fn()}
+          onToggleComplete={jest.fn()}
+          onSkip={jest.fn()}
+          onReschedule={jest.fn()}
+          onClearException={jest.fn()}
+          onEditChore={jest.fn()}
+        />
+      </ThemeProvider>,
+    );
+    await withError;
+    expect(screen.getByText('Could not reach the server.')).toBeOnTheScreen();
+  });
+});
+
 describe('when nothing is open', () => {
   it('renders no sheet content at all', async () => {
     const h = renderSheet(null);
