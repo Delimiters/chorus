@@ -6,9 +6,12 @@
  */
 
 import { safeParseSchedule } from '@/core/recurrence/schema';
+import type { Schedule } from '@/core/recurrence/types';
 import { safeParseAssignment } from '@/core/rotation/schema';
+import type { Assignment } from '@/core/rotation/types';
 import type { ChoreInput, CompletionInput, ExceptionInput } from '@/core/occurrence/types';
 import type { CivilDate } from '@/core/civil/types';
+import type { Json } from '../database.types';
 import { describeError, isDuplicate, supabase } from '../supabase';
 
 function fail(error: { code?: string | undefined; message: string }): never {
@@ -227,6 +230,110 @@ export interface CompleteInput {
   readonly dueOn: CivilDate;
   readonly completedOn: CivilDate;
   readonly userId: string;
+}
+
+// ── Writing chores ──────────────────────────────────────────────────────────
+
+export interface ChoreDraft {
+  readonly title: string;
+  readonly notes: string | null;
+  readonly schedule: Schedule;
+  readonly assignment: Assignment;
+}
+
+/**
+ * Validates a draft on the way out, not just on the way in.
+ *
+ * `schedule` and `assignment` are jsonb, so the database will accept any shape
+ * at all — nothing structurally stops a bad write, and a bad write is
+ * indistinguishable from a bad migration by the time a reader hits it. Parsing
+ * before the insert means a malformed rule fails here, with the field named,
+ * rather than becoming a chore that renders as "could not be read".
+ *
+ * It also normalises: a `once` schedule gets its `startsOn` pinned to the rule's
+ * own `dueOn`, which is what keeps the generated `starts_on` column agreeing
+ * with the engine. See docs/RECURRENCE.md.
+ */
+function validateDraft(draft: ChoreDraft): { schedule: Schedule; assignment: Assignment } {
+  const title = draft.title.trim();
+  if (title.length === 0) throw new Error('A chore needs a name.');
+  if (title.length > 120) throw new Error('That name is too long — 120 characters at most.');
+
+  const schedule = safeParseSchedule(draft.schedule);
+  if (!schedule.success) throw new Error('That schedule is not one the app can store.');
+
+  const assignment = safeParseAssignment(draft.assignment);
+  if (!assignment.success) throw new Error('That assignment is not one the app can store.');
+
+  return { schedule: schedule.data, assignment: assignment.data };
+}
+
+export async function createChore(
+  householdId: string,
+  userId: string,
+  draft: ChoreDraft,
+): Promise<string> {
+  const { schedule, assignment } = validateDraft(draft);
+  const notes = draft.notes?.trim();
+
+  const { data, error } = await supabase
+    .from('chores')
+    .insert({
+      household_id: householdId,
+      title: draft.title.trim(),
+      notes: notes === undefined || notes.length === 0 ? null : notes,
+      schedule: schedule as unknown as Json,
+      assignment: assignment as unknown as Json,
+      created_by: userId,
+    })
+    .select('id')
+    .single();
+  if (error) fail(error);
+  return data.id;
+}
+
+/**
+ * Edits a chore in place, keeping its id.
+ *
+ * Keeping the id is the whole point: completions and exceptions reference the
+ * chore, so replacing it would orphan every one of them and erase the history
+ * the stats view is built from.
+ *
+ * Editing a schedule *does* change which occurrences exist, and therefore which
+ * stored completions still correspond to one. That is the honest consequence of
+ * a rule change and not something to paper over — a completion whose occurrence
+ * no longer exists is simply not projected. It stays in the table, so undoing
+ * the edit brings it back.
+ */
+export async function updateChore(choreId: string, draft: ChoreDraft): Promise<void> {
+  const { schedule, assignment } = validateDraft(draft);
+  const notes = draft.notes?.trim();
+
+  const { error } = await supabase
+    .from('chores')
+    .update({
+      title: draft.title.trim(),
+      notes: notes === undefined || notes.length === 0 ? null : notes,
+      schedule: schedule as unknown as Json,
+      assignment: assignment as unknown as Json,
+    })
+    .eq('id', choreId);
+  if (error) fail(error);
+}
+
+/**
+ * Archives a chore. This is the only removal the app offers.
+ *
+ * `DELETE` is revoked at the database, because deleting a chore would cascade
+ * away its completion log — and "how often did we actually do this?" is a
+ * question worth being able to answer about a chore nobody does any more.
+ */
+export async function archiveChore(choreId: string, archived: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('chores')
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq('id', choreId);
+  if (error) fail(error);
 }
 
 /**
