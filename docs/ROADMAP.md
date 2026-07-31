@@ -13,7 +13,7 @@ Status legend: ☐ not started · ◐ in progress · ☑ done
 | ☑ | **4 — Auth + onboarding** | Real sign-up, create a household, land on empty Today; session survives app restart |
 | ☑ | **5 — Design system + Today/Upcoming** | Seeded chores appear on the right days; tap to complete persists and undoes |
 | ☑ | **6 — Chore CRUD + recurrence builder** | Every recurrence shape below is creatable in-app, with the preview confirming each |
-| ☐ | **7 — Realtime + local notifications** | Two simulators: complete on one, appears on the other within a second; a reminder fires |
+| ◐ | **7 — Realtime + local notifications** | Two simulators: complete on one, appears on the other within a second; a reminder fires |
 | ☐ | **8 — E2E, polish, release prep** | Green nightly Maestro run; installable dev build on a real device |
 
 ### Recurrence shapes v1 must support
@@ -35,6 +35,27 @@ Every one of these is a named golden fixture in the engine test suite:
 - A specific person
 - Take turns (rotating, with a cadence independent of the chore's own cadence)
 - Everyone does their own (fan-out — one checkbox per person)
+
+### Phase 7, precisely
+
+Realtime is **verified**: a chore inserted through a second connection appeared
+in an open client with no interaction. Settings and the reminder *planner* are
+covered by tests, and the planner is pure, so its behaviour is checked at every
+input that matters.
+
+A reminder actually **firing on a device is not verified**, and cannot be from
+this machine — it needs Expo Go or a development build on a phone, and the
+notification path is the one part no test can stand in for. The phase is marked
+in-progress rather than done for that reason alone.
+
+What to check, in order, when a device is to hand:
+
+1. Reminders permission is requested once, and denying it does not wedge the app.
+2. A chore due tomorrow produces a notification at the chosen time.
+3. Completing it before then means the notification does **not** arrive — this
+   is the failure that would teach somebody the app's reminders are noise.
+4. The keep-alive arrives a day before the queue would empty.
+5. Signing out stops reminders arriving for the account you left.
 
 ## Post-v1
 
