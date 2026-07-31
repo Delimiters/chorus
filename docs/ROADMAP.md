@@ -14,7 +14,7 @@ Status legend: ☐ not started · ◐ in progress · ☑ done
 | ☑ | **5 — Design system + Today/Upcoming** | Seeded chores appear on the right days; tap to complete persists and undoes |
 | ☑ | **6 — Chore CRUD + recurrence builder** | Every recurrence shape below is creatable in-app, with the preview confirming each |
 | ◐ | **7 — Realtime + local notifications** | Two simulators: complete on one, appears on the other within a second; a reminder fires |
-| ☐ | **8 — E2E, polish, release prep** | Green nightly Maestro run; installable dev build on a real device |
+| ◐ | **8 — E2E, polish, release prep** | Green nightly Maestro run; installable dev build on a real device |
 
 ### Recurrence shapes v1 must support
 
@@ -56,6 +56,27 @@ What to check, in order, when a device is to hand:
    is the failure that would teach somebody the app's reminders are noise.
 4. The keep-alive arrives a day before the queue would empty.
 5. Signing out stops reminders arriving for the account you left.
+
+### Phase 8, precisely
+
+**Done and verified:** an error boundary (tested, including that its fallback
+does not itself depend on the providers it sits above); a real app icon and
+splash on the brand palette; the accessibility audit — 113 controls across five
+screens, none unnamed.
+
+**Written but never run**, because both need hardware or an Apple account:
+
+- the five Maestro flows — the YAML parses and they are written against the
+  app's real accessibility labels, but a flow is a guess until a device
+  disagrees with it
+- the nightly e2e workflow — needs `EXPO_TOKEN` in repository secrets and the
+  two Supabase values in repository variables, and fails fast with a message
+  saying so until they exist
+
+**Known gap to a submittable build:** Apple requires in-app account deletion and
+there is none. It is not a quick fix — deleting a member of a shared household
+must not take their completions with them, or the other person's history
+acquires holes. See docs/RELEASE.md.
 
 ## Post-v1
 

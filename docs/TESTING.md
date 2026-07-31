@@ -154,3 +154,37 @@ Rebuild the simulator artifact only when native dependencies change.
 - `expo-doctor`
 
 A phase is not done until this is green.
+
+## The accessibility audit
+
+Run against the web build, because the browser exposes the same accessibility
+tree React Native builds for VoiceOver and TalkBack — every `accessibilityRole`
+becomes a `role`, every `accessibilityLabel` an `aria-label`. It is not a
+substitute for a real VoiceOver pass, but it catches the failure that actually
+happens: a control nobody gave a name to.
+
+With `npm start` running and a session signed in, in the browser console:
+
+```js
+const sel = '[role="button"],[role="tab"],[role="checkbox"],[role="radio"],[role="switch"]';
+[...document.querySelectorAll(sel)]
+  .filter((el) => !((el.getAttribute('aria-label') || el.textContent || '').trim()))
+  .map((el) => el.outerHTML.slice(0, 120));
+```
+
+An empty array is the pass. Last run 2026-07-31 across Today, Upcoming, Chores,
+House and Settings: **113 controls, none unnamed.**
+
+Grepping the source for this does not work, and a first attempt at it produced
+five false positives — a non-greedy match for `<Pressable ... >` stops at the
+first `>`, which is usually inside a `style={({ pressed }) => ...}` prop. The
+rendered tree is the only place the question can honestly be asked.
+
+What this check cannot see, and a device pass still has to:
+
+- reading order, which follows layout rather than intent
+- whether a label reads well *aloud* — "Mark Dishes done" is fine, an
+  over-stuffed one is not
+- dynamic type at the largest sizes
+- whether anything conveys meaning by colour alone (the design system forbids
+  it, but only a person can confirm it)
