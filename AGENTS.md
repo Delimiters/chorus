@@ -13,6 +13,9 @@ Do not rely on recalled API shapes.
 - `docs/POSTMORTEM-SWIFT.md` — the 7 failures of the previous attempt and the
   specific mechanism that prevents each. **Read before touching the engine.**
 - `docs/OPERATIONS.md` — branch protection, CI settings, and how to verify them.
+- `docs/WHERE-THINGS-STAND.md` — what is actually true as of the end of the
+  autonomous build, as opposed to what was planned. **Read before believing the
+  roadmap.**
 
 ## Non-negotiable invariants
 
@@ -123,6 +126,35 @@ Two things follow, and both are easy to get wrong:
 Prefer several small PRs per phase over one large one. More merges mean more CI
 runs, which gives an intermittent failure more chances to appear and makes each
 red job cheap to take seriously rather than a wall between you and the phase.
+
+## A passing test is not evidence
+
+Four retrospectives, four findings of the same shape. Worth stating as a rule
+rather than a war story:
+
+**Revert the fix and confirm the test fails.** If it still passes, the test is
+not testing the fix.
+
+The four, because the pattern is more convincing than the principle:
+
+- A property compared two empty arrays in 93.8% of runs.
+- A flagship assertion about floating chores used zero completions — the one
+  input where the correct and broken implementations agree.
+- A fix was *inert in production*: the pure function was correct, its unit tests
+  passed, and the calling code composed the pipeline wrong. It type-checked,
+  because the wrong type was a subtype of the right one.
+- A regression test passed because its fixture's roster happened to equal the
+  household membership, so a value rebuilt from scratch was byte-identical to
+  one that had been preserved.
+
+Two corollaries:
+
+1. **Ask what would make the assertion vacuous, then check the fixture is not
+   that.** The simplest fixture usually is.
+2. **A defect can be invisible to every test.** Nobody could join a household
+   for four phases — the invite API existed, was tested, and had no screen. Every
+   test went through the layer the missing UI would have used. Some things are
+   only found by using the app.
 
 ## Retrospective review, after every phase
 
