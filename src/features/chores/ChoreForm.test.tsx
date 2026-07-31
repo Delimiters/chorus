@@ -287,6 +287,31 @@ describe('the schedule preview', () => {
 });
 
 describe('assignment', () => {
+  /**
+   * The regression that mattered most in Phase 6's retrospective: the picker
+   * rebuilt segment 0 from current membership whenever the mode was set, so
+   * toggling away from "take turns" and back rewrote who was responsible in the
+   * past. Three taps, silent, permanent.
+   */
+  it('never rewrites a rotation segment that has already taken effect', async () => {
+    const { onSubmit } = await renderForm({ chore: ROTATING_CHORE });
+
+    // Away and back: the exact path that used to overwrite it.
+    await fireEvent.press(screen.getByRole('radio', { name: /Anyone/ }));
+    await fireEvent.press(screen.getByRole('radio', { name: /Take turns/ }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+
+    const assignment = submitted(onSubmit).assignment;
+    if (assignment.kind !== 'rotate') throw new Error('expected a rotation');
+    // The original segment, byte for byte. A new one may be appended; this one
+    // is history and may not move.
+    expect(assignment.segments[0]).toEqual({
+      effectiveFrom: '2026-03-02',
+      memberIds: [ME, THEM],
+      offset: 0,
+    });
+  });
+
   it('distinguishes one shared job from one job each', async () => {
     const { onSubmit } = await renderForm();
     await fireEvent.changeText(screen.getByLabelText('Name'), 'Laundry');

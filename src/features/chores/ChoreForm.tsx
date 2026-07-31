@@ -145,6 +145,8 @@ export function ChoreForm({
           members={members}
           effectiveFrom={startsOn}
           userId={userId}
+          today={today}
+          calendar={calendar}
         />
 
         <Stack gap={space.sm}>
