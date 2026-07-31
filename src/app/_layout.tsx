@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useAuthListener } from '@/data/hooks/useAuth';
 import { createQueryClient, wireFocusManager, wireOnlineManager } from '@/data/queryClient';
+import { ErrorBoundary } from '@/design/ErrorBoundary';
 import { ThemeProvider, useTheme } from '@/design/theme';
 
 function Providers() {
@@ -42,12 +43,16 @@ export default function RootLayout() {
   const [queryClient] = useState(createQueryClient);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <SafeAreaProvider>
-        <ThemeProvider>
-          <Providers />
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </QueryClientProvider>
+    /* Outside every provider: a throw inside one of them is exactly the case
+       a boundary nested within them could not catch. */
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <Providers />
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }

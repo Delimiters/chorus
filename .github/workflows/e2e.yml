@@ -1,0 +1,109 @@
+name: End-to-end
+
+# Nightly and on demand — never on pull requests, and the reason is money.
+#
+# macOS runners bill at ten times the Linux rate and this job boots a simulator,
+# so a per-PR run would dominate the entire CI cost of the project. The free EAS
+# tier is also 15 builds a month, which a per-PR trigger would exhaust in a busy
+# week. See docs/PLAN.md.
+#
+# What this catches that the other suites cannot: the app actually launching, the
+# navigator wiring up, and a completion surviving a real relaunch. Everything
+# below that level is already covered faster and cheaper elsewhere.
+on:
+  schedule:
+    # 07:00 UTC, so a failure is waiting rather than interrupting.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      rebuild:
+        description: 'Force a fresh EAS build even if the cache is warm'
+        type: boolean
+        default: false
+
+concurrency:
+  group: e2e
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Maestro flows
+    runs-on: macos-latest
+    # A simulator boot plus five flows; past this something is wedged and the
+    # runner should be given back rather than left spinning.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # The build is keyed on what can change the native binary. JavaScript
+      # changes are delivered by the bundle at launch, so they must NOT bust
+      # this cache — that is the whole reason a rebuild is rare enough to fit in
+      # the free tier.
+      - name: Native fingerprint
+        id: fingerprint
+        run: |
+          HASH="$(cat package.json app.json | shasum -a 256 | cut -c1-16)"
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Native inputs hash: $HASH"
+
+      - name: Restore the simulator build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/Chorus.app
+          key: ios-sim-${{ steps.fingerprint.outputs.hash }}
+
+      - name: Build for the simulator
+        if: steps.cache.outputs.cache-hit != 'true' || inputs.rebuild
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EXPO_TOKEN is not set. This job needs an Expo account to build."
+            echo "Add it under Settings → Secrets → Actions. See docs/RELEASE.md."
+            exit 1
+          fi
+          npx eas-cli build --platform ios --profile simulator --local --non-interactive \
+            --output build/Chorus.app
+
+      - name: Boot a simulator
+        run: |
+          xcrun simctl boot "iPhone 16" || true
+          xcrun simctl bootstatus "iPhone 16" -b
+
+      - name: Install the app
+        run: xcrun simctl install booted build/Chorus.app
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Run the flows
+        # Against the hosted project, not a local stack: this is the closest
+        # thing to what a phone will actually talk to, and the flows create
+        # their own accounts rather than depending on seeded rows.
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: maestro test .maestro --format junit --output maestro-report.xml
+
+      # Screenshots and the report, because a failure here happens overnight and
+      # "assertion failed" without a picture is most of a day's guessing.
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-results
+          path: |
+            maestro-report.xml
+            ~/.maestro/tests/**
+          if-no-files-found: warn
+          retention-days: 14

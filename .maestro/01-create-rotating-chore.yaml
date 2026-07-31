@@ -1,0 +1,34 @@
+# Build a rotating weekly chore and confirm the preview agrees with the rule.
+#
+# The preview is the point. It runs the same expander the agenda does, so if it
+# shows the wrong dates the chore will land on the wrong days — and this is the
+# only check that catches that before anybody waits a week to find out.
+appId: com.delimiters.chorus
+name: Create a recurring rotating chore
+---
+- launchApp
+- tapOn: 'Chores'
+- tapOn: 'Add a chore'
+
+- tapOn:
+    id: 'Name'
+- inputText: 'Take out the bins'
+
+- tapOn: 'Weekly'
+- tapOn: 'On set days'
+# Clear whatever today seeded, then pick Monday and Thursday explicitly.
+- tapOn: 'Monday'
+- tapOn: 'Thursday'
+
+- assertVisible:
+    text: 'Repeats every.*'
+    # A regex, because the sentence names the days and their order depends on
+    # what today is.
+
+- tapOn: 'Take turns'
+- assertVisible: 'In this order'
+
+- tapOn: 'Add chore'
+
+# Back on the library, described in words rather than in rule syntax.
+- assertVisible: 'Take out the bins'

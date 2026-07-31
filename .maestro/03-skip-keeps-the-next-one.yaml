@@ -1,0 +1,33 @@
+# Skip today, and confirm tomorrow's occurrence survives.
+#
+# The direct regression guard for two of the seven failures in
+# docs/POSTMORTEM-SWIFT.md. The previous attempt materialised occurrences and
+# advanced rotation only on completion, so a skip either deleted the series or
+# froze whose turn it was. Here a skip is a row keyed to one occurrence and
+# nothing else moves.
+#
+# It also covers the one-way door found in Phase 6: a skipped chore has to stay
+# reachable, or its undo can never be tapped.
+appId: com.delimiters.chorus
+name: Skipping does not consume the next occurrence
+---
+- launchApp
+- assertVisible: 'Today'
+
+- tapOn:
+    id: '.*Open options\.'
+    index: 0
+- assertVisible: 'Skip it'
+- tapOn: 'Skip it'
+
+# Visible, struck through, in its own section — not vanished.
+- assertVisible: 'Skipped'
+
+# And undoable from there, which is the part that was missing.
+- tapOn:
+    id: '.*Open options\.'
+    index: 0
+- assertVisible: 'Un-skip it'
+- tapOn: 'Un-skip it'
+
+- assertNotVisible: 'Skipped'

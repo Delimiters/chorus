@@ -34,6 +34,8 @@ interface TxtProps {
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
   accessibilityRole?: 'header' | 'text';
+  /** For text worth copying — an error message, an invite code. */
+  selectable?: boolean;
 }
 
 export function Txt({
@@ -43,6 +45,7 @@ export function Txt({
   style,
   numberOfLines,
   accessibilityRole,
+  selectable,
 }: TxtProps) {
   const colors = useColors();
   const color =
@@ -61,6 +64,7 @@ export function Txt({
       style={[type[variant] as TextStyle, { color }, style]}
       numberOfLines={numberOfLines}
       accessibilityRole={accessibilityRole}
+      selectable={selectable}
     >
       {children}
     </Text>

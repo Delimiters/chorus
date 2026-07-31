@@ -1,0 +1,27 @@
+# Tick a chore, kill the app, and find it still ticked.
+#
+# The completion is optimistic — patched into the cache before the server
+# answers — so "it looked done" and "it *is* done" are genuinely different
+# claims. Only a relaunch distinguishes them, which is why this flow exists
+# rather than an assertion right after the tap.
+appId: com.delimiters.chorus
+name: A completion survives a relaunch
+---
+- launchApp
+- assertVisible: 'Today'
+
+# Whatever is first in Yours. Naming a specific chore would tie this flow to
+# seed data that changes.
+- tapOn:
+    id: 'Mark .* done'
+    index: 0
+
+- assertVisible: 'Done'
+
+- stopApp
+- launchApp
+
+# Still in Done, and not back on the outstanding list.
+- assertVisible: 'Done'
+- assertVisible:
+    id: 'Mark .* not done'

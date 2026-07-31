@@ -1,0 +1,50 @@
+# A second person joins and sees the same chores.
+#
+# The flow that proves the app is actually shared. It exercises `redeem_invite`,
+# which is a SECURITY DEFINER RPC precisely because a non-member has to be able
+# to redeem a code without being able to read the invites table — and it
+# allocates the joiner's ink, which is where a real bug lived: the first version
+# relied on a column default, so every second member arrived the same colour and
+# collided with the uniqueness constraint.
+#
+# Needs the invite code carried between two app states, so it runs as one flow
+# rather than two.
+appId: com.delimiters.chorus
+name: A partner joins by invite
+---
+- launchApp
+- tapOn: 'House'
+- assertVisible: 'Who lives here'
+
+# Copy the code shown on the House screen.
+- copyTextFrom:
+    id: 'Invite code.*'
+
+- tapOn: 'Settings'
+- tapOn: 'Sign out'
+- assertVisible: 'Chorus'
+
+# Second person, same device.
+- tapOn: 'Create one'
+- tapOn:
+    id: 'Your name'
+- inputText: 'Sam'
+- tapOn:
+    id: 'Email'
+- inputText: ${'e2e-partner-' + Date.now() + '@example.test'}
+- tapOn:
+    id: 'Password'
+- inputText: 'password123'
+- tapOn: 'Create account'
+
+- tapOn: 'Join with an invite code'
+- tapOn:
+    id: 'Invite code'
+- pasteText
+- tapOn: 'Join household'
+
+# The same household, and therefore the same chores.
+- assertVisible: 'Today'
+- tapOn: 'House'
+- assertVisible: 'Alex'
+- assertVisible: 'Sam'

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    The identity in one mark: two inks that overprint into a third.
+
+    Two people, two circles, and the part they share coming out a colour
+    neither of them is on their own. It is the same idea the whole design
+    system rests on (see docs/DESIGN_SYSTEM.md), and it survives being 40px
+    wide on a home screen, which a chore-related pictogram would not.
+  -->
+  <rect width="1024" height="1024" fill="#F3F2EE"/>
+  <g>
+    <circle cx="410" cy="512" r="255" fill="#2B4ACB"/>
+    <circle cx="614" cy="512" r="255" fill="#D42B85"/>
+    <!-- The overlap, drawn explicitly rather than left to a blend mode:
+         multiply is unreliable across the renderers that rasterise app
+         icons, and the exact overprint colour is a design decision, not an
+         arithmetic accident. -->
+    <path d="M 512 278.289 A 255 255 0 0 1 512 745.711 A 255 255 0 0 1 512 278.289 Z" fill="#5B2E9E"/>
+  </g>
+</svg>
