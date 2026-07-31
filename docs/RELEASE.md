@@ -76,7 +76,8 @@ Beyond the build, review will want:
   themselves. No analytics, no third-party SDKs, no advertising identifier.
 - **Privacy nutrition labels** — "Contact Info → Email Address", linked to
   identity, used for app functionality. Nothing else applies.
-- **Screenshots** at 6.7" and 6.5".
+- **Screenshots** at the sizes App Store Connect currently asks for. Check
+  rather than trust this document — the required set changes with the hardware.
 - **An account deletion path.** Apple requires that an app offering account
   creation also offers deletion *in the app*. **This does not exist yet** and is
   the single largest gap between the current state and a submittable build. See
@@ -133,6 +134,14 @@ is worse than none:
 - **The Maestro flows have never run.** They are written against the real
   accessibility labels, and the YAML parses, but a flow is a guess until a
   device disagrees with it. Expect the first run to need fixing.
-- **The nightly e2e workflow has never run.** It needs `EXPO_TOKEN` in repository
-  secrets and both Supabase values in repository variables. Until those exist it
-  fails fast with a message saying so, rather than half-running.
+- **The nightly e2e workflow has never run**, and there is more wrong with it
+  than "unrun" suggests. A retrospective found that its first version would have
+  failed at the first step for at least four separate reasons — a build profile
+  requiring dependencies this project does not have, an output filename that is
+  not the format EAS produces, the Supabase variables set at test time when Expo
+  inlines them at *build* time, and no Expo project link. All four are fixed,
+  and none of the fixes has been run either.
+- **There is no Expo project link.** `app.json` has no `extra.eas.projectId`, so
+  `eas build --non-interactive` cannot proceed. `eas build:configure` writes it,
+  and needs an Expo login — so it is the first thing to do, before anything else
+  in this document.

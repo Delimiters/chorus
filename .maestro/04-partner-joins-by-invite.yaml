@@ -1,14 +1,15 @@
-# A second person joins and sees the same chores.
+# A second person joins and sees the same household.
 #
-# The flow that proves the app is actually shared. It exercises `redeem_invite`,
-# which is a SECURITY DEFINER RPC precisely because a non-member has to be able
-# to redeem a code without being able to read the invites table — and it
-# allocates the joiner's ink, which is where a real bug lived: the first version
-# relied on a column default, so every second member arrived the same colour and
-# collided with the uniqueness constraint.
+# The flow that proves the app is actually shared, and the one that would have
+# caught the largest defect in the project: `createInvite` and `getActiveInvite`
+# existed for three phases with no UI at all, so nobody could ever join. Every
+# test that touched invites went through the data layer the screen was missing.
 #
-# Needs the invite code carried between two app states, so it runs as one flow
-# rather than two.
+# It exercises `redeem_invite`, a SECURITY DEFINER RPC precisely because a
+# non-member must be able to redeem a code without being able to read the
+# invites table — and it allocates the joiner's ink, which is where a real bug
+# lived: the first version relied on a column default, so every second member
+# arrived the same colour and collided with the uniqueness constraint.
 appId: com.delimiters.chorus
 name: A partner joins by invite
 ---
@@ -16,34 +17,37 @@ name: A partner joins by invite
 - tapOn: 'House'
 - assertVisible: 'Who lives here'
 
-# Copy the code shown on the House screen.
-- copyTextFrom:
-    id: 'Invite code.*'
+- scrollUntilVisible:
+    element: 'Add someone'
+    direction: DOWN
+- tapOn: 'Make an invite code'
+- assertVisible: 'THEIR CODE'
+- copyTextFrom: '[A-Z0-9]{4}-[A-Z0-9]{4}'
 
-- tapOn: 'Settings'
+# Sign out from the House screen. There is no sign-out on Settings; going there
+# first would push a full-screen route and strand the flow.
+- scrollUntilVisible:
+    element: 'Sign out'
+    direction: DOWN
 - tapOn: 'Sign out'
 - assertVisible: 'Chorus'
 
 # Second person, same device.
 - tapOn: 'Create one'
-- tapOn:
-    id: 'Your name'
+- tapOn: 'Your name'
 - inputText: 'Sam'
-- tapOn:
-    id: 'Email'
+- tapOn: 'Email'
 - inputText: ${'e2e-partner-' + Date.now() + '@example.test'}
-- tapOn:
-    id: 'Password'
+- tapOn: 'Password'
 - inputText: 'password123'
 - tapOn: 'Create account'
 
 - tapOn: 'Join with an invite code'
-- tapOn:
-    id: 'Invite code'
+- tapOn: 'Invite code'
 - pasteText
 - tapOn: 'Join household'
 
-# The same household, and therefore the same chores.
+# The same household, so both people are listed.
 - assertVisible: 'Today'
 - tapOn: 'House'
 - assertVisible: 'Alex'

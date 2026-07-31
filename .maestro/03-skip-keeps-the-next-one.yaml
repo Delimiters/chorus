@@ -1,33 +1,41 @@
 # Skip today, and confirm tomorrow's occurrence survives.
 #
 # The direct regression guard for two of the seven failures in
-# docs/POSTMORTEM-SWIFT.md. The previous attempt materialised occurrences and
-# advanced rotation only on completion, so a skip either deleted the series or
-# froze whose turn it was. Here a skip is a row keyed to one occurrence and
-# nothing else moves.
+# docs/POSTMORTEM-SWIFT.md: the previous attempt materialised occurrences and
+# advanced rotation only on completion, so a skip either consumed the series or
+# froze whose turn it was.
 #
-# It also covers the one-way door found in Phase 6: a skipped chore has to stay
-# reachable, or its undo can never be tapped.
+# An earlier version of this flow was named for that guarantee and never
+# checked it — it skipped, asserted the row said "Skipped", un-skipped, and
+# stopped. It never looked at tomorrow. That is precisely the failure AGENTS.md
+# warns about, so the Upcoming check below is the point of the file and the rest
+# is setup.
 appId: com.delimiters.chorus
 name: Skipping does not consume the next occurrence
 ---
 - launchApp
 - assertVisible: 'Today'
 
-- tapOn:
-    id: '.*Open options\.'
-    index: 0
+# Tomorrow's occurrence exists before the skip.
+- tapOn: 'Upcoming'
+- assertVisible: 'Take out the bins'
+- tapOn: 'Today'
+
+- tapOn: 'Take out the bins, Your turn. Open options.'
 - assertVisible: 'Skip it'
 - tapOn: 'Skip it'
 
-# Visible, struck through, in its own section — not vanished.
+# Visible and struck through in its own section, not vanished — the one-way
+# door found in Phase 6, where a skipped chore had no screen able to show it
+# and its undo could never be reached.
 - assertVisible: 'Skipped'
 
-# And undoable from there, which is the part that was missing.
-- tapOn:
-    id: '.*Open options\.'
-    index: 0
-- assertVisible: 'Un-skip it'
-- tapOn: 'Un-skip it'
+# THE ASSERTION THIS FILE EXISTS FOR: the series is untouched.
+- tapOn: 'Upcoming'
+- assertVisible: 'Take out the bins'
+- tapOn: 'Today'
 
+# And the skip is undoable.
+- tapOn: 'Take out the bins, Your turn. Open options.'
+- tapOn: 'Un-skip it'
 - assertNotVisible: 'Skipped'

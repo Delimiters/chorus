@@ -8,7 +8,6 @@
     "scheme": "chorus",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.delimiters.chorus",
       "supportsTablet": false
     },
