@@ -30,6 +30,81 @@ const DAILY = {
   timeOfDay: null,
 } as const;
 
+/**
+ * The second person in a household is an equal, not a guest.
+ *
+ * Invites and household settings used to be gated behind owner-or-admin, and
+ * nothing in the app ever promotes anybody — so whoever tapped "create" first
+ * was permanently the only person who could invite a third housemate or change
+ * when weeks start. Worse, the second person's taps did nothing *and said
+ * nothing*: RLS filters rather than rejects, so the update matched zero rows,
+ * returned 204, and the setting snapped back on the next refetch.
+ */
+describe('a joined member has the same rights as the founder', () => {
+  let owner: Awaited<ReturnType<typeof createUser>>;
+  let joiner: Awaited<ReturnType<typeof createUser>>;
+  let householdId: string;
+
+  beforeAll(async () => {
+    owner = await createUser(uniqueEmail('equal-owner'), 'Owner');
+    joiner = await createUser(uniqueEmail('equal-joiner'), 'Joiner');
+
+    const created = await owner.client.rpc('create_household', { household_name: 'Equals' });
+    if (created.error) throw new Error(created.error.message);
+    householdId = created.data as string;
+
+    const code = uniqueInviteCode();
+    const invite = await owner.client.from('household_invites').insert({
+      household_id: householdId,
+      code,
+      created_by: owner.userId,
+    });
+    if (invite.error) throw new Error(invite.error.message);
+
+    const redeemed = await joiner.client.rpc('redeem_invite', { invite_code: code });
+    if (redeemed.error) throw new Error(redeemed.error.message);
+  });
+
+  afterAll(async () => {
+    await deleteUsers([owner.userId, joiner.userId]);
+  });
+
+  it('lets the joiner invite a third person', async () => {
+    const { error } = await joiner.client.from('household_invites').insert({
+      household_id: householdId,
+      code: uniqueInviteCode(),
+      created_by: joiner.userId,
+    });
+    expect(error).toBeNull();
+  });
+
+  it('lets the joiner change household settings, and the change sticks', async () => {
+    // Asserted by reading the value back, not by the absence of an error — a
+    // filtered update reports success while changing nothing, which is the
+    // failure this test exists for.
+    const { error } = await joiner.client
+      .from('households')
+      .update({ week_starts_on: 1 })
+      .eq('id', householdId);
+    expect(error).toBeNull();
+
+    const { data } = await joiner.client
+      .from('households')
+      .select('week_starts_on')
+      .eq('id', householdId)
+      .single();
+    expect(data?.week_starts_on).toBe(1);
+  });
+
+  it('still refuses to let the joiner delete the household', async () => {
+    // Equal is not the same as unlimited. Destroying a year of history is not
+    // symmetric with changing when weeks start.
+    await joiner.client.from('households').delete().eq('id', householdId);
+    const { data } = await joiner.client.from('households').select('id').eq('id', householdId);
+    expect(data).toHaveLength(1);
+  });
+});
+
 describe('household isolation', () => {
   let alice: Client;
   let bob: Client;

@@ -26,7 +26,7 @@ grant update on public.chore_exceptions to authenticated;
 -- become. Both are needed — without the second, a member of household A could
 -- update one of their own rows to point at household B.
 create policy exceptions_update on public.chore_exceptions
-  for update
+  for update to authenticated
   using (private.is_household_member(household_id))
   with check (
     private.is_household_member(household_id)
