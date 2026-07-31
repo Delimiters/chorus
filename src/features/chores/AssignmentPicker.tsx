@@ -16,9 +16,11 @@
 import { View } from 'react-native';
 
 import type { CivilDate } from '@/core/civil/types';
+import { rosterOn } from '@/core/rotation/assign';
+import { rosterChangeDate, rosterIsStale, withRoster } from '@/core/rotation/roster';
 import type { Assignment, RotationCadence } from '@/core/rotation/types';
 import { Chip } from '@/design/ChoreRow';
-import { Txt } from '@/design/components';
+import { Button, Txt } from '@/design/components';
 import { FieldGroup, OptionRow, SegmentedControl } from '@/design/controls';
 import { inkColor } from '@/design/inks';
 import { useTheme } from '@/design/theme';
@@ -45,12 +47,22 @@ interface Props {
   /** First date the rotation roster applies from — the chore's start. */
   effectiveFrom: CivilDate;
   userId: string | null;
+  today: CivilDate;
 }
 
-export function AssignmentPicker({ value, onChange, members, effectiveFrom, userId }: Props) {
+export function AssignmentPicker({
+  value,
+  onChange,
+  members,
+  effectiveFrom,
+  userId,
+  today,
+}: Props) {
   const { colors, isDark } = useTheme();
 
   const roster = members.map((m) => m.userId);
+  const currentRoster = rosterOn(value, today);
+  const stale = rosterIsStale(value, roster, today);
   const nameOf = (id: string) =>
     id === userId ? 'You' : (members.find((m) => m.userId === id)?.displayName ?? 'Someone');
 
@@ -78,15 +90,20 @@ export function AssignmentPicker({ value, onChange, members, effectiveFrom, user
           memberId: value.kind === 'fixed' ? value.memberId : (userId ?? roster[0] ?? ''),
         });
       case 'rotate':
-        return onChange({
-          kind: 'rotate',
-          cadence: value.kind === 'rotate' ? value.cadence : { unit: 'occurrence', every: 1 },
-          // A single segment starting when the chore does. Roster changes append
-          // a new one later rather than editing this — rewriting the roster would
-          // retroactively change who was responsible last month, and the history
-          // is what the stats view is built from.
-          segments: [{ effectiveFrom, memberIds: roster, offset: 0 }],
-        });
+        // `withRoster` appends rather than overwrites, so switching mode back
+        // and forth on an existing rotation cannot rewrite who was responsible
+        // last month. It used to: this branch rebuilt segment 0 from current
+        // membership every time, which was the one in-app route to corrupting
+        // the history — three taps away. See src/core/rotation/roster.ts.
+        return onChange(
+          withRoster({
+            assignment: value,
+            roster,
+            effectiveFrom,
+            lastAssigneeId: null,
+            nextTurn: 0,
+          }),
+        );
     }
   };
 
@@ -155,6 +172,37 @@ export function AssignmentPicker({ value, onChange, members, effectiveFrom, user
             />
           </FieldGroup>
 
+          {stale ? (
+            <View
+              style={{
+                gap: space.xs,
+                padding: space.md,
+                borderRadius: radius.md,
+                backgroundColor: colors.sunken,
+              }}
+            >
+              <Txt variant="small">This rotation does not match who lives here now.</Txt>
+              <Txt variant="small" tone="faint">
+                Updating it starts from tomorrow. Who did what before that stays as it was.
+              </Txt>
+              <Button
+                label="Use everyone who lives here"
+                variant="ghost"
+                onPress={() =>
+                  onChange(
+                    withRoster({
+                      assignment: value,
+                      roster,
+                      effectiveFrom: rosterChangeDate(today),
+                      lastAssigneeId: currentRoster[currentRoster.length - 1] ?? null,
+                      nextTurn: 0,
+                    }),
+                  )
+                }
+              />
+            </View>
+          ) : null}
+
           <FieldGroup label="In this order">
             {/* Order matters and is not alphabetical — it is the order turns go
                 in, so it is worth showing rather than leaving implied. */}
@@ -167,7 +215,10 @@ export function AssignmentPicker({ value, onChange, members, effectiveFrom, user
                 paddingVertical: space.xs,
               }}
             >
-              {(value.segments[0]?.memberIds ?? roster).map((id, i) => {
+              {/* The roster in effect *now*, not `segments[0]`, which is the
+                  oldest one — showing that would describe the rotation as it
+                  was when the chore was created. */}
+              {(currentRoster.length > 0 ? currentRoster : roster).map((id, i) => {
                 const member = members.find((m) => m.userId === id);
                 return (
                   <View

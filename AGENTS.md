@@ -73,6 +73,20 @@ Do not mark a phase done with failing tests, partial implementation, or an
 unverified demo. If something is blocked, finish everything else and say plainly
 what was left and why.
 
+## Read the right line of the test output
+
+`Tests: 234 passed` does **not** mean the run passed. A suite that throws while
+*loading* — a missing native module, a module with a side effect at import —
+reports every test in it as passing, because none of them ran:
+
+```
+Test Suites: 1 failed, 17 passed, 18 total     <- the line that matters
+Tests:       225 passed, 225 total             <- the line that lies
+```
+
+Check `Test Suites:` and the exit code, not just `Tests:`. A grep for `✕|Tests:`
+is blind to exactly this failure, and it let a broken suite reach CI twice.
+
 ## A red CI job is a finding, never noise
 
 `main` is protected: nine checks must pass before anything merges, force pushes

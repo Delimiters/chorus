@@ -30,4 +30,35 @@ process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??= 'sb_publishable_test';
  */
 jest.setTimeout(20_000);
 
+/**
+ * `expo-notifications` is mocked for every component test.
+ *
+ * Importing it for real runs `DevicePushTokenAutoRegistration.fx`, which
+ * registers a listener at module load. Nothing unregisters it, so the Jest
+ * worker never exits and the *suite* fails with every test passing — which is
+ * exactly how it presented in CI: "1 failed, 17 passed" over "225 passed".
+ *
+ * Nothing here should be reaching a real notification API anyway. The planning
+ * logic is pure and tested in `src/core/notify`; the only thing worth testing
+ * on this side is `fireAt`, which is arithmetic.
+ */
+/**
+ * AsyncStorage has no native module in a test environment, and importing it
+ * throws on load — which surfaces as a *suite* failure with every test in it
+ * passing, since nothing ever ran. The package ships a mock for exactly this.
+ */
+jest.mock('@react-native-async-storage/async-storage', () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
+jest.mock('expo-notifications', () => ({
+  getPermissionsAsync: jest.fn(async () => ({ granted: true, canAskAgain: true })),
+  requestPermissionsAsync: jest.fn(async () => ({ granted: true, canAskAgain: true })),
+  scheduleNotificationAsync: jest.fn(async () => 'id'),
+  cancelAllScheduledNotificationsAsync: jest.fn(async () => undefined),
+  setNotificationHandler: jest.fn(),
+  SchedulableTriggerInputTypes: { DATE: 'date' },
+}));
+
 export {};

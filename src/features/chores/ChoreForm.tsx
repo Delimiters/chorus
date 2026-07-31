@@ -145,6 +145,7 @@ export function ChoreForm({
           members={members}
           effectiveFrom={startsOn}
           userId={userId}
+          today={today}
         />
 
         <Stack gap={space.sm}>

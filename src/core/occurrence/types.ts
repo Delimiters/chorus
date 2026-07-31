@@ -9,7 +9,7 @@
  * The previous implementation stored all three, which is why they drifted.
  */
 
-import type { CivilDate } from '../civil/types';
+import type { CivilDate, CivilTime } from '../civil/types';
 import type { Occurrence, Schedule } from '../recurrence/types';
 import type { Assignment, AssigneeResolution } from '../rotation/types';
 
@@ -51,6 +51,14 @@ export type OccurrenceStatus = 'due' | 'upcoming' | 'overdue' | 'completed' | 's
 
 export interface ProjectedOccurrence extends Occurrence {
   readonly choreTitle: string;
+  /**
+   * The chore's reminder time, if it has one.
+   *
+   * Carried alongside the title for the same reason: it belongs to the chore,
+   * not the occurrence, and every consumer that has an occurrence would
+   * otherwise need the chore too. Null means "use the household default".
+   */
+  readonly timeOfDay: CivilTime | null;
   readonly status: OccurrenceStatus;
   readonly assignee: AssigneeResolution;
   /** Set when the occurrence has been completed. */
