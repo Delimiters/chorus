@@ -73,6 +73,10 @@ const mockItems = (() => {
 
 const mockToggle = jest.fn();
 const mockRefetch = jest.fn(async () => {});
+const mockSkip = jest.fn();
+const mockReschedule = jest.fn();
+const mockClear = jest.fn();
+const mockPush = jest.fn();
 
 jest.mock('@/data/hooks/useOccurrences', () => ({
   useOccurrences: () => ({
@@ -85,7 +89,14 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     refetch: mockRefetch,
   }),
   useToggleCompletion: () => ({ mutate: mockToggle }),
+  useOccurrenceActions: () => ({
+    skip: { mutate: mockSkip },
+    reschedule: { mutate: mockReschedule },
+    clear: { mutate: mockClear },
+  }),
 }));
+
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
 
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: { weekStartsOn: 0, timeZone: 'UTC' } }),
@@ -111,6 +122,10 @@ function renderScreen() {
 beforeEach(() => {
   mockToggle.mockClear();
   mockRefetch.mockClear();
+  mockSkip.mockClear();
+  mockReschedule.mockClear();
+  mockClear.mockClear();
+  mockPush.mockClear();
 });
 
 describe('Upcoming', () => {

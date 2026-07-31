@@ -26,6 +26,7 @@ import { projectOccurrences } from '@/core/occurrence/project';
 import type { CompletionInput, ExceptionInput } from '@/core/occurrence/types';
 import { useActiveHouseholdId, useUserId } from '@/stores/sessionStore';
 import {
+  clearException,
   completeOccurrence,
   listChores,
   listCompletions,
@@ -405,5 +406,19 @@ export function useOccurrenceActions() {
     onSuccess: invalidate,
   });
 
-  return { skip, reschedule };
+  /**
+   * Undoes a skip or a reschedule.
+   *
+   * One mutation for both, because there is one row: the exception table is
+   * keyed by occurrence and holds at most one deviation per occurrence, so
+   * "un-skip" and "put it back" are the same delete.
+   */
+  const clear = useMutation({
+    mutationFn: async (item: AgendaItem) => {
+      await clearException(item.choreId, item.occurrenceKey);
+    },
+    onSuccess: invalidate,
+  });
+
+  return { skip, reschedule, clear };
 }

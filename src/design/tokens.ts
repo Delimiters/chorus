@@ -37,6 +37,8 @@ export interface Palette {
   readonly overdue: string;
   readonly onOverdue: string;
   readonly danger: string;
+  /** Behind a modal sheet. Translucent so the list underneath stays legible. */
+  readonly scrim: string;
 }
 
 /** The two person inks, plus their overprint. Semantic, not decorative. */
@@ -73,6 +75,10 @@ const light: Palette = {
   onOverdue: '#FFFFFF',
 
   danger: '#B3261E',
+  // Deep enough to push the sheet forward, light enough that you can still see
+  // which row you tapped — the sheet is about that row, so hiding it entirely
+  // would remove the context the sheet needs.
+  scrim: 'rgba(23, 23, 31, 0.42)',
 } as const;
 
 const dark: Palette = {
@@ -97,6 +103,9 @@ const dark: Palette = {
   onOverdue: '#121219',
 
   danger: '#FF6B60',
+  // Heavier in the dark theme: the same alpha over a dark ground reads as almost
+  // nothing, so the sheet would float without separation.
+  scrim: 'rgba(0, 0, 0, 0.6)',
 } as const;
 
 export const palette = { light, dark } as const;

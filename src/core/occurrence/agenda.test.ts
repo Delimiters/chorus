@@ -646,6 +646,67 @@ describe('the Today view', () => {
     expect(plantsView(2).doneCount).toBe(2);
   });
 
+  /**
+   * Found by driving the app, not by a test: skipping a chore made it vanish
+   * from Today, and Upcoming only lists from today forward — so the skipped
+   * occurrence existed in the database with no screen able to show it, and the
+   * "Un-skip it" action could never be reached. An undoable action whose undo
+   * is unreachable is a one-way door with a handle painted on.
+   */
+  describe('skipped occurrences stay reachable', () => {
+    const window = { start: d('2026-01-04'), end: d('2026-01-10') };
+    const schedule = weeklyOn('2026-01-04', 0); // Sunday the 4th
+
+    const skipOf = (dueOn: CivilDate): ExceptionInput => ({
+      choreId: 'chore',
+      occurrenceKey: project([chore({ schedule })], today, window).find((o) => o.dueOn === dueOn)
+        ?.occurrenceKey as string,
+      kind: 'skip',
+      movedTo: null,
+    });
+
+    it('lists a skipped occurrence so its undo can be reached', () => {
+      const view = buildTodayView(
+        collapseSupersededMisses(
+          project([chore({ schedule })], today, window, [], [skipOf(d('2026-01-04'))]),
+          today,
+        ),
+        today,
+        ME,
+      );
+
+      expect(view.skipped.map((i) => i.dueOn)).toEqual(['2026-01-04']);
+      // And it is not counted as work still to do.
+      expect(view.mine).toEqual([]);
+      expect(view.theirs).toEqual([]);
+      expect(view.outstandingCount).toBe(0);
+    });
+
+    it('does not count a skip as done', () => {
+      const view = buildTodayView(
+        collapseSupersededMisses(
+          project([chore({ schedule })], today, window, [], [skipOf(d('2026-01-04'))]),
+          today,
+        ),
+        today,
+        ME,
+      );
+      // Skipping is a decision, not an achievement; the day's tally must not
+      // claim otherwise.
+      expect(view.done).toEqual([]);
+      expect(view.doneCount).toBe(0);
+    });
+
+    it('says nothing when nothing was skipped', () => {
+      const view = buildTodayView(
+        collapseSupersededMisses(project([chore({ schedule })], today, window), today),
+        today,
+        ME,
+      );
+      expect(view.skipped).toEqual([]);
+    });
+  });
+
   it('is empty when there is genuinely nothing to do', () => {
     const view = buildTodayView([], today, ME);
     expect(view.mine).toEqual([]);
