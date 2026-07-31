@@ -20,7 +20,7 @@ import {
   type Household,
   type Member,
 } from '../api/households';
-import { redeemInvite } from '../api/invites';
+import { createInvite, getActiveInvite, redeemInvite } from '../api/invites';
 import { qk } from '../queryKeys';
 
 /**
@@ -134,6 +134,40 @@ export function useJoinHousehold() {
     onSuccess: async (householdId) => {
       setActiveHousehold(householdId);
       await queryClient.invalidateQueries({ queryKey: qk.myHouseholds() });
+    },
+  });
+}
+
+/**
+ * The household's current invite code, if there is one.
+ *
+ * There was no caller for this until now, which meant the app had no way to
+ * *show* an invite — `createInvite` and `getActiveInvite` were written, covered
+ * by the API tests, and wired to nothing. So a second person could never join,
+ * which is the entire point of a shared chore list. A retrospective found it;
+ * no test could have, because every test that touches invites goes through the
+ * data layer the UI was missing.
+ */
+export function useActiveInvite() {
+  const householdId = useActiveHouseholdId();
+  return useQuery({
+    queryKey: qk.invites(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => getActiveInvite(householdId),
+  });
+}
+
+export function useCreateInvite() {
+  const householdId = useActiveHouseholdId();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => {
+      if (householdId === null) throw new Error('Please sign in again.');
+      return createInvite(householdId);
+    },
+    onSuccess: async () => {
+      if (householdId === null) return;
+      await queryClient.invalidateQueries({ queryKey: qk.invites(householdId) });
     },
   });
 }

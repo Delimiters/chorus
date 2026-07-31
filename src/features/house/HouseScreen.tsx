@@ -15,7 +15,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { addDays, startOfWeek } from '@/core/civil/date';
 import { listCompletions } from '@/data/api/chores';
 import { useSignOut } from '@/data/hooks/useAuth';
-import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
+import {
+  useActiveInvite,
+  useCreateInvite,
+  useHousehold,
+  useMembers,
+} from '@/data/hooks/useHousehold';
+import { formatInviteCode } from '@/data/inviteCode';
 import { qk } from '@/data/queryKeys';
 import { useToday } from '@/data/today';
 import { SectionHeader } from '@/design/ChoreRow';
@@ -28,6 +34,8 @@ import { skipToken, useQuery } from '@tanstack/react-query';
 
 export function HouseScreen() {
   const router = useRouter();
+  const invite = useActiveInvite();
+  const createInvite = useCreateInvite();
   const { colors, isDark } = useTheme();
   const householdId = useActiveHouseholdId();
   const household = useHousehold();
@@ -154,6 +162,58 @@ export function HouseScreen() {
             </View>
           </Stack>
         )}
+
+        {/*
+          The invite. Without this the app is single-player: `createInvite` and
+          `getActiveInvite` existed with no caller, so there was no way for a
+          second person to join a household — which is the one thing this app is
+          for. Found by a retrospective, not by a test, because every test that
+          touched invites went through the data layer the UI was missing.
+        */}
+        <SectionHeader title="Add someone" />
+        <Stack gap={space.sm}>
+          {invite.data ? (
+            <View
+              style={{
+                gap: space.xs,
+                padding: space.md,
+                borderRadius: radius.md,
+                backgroundColor: colors.sunken,
+              }}
+            >
+              <Txt variant="label" tone="faint">
+                THEIR CODE
+              </Txt>
+              {/* Selectable and spaced, because this gets read aloud or typed
+                  into another phone rather than tapped. */}
+              <Txt
+                variant="display"
+                selectable
+                style={{ letterSpacing: 2, fontVariant: ['tabular-nums'] }}
+              >
+                {formatInviteCode(invite.data.code)}
+              </Txt>
+              <Txt variant="small" tone="faint">
+                They enter this when they sign up. It works once, and expires if unused.
+              </Txt>
+            </View>
+          ) : (
+            <Txt variant="small" tone="faint">
+              Make a code and give it to whoever you share the house with.
+            </Txt>
+          )}
+          <Button
+            label={invite.data ? 'Make a new code' : 'Make an invite code'}
+            variant="ghost"
+            onPress={() => createInvite.mutate()}
+            loading={createInvite.isPending}
+          />
+          {createInvite.error ? (
+            <Txt variant="small" tone="danger">
+              {(createInvite.error as Error).message}
+            </Txt>
+          ) : null}
+        </Stack>
 
         <View style={{ paddingTop: space.xxl, gap: space.sm }}>
           <Button label="Settings" variant="ghost" onPress={() => router.push('/settings')} />

@@ -1,34 +1,39 @@
-# Build a rotating weekly chore and confirm the preview agrees with the rule.
+# Build a chore due today and confirm the preview agrees with the rule.
 #
-# The preview is the point. It runs the same expander the agenda does, so if it
-# shows the wrong dates the chore will land on the wrong days — and this is the
-# only check that catches that before anybody waits a week to find out.
+# **Daily**, deliberately. An earlier version made a Monday/Thursday chore,
+# which meant the two flows after this one had nothing to act on five nights a
+# week — they would have failed on a cron schedule and read as product bugs.
+# Rotation is still exercised; the cadence just has to guarantee something is
+# due today.
 appId: com.delimiters.chorus
 name: Create a recurring rotating chore
 ---
 - launchApp
 - tapOn: 'Chores'
+- scrollUntilVisible:
+    element: 'Add a chore'
+    direction: DOWN
 - tapOn: 'Add a chore'
 
-- tapOn:
-    id: 'Name'
+- tapOn: 'Name'
 - inputText: 'Take out the bins'
+- tapOn: 'Daily'
 
-- tapOn: 'Weekly'
-- tapOn: 'On set days'
-# Clear whatever today seeded, then pick Monday and Thursday explicitly.
-- tapOn: 'Monday'
-- tapOn: 'Thursday'
+# The rule in words. Asserted exactly, not as a wildcard: `every.*` would match
+# any weekly or daily rule at all, which is the kind of assertion that passes
+# while the chore is wrong.
+- assertVisible: 'Repeats every day.'
 
-- assertVisible:
-    text: 'Repeats every.*'
-    # A regex, because the sentence names the days and their order depends on
-    # what today is.
-
+- scrollUntilVisible:
+    element: 'Take turns'
+    direction: DOWN
 - tapOn: 'Take turns'
 - assertVisible: 'In this order'
 
+- scrollUntilVisible:
+    element: 'Add chore'
+    direction: DOWN
 - tapOn: 'Add chore'
 
-# Back on the library, described in words rather than in rule syntax.
 - assertVisible: 'Take out the bins'
+- assertVisible: 'Every day'

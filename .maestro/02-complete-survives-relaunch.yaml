@@ -2,26 +2,26 @@
 #
 # The completion is optimistic — patched into the cache before the server
 # answers — so "it looked done" and "it *is* done" are genuinely different
-# claims. Only a relaunch distinguishes them, which is why this flow exists
-# rather than an assertion right after the tap.
+# claims, and only a relaunch tells them apart.
 appId: com.delimiters.chorus
 name: A completion survives a relaunch
 ---
 - launchApp
 - assertVisible: 'Today'
 
-# Whatever is first in Yours. Naming a specific chore would tie this flow to
-# seed data that changes.
-- tapOn:
-    id: 'Mark .* done'
-    index: 0
-
+# The chore flow 01 created, by name. Tapping "whatever is first" would depend
+# on ordering and on which other chores exist, and would tick something else if
+# either changed.
+- tapOn: 'Mark Take out the bins done'
 - assertVisible: 'Done'
 
 - stopApp
 - launchApp
 
-# Still in Done, and not back on the outstanding list.
+# Still done after a cold start, which is the whole assertion.
 - assertVisible: 'Done'
-- assertVisible:
-    id: 'Mark .* not done'
+- assertVisible: 'Mark Take out the bins not done'
+
+# Put it back, so the next flow starts from the state it expects. Flows share a
+# device and an account; leaving this ticked would break flow 03.
+- tapOn: 'Mark Take out the bins not done'

@@ -6,33 +6,36 @@
 appId: com.delimiters.chorus
 name: Sign up and create a household
 ---
+# `clearKeychain` as well as `clearState`: the session lives in expo-secure-store,
+# which is the iOS Keychain, and `clearState` only empties the app container. A
+# leftover session from last night's run would land straight on Today and this
+# flow would fail on its first assertion looking like a broken sign-in screen.
 - clearState
+- clearKeychain
 - launchApp
 
 - assertVisible: 'Chorus'
 - tapOn: 'Create one'
 
-# A fresh address every run: reusing one fails on the second run with "already
-# registered", which reads as a broken signup rather than a stale fixture.
-- tapOn:
-    id: 'Your name'
+# Fields are addressed by their visible label text, not `id:`. Maestro's `id:`
+# maps to `accessibilityIdentifier`, which React Native populates only from
+# `testID` — and this app has none. Labels are what it actually exposes.
+- tapOn: 'Your name'
 - inputText: 'Alex'
-- tapOn:
-    id: 'Email'
+- tapOn: 'Email'
+# Fresh every run: reusing an address fails on the second run with "already
+# registered", which reads as a broken signup rather than a stale fixture.
 - inputText: ${'e2e-' + Date.now() + '@example.test'}
-- tapOn:
-    id: 'Password'
+- tapOn: 'Password'
 - inputText: 'password123'
 - tapOn: 'Create account'
 
-# No household yet, so the app must land on onboarding rather than Today.
+# No household yet, so onboarding rather than Today.
 - assertVisible: 'Create a household'
 - tapOn: 'Create a household'
-- tapOn:
-    id: 'Household'
+- tapOn: 'Household'
 - inputText: 'Test House'
 - tapOn: 'Create household'
 
-# An empty Today — not a spinner, and not somebody else's chores.
 - assertVisible: 'Today'
 - assertVisible: 'Nothing due. Enjoy it.'
