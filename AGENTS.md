@@ -12,6 +12,7 @@ Do not rely on recalled API shapes.
 - `docs/ROADMAP.md` — phase checklist and current status.
 - `docs/POSTMORTEM-SWIFT.md` — the 7 failures of the previous attempt and the
   specific mechanism that prevents each. **Read before touching the engine.**
+- `docs/OPERATIONS.md` — branch protection, CI settings, and how to verify them.
 
 ## Non-negotiable invariants
 
@@ -71,6 +72,43 @@ A phase is complete only when **all** of these hold:
 Do not mark a phase done with failing tests, partial implementation, or an
 unverified demo. If something is blocked, finish everything else and say plainly
 what was left and why.
+
+## A red CI job is a finding, never noise
+
+`main` is protected: nine checks must pass before anything merges, force pushes
+and deletions are off, and `enforce_admins` is on. So a red **PR** now blocks
+itself. The rule below is about the part protection cannot enforce.
+
+**Check `main` after every merge.** CI runs on push to `main` as well as on pull
+requests, and a failure there is invisible unless somebody looks:
+
+```bash
+gh run list --branch main --limit 5     # after every merge
+gh run view <id> --log-failed           # any non-success, immediately
+```
+
+This is not hypothetical. `P9 — bounds` failed on the post-merge `main` run for
+Phase 4 with a real counterexample — a one-time chore due the day before its own
+`startsOn`. The PR itself had been green, because the failure was
+non-deterministic and fired in one of five jobs. Nobody opened the main run. The
+same defect was rediscovered two phases later, by chance, while running the
+suite repeatedly for an unrelated reason. It had been failing about **one run in
+four** the entire time.
+
+Two things follow, and both are easy to get wrong:
+
+1. **Never re-run a failed job hoping for green.** A test that fails
+   intermittently is a defect report with an erratic delivery schedule. The
+   non-determinism *is* the finding. Read the counterexample, reproduce it, fix
+   the cause.
+2. **One red job among several green ones is the signal, not an outlier.** The
+   four-timezone matrix exists precisely so an environment-dependent defect has
+   somewhere to show up. When it does its job, believe it. Reading "one red, four
+   green" as noise defeats the entire point of running the matrix.
+
+Prefer several small PRs per phase over one large one. More merges mean more CI
+runs, which gives an intermittent failure more chances to appear and makes each
+red job cheap to take seriously rather than a wall between you and the phase.
 
 ## Retrospective review, after every phase
 
