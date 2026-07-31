@@ -40,7 +40,7 @@ Rules 1, 2, and 5 fail the build if violated. Rules 3, 4, and 6 are on you.
 ## Commands
 
 ```bash
-npm run verify            # typecheck + lint + engine tests — run before every commit
+npm run verify            # format + typecheck + lint + engine tests — before every commit
 npm run typecheck
 npm run lint              # includes the core purity boundary
 npm run test:core         # engine tests, ~1s, no preset

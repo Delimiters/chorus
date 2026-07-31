@@ -70,7 +70,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify": "npm run typecheck && npm run lint && npm run test:core",
+    "verify": "npm run format:check && npm run typecheck && npm run lint && npm run test:core",
     "schedule:preview": "tsx scripts/schedule-preview.ts",
     "db:start": "supabase start -x imgproxy,studio,logflare,vector,supavisor,mailpit",
     "db:stop": "supabase stop",
