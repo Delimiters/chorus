@@ -15,7 +15,7 @@
 
 import { View } from 'react-native';
 
-import type { CalendarConfig, CivilDate } from '@/core/civil/types';
+import type { CivilDate } from '@/core/civil/types';
 import { rosterOn } from '@/core/rotation/assign';
 import { rosterChangeDate, rosterIsStale, withRoster } from '@/core/rotation/roster';
 import type { Assignment, RotationCadence } from '@/core/rotation/types';
@@ -48,7 +48,6 @@ interface Props {
   effectiveFrom: CivilDate;
   userId: string | null;
   today: CivilDate;
-  calendar: CalendarConfig;
 }
 
 export function AssignmentPicker({
@@ -58,7 +57,6 @@ export function AssignmentPicker({
   effectiveFrom,
   userId,
   today,
-  calendar,
 }: Props) {
   const { colors, isDark } = useTheme();
 
@@ -104,7 +102,6 @@ export function AssignmentPicker({
             effectiveFrom,
             lastAssigneeId: null,
             nextTurn: 0,
-            calendar,
           }),
         );
     }
@@ -199,7 +196,6 @@ export function AssignmentPicker({
                       effectiveFrom: rosterChangeDate(today),
                       lastAssigneeId: currentRoster[currentRoster.length - 1] ?? null,
                       nextTurn: 0,
-                      calendar,
                     }),
                   )
                 }

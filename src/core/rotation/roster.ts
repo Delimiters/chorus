@@ -15,8 +15,8 @@
  */
 
 import { addDays, compareCivil } from '../civil/date';
-import type { CalendarConfig, CivilDate } from '../civil/types';
-import { nextSegmentOffset, rosterOn, turnFor } from './assign';
+import type { CivilDate } from '../civil/types';
+import { nextSegmentOffset, rosterOn } from './assign';
 import type { Assignment, RotationSegment } from './types';
 
 export interface RosterChange {
@@ -35,7 +35,6 @@ export interface RosterChange {
   readonly lastAssigneeId: string | null;
   /** The turn number the first occurrence under the new segment will have. */
   readonly nextTurn: number;
-  readonly calendar: CalendarConfig;
 }
 
 /**
@@ -95,23 +94,4 @@ export function rosterIsStale(
   if (current.some((id) => !known.has(id))) return true;
   // Somebody joined and was never added.
   return members.some((id) => !current.includes(id));
-}
-
-/**
- * The turn number an occurrence will carry.
- *
- * Wrapped so the caller does not have to reach into the cadence arithmetic, and
- * so "what turn is next?" reads as one question rather than three cases. All
- * cadences measure from the schedule's anchor, not the segment, which is what
- * makes appending a segment safe: it shifts *who* holds a turn, never *which*
- * turn a date is.
- */
-export function turnAt(
-  assignment: Assignment,
-  occurrence: { occurrenceIndex: number; dueOn: CivilDate },
-  anchor: CivilDate,
-  calendar: CalendarConfig,
-): number {
-  if (assignment.kind !== 'rotate') return 0;
-  return turnFor(occurrence as never, assignment.cadence, calendar, anchor);
 }

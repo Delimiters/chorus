@@ -64,7 +64,6 @@ describe('appending a roster', () => {
     effectiveFrom: d('2026-03-01'),
     lastAssigneeId: BOB,
     nextTurn: 8,
-    calendar: CAL,
   });
 
   it('keeps the segment that was already in effect, untouched', () => {
@@ -122,7 +121,6 @@ describe('changing your mind before it takes effect', () => {
       effectiveFrom: d('2026-03-01'),
       lastAssigneeId: BOB,
       nextTurn: 8,
-      calendar: CAL,
     });
     const second = withRoster({
       assignment: first,
@@ -130,7 +128,6 @@ describe('changing your mind before it takes effect', () => {
       effectiveFrom: d('2026-03-01'),
       lastAssigneeId: BOB,
       nextTurn: 8,
-      calendar: CAL,
     });
 
     if (second.kind !== 'rotate') throw new Error('expected a rotation');
@@ -146,7 +143,6 @@ describe('changing your mind before it takes effect', () => {
       effectiveFrom: d('2026-06-01'),
       lastAssigneeId: ALICE,
       nextTurn: 20,
-      calendar: CAL,
     });
     if (later.kind !== 'rotate') throw new Error('expected a rotation');
     expect(later.segments[0]?.memberIds).toEqual([ALICE, BOB]);
@@ -161,7 +157,6 @@ describe('turning a non-rotating chore into a rotating one', () => {
       effectiveFrom: d('2026-03-01'),
       lastAssigneeId: null,
       nextTurn: 0,
-      calendar: CAL,
     });
     if (result.kind !== 'rotate') throw new Error('expected a rotation');
     expect(result.segments).toHaveLength(1);
