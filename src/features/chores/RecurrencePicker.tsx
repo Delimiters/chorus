@@ -18,7 +18,7 @@ import { View } from 'react-native';
 import { partsOf, weekdayOf } from '@/core/civil/date';
 import type { CivilDate, NthWeek, Weekday } from '@/core/civil/types';
 import { describeRule } from '@/core/recurrence/describe';
-import type { RecurrenceRule } from '@/core/recurrence/types';
+import type { MonthOverflow, RecurrenceRule } from '@/core/recurrence/types';
 import { Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl, Stepper, ToggleChips } from '@/design/controls';
 import { space } from '@/design/tokens';
@@ -102,6 +102,16 @@ export interface RecurrenceDraft {
   readonly nth: NthWeek;
   readonly nthWeekday: Weekday;
   readonly dueOn: CivilDate;
+  /** "due Tuesday" vs "due this week" — carried so editing does not rewrite it. */
+  readonly granularity: 'day' | 'week' | 'month';
+  /**
+   * Carried for the same reason.
+   *
+   * The builder only ever *offers* `clamp`, but a stored rule may say `skip`,
+   * and rebuilding the rule on open would have converted it silently — so
+   * renaming a chore would change what it does in February.
+   */
+  readonly overflow: MonthOverflow;
 }
 
 /**
@@ -127,6 +137,8 @@ export function draftFromRule(rule: RecurrenceRule, today: CivilDate): Recurrenc
     nth: 1,
     nthWeekday: weekdayOf(today),
     dueOn: today,
+    granularity: 'day',
+    overflow: 'clamp',
   };
 
   const parts = ((): RecurrenceDraft => {
@@ -144,13 +156,18 @@ export function draftFromRule(rule: RecurrenceRule, today: CivilDate): Recurrenc
       case 'daily':
         return { ...base, interval: rule.everyNDays };
       case 'monthlyByDay':
-        return { ...base, interval: rule.everyNMonths, dayOfMonth: rule.dayOfMonth };
+        return {
+          ...base,
+          interval: rule.everyNMonths,
+          dayOfMonth: rule.dayOfMonth,
+          overflow: rule.overflow,
+        };
       case 'monthlyByWeekday':
         return { ...base, interval: rule.everyNMonths, nth: rule.nth, nthWeekday: rule.weekday };
       case 'monthlyFloating':
         return { ...base, interval: rule.everyNMonths, timesPerPeriod: rule.timesPerPeriod };
       case 'once':
-        return { ...base, dueOn: rule.dueOn };
+        return { ...base, dueOn: rule.dueOn, granularity: rule.granularity };
       case 'unscheduled':
         return base;
     }
@@ -174,7 +191,7 @@ function ruleFrom(
       return { kind: 'unscheduled' };
 
     case 'once':
-      return { kind: 'once', dueOn: draft.dueOn, granularity: 'day' };
+      return { kind: 'once', dueOn: draft.dueOn, granularity: draft.granularity };
 
     case 'daily':
       return { kind: 'daily', everyNDays: draft.interval };
@@ -215,11 +232,12 @@ function ruleFrom(
         kind: 'monthlyByDay',
         everyNMonths: draft.interval,
         dayOfMonth: draft.dayOfMonth,
-        // Clamping, always. "The 31st" in February means the 28th, not
-        // "skip February" — see docs/RECURRENCE.md. `skip` exists in the union
-        // for rules written by hand; the builder does not offer it, because
-        // silently missing a month is nobody's intent.
-        overflow: 'clamp',
+        // New chores clamp: "the 31st" in February means the 28th, not "skip
+        // February", because silently missing a month is nobody's intent when
+        // they pick a day from a stepper. A stored `skip` is *preserved*
+        // though — the builder not offering a choice is not a licence to
+        // overwrite one somebody already made. See docs/RECURRENCE.md.
+        overflow: draft.overflow,
       };
   }
 }
@@ -228,9 +246,11 @@ interface Props {
   draft: RecurrenceDraft;
   onChange: (draft: RecurrenceDraft) => void;
   today: CivilDate;
+  /** The household's setting, so the date grid matches every other calendar. */
+  weekStartsOn?: Weekday;
 }
 
-export function RecurrencePicker({ draft, onChange, today }: Props) {
+export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: Props) {
   const frequency = frequencyOf(draft.rule);
   const weeklyPattern = weeklyPatternOf(draft.rule);
   const monthlyPattern = monthlyPatternOf(draft.rule);
@@ -277,14 +297,32 @@ export function RecurrencePicker({ draft, onChange, today }: Props) {
       ) : null}
 
       {frequency === 'once' ? (
-        <FieldGroup label="On">
-          <DateField
-            value={draft.dueOn}
-            onChange={(dueOn) => update({ dueOn })}
-            today={today}
-            label="Due date"
-          />
-        </FieldGroup>
+        <>
+          <FieldGroup label="On">
+            <DateField
+              value={draft.dueOn}
+              onChange={(dueOn) => update({ dueOn })}
+              today={today}
+              label="Due date"
+              weekStartsOn={weekStartsOn}
+            />
+          </FieldGroup>
+          <FieldGroup
+            label="How exact"
+            hint="Only changes the wording and how long it waits before reading as late — the date itself does not move."
+          >
+            <SegmentedControl
+              segments={[
+                { value: 'day' as const, label: 'That day' },
+                { value: 'week' as const, label: 'That week' },
+                { value: 'month' as const, label: 'That month' },
+              ]}
+              value={draft.granularity}
+              onChange={(granularity) => update({ granularity })}
+              label="How exact"
+            />
+          </FieldGroup>
+        </>
       ) : null}
 
       {frequency === 'daily' ? (
@@ -463,5 +501,3 @@ function ordinal(n: number): string {
       return `${n}th`;
   }
 }
-
-export { ruleFrom as buildRule };

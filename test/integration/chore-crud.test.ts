@@ -3,9 +3,18 @@
  *
  * Everything asserted here is something a unit test structurally cannot see: the
  * CHECK constraints, the generated columns, the revoked DELETE, and whether RLS
- * lets a member write at all. The API module is exercised through its own
- * functions rather than through raw queries, so a mistake in the mapping between
- * the engine's shapes and the column names fails here rather than in the app.
+ * lets a member write at all.
+ *
+ * These drive **raw queries, not the API module.** That module talks to the
+ * app's Supabase client, which cannot load in a Node test environment — a
+ * transitive React Native dependency ships ESM that this project's transform
+ * does not handle. So a wrong column name inside `createChore` would not fail
+ * here. The shared row-builder is extracted and unit-tested for exactly that
+ * reason; see `src/data/api/chores.test.ts`. What *this* file proves is that
+ * these column names and constraints exist and behave as the app assumes.
+ *
+ * An earlier version of this comment claimed the opposite, which was worse than
+ * saying nothing: it described coverage that did not exist.
  *
  * `admin` appears only in setup and teardown — never inside an `expect()`. It
  * bypasses RLS, so an assertion made through it proves nothing. See

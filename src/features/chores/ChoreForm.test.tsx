@@ -14,6 +14,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig } from '@/core/civil/types';
 import { safeParseSchedule } from '@/core/recurrence/schema';
+import type { RecurrenceRule } from '@/core/recurrence/types';
 import { safeParseAssignment } from '@/core/rotation/schema';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { ThemeProvider } from '@/design/theme';
@@ -125,18 +126,76 @@ describe('editing an existing chore', () => {
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeOnTheScreen();
   });
 
-  it('saves an untouched chore back exactly as it was', async () => {
-    // The one that matters. Anything this form normalises on open is a silent
-    // edit, and for a rotating chore a moved `startsOn` changes whose turn every
-    // future occurrence is.
-    const { onSubmit } = await renderForm({ chore: ROTATING_CHORE });
+  /**
+   * The assertion this file exists for, run over **one chore per rule kind**.
+   *
+   * It used to run over a single weekly chore, which is a rule family
+   * `ruleFrom` happens to reproduce exactly — so it passed while the form
+   * silently rewrote two other kinds on open. `granularity: 'week'` became
+   * `'day'`, and `overflow: 'skip'` became `'clamp'`, meaning renaming a chore
+   * changed what it did in February. The vacuity-making input was the only
+   * input the test used.
+   */
+  const ROUND_TRIP: readonly { name: string; rule: RecurrenceRule }[] = [
+    { name: 'daily', rule: { kind: 'daily', everyNDays: 3 } },
+    { name: 'weekly', rule: { kind: 'weekly', everyNWeeks: 2, weekdays: [1, 4] } },
+    {
+      name: 'weekly floating',
+      rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 3 },
+    },
+    {
+      name: 'monthly, clamping',
+      rule: { kind: 'monthlyByDay', everyNMonths: 1, dayOfMonth: 31, overflow: 'clamp' },
+    },
+    {
+      name: 'monthly, skipping short months',
+      rule: { kind: 'monthlyByDay', everyNMonths: 1, dayOfMonth: 31, overflow: 'skip' },
+    },
+    {
+      name: 'monthly by weekday',
+      rule: { kind: 'monthlyByWeekday', everyNMonths: 3, nth: -1, weekday: 5 },
+    },
+    {
+      name: 'monthly floating',
+      rule: { kind: 'monthlyFloating', everyNMonths: 2, timesPerPeriod: 4 },
+    },
+    {
+      name: 'once, on a day',
+      rule: { kind: 'once', dueOn: civilDate('2026-12-25'), granularity: 'day' },
+    },
+    {
+      name: 'once, in a week',
+      rule: { kind: 'once', dueOn: civilDate('2026-12-25'), granularity: 'week' },
+    },
+    {
+      name: 'once, in a month',
+      rule: { kind: 'once', dueOn: civilDate('2026-12-25'), granularity: 'month' },
+    },
+    { name: 'someday', rule: { kind: 'unscheduled' } },
+  ];
+
+  it.each(ROUND_TRIP)('saves an untouched $name chore back exactly as it was', async ({ rule }) => {
+    const chore: Chore = {
+      ...ROTATING_CHORE,
+      schedule: {
+        ...ROTATING_CHORE.schedule,
+        rule,
+        // `once` normalises `startsOn` to its own date; anything else keeps the
+        // chore's.
+        startsOn: rule.kind === 'once' ? rule.dueOn : ROTATING_CHORE.schedule.startsOn,
+      },
+    };
+
+    const { onSubmit } = await renderForm({ chore });
     await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
 
     const draft = submitted(onSubmit);
-    expect(draft.title).toBe(ROTATING_CHORE.title);
-    expect(draft.notes).toBe(ROTATING_CHORE.notes);
-    expect(draft.schedule).toEqual(ROTATING_CHORE.schedule);
-    expect(draft.assignment).toEqual(ROTATING_CHORE.assignment);
+    expect(draft.title).toBe(chore.title);
+    expect(draft.notes).toBe(chore.notes);
+    expect(draft.schedule).toEqual(chore.schedule);
+    // A rotating chore's roster travels untouched: rewriting a segment would
+    // retroactively change who was responsible last month.
+    expect(draft.assignment).toEqual(chore.assignment);
   });
 
   it('keeps the original start date when the schedule is changed', async () => {
@@ -159,6 +218,17 @@ describe('editing an existing chore', () => {
     // Appending a segment is how a roster change is recorded; editing this one
     // would rewrite who was responsible in the past.
     expect(submitted(onSubmit).assignment).toEqual(ROTATING_CHORE.assignment);
+  });
+
+  it('says "bring back" on an archived chore, because that is what the button does', async () => {
+    // It used to say "Archive this chore" on a chore that was already archived,
+    // and un-archive it. Archived rows are pressable, so that was reachable.
+    const { onArchive } = await renderForm({
+      chore: { ...ROTATING_CHORE, archived: true, archivedAt: '2026-05-01T00:00:00Z' },
+    });
+    expect(screen.queryByRole('button', { name: 'Archive this chore' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Bring this chore back' }));
+    expect(onArchive).toHaveBeenCalled();
   });
 
   it('offers archiving, and says what it does to the history', async () => {

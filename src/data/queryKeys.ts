@@ -39,6 +39,8 @@ export const qk = {
   oneTimeChores: (householdId: string) => [...qk.household(householdId), 'one-time'] as const,
   completionsForChores: (householdId: string, choreIds: readonly string[]) =>
     [...qk.completionsAll(householdId), 'for-chores', [...choreIds].sort()] as const,
+  exceptionsForChores: (householdId: string, choreIds: readonly string[]) =>
+    [...qk.exceptionsAll(householdId), 'for-chores', [...choreIds].sort()] as const,
 
   /**
    * Every completions query, whatever its window.
