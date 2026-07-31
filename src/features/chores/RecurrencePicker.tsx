@@ -104,7 +104,19 @@ export interface RecurrenceDraft {
   readonly dueOn: CivilDate;
 }
 
-/** Seeds a draft from an existing rule, filling the parts it does not carry. */
+/**
+ * Seeds a draft from an existing rule, filling the parts it does not carry.
+ *
+ * The seeded rule is **rebuilt from those parts** rather than passed through.
+ * For any valid rule that is the identity — the round-trip test in
+ * ChoreForm.test.tsx proves it, and it has to be, or opening a chore to edit
+ * its name would silently rewrite its schedule.
+ *
+ * It is not the identity for a degenerate one, which is the point: the form's
+ * own default was a weekly rule with no weekdays, so creating a chore without
+ * touching the schedule emitted something the schema rejects. Repairing here
+ * fixes it for every caller instead of at each one.
+ */
 export function draftFromRule(rule: RecurrenceRule, today: CivilDate): RecurrenceDraft {
   const base: RecurrenceDraft = {
     rule,
@@ -117,29 +129,37 @@ export function draftFromRule(rule: RecurrenceRule, today: CivilDate): Recurrenc
     dueOn: today,
   };
 
-  switch (rule.kind) {
-    case 'weekly':
-      return { ...base, weekdays: rule.weekdays, interval: rule.everyNWeeks };
-    case 'weeklyFloating':
-      return { ...base, interval: rule.everyNWeeks, timesPerPeriod: rule.timesPerPeriod };
-    case 'daily':
-      return { ...base, interval: rule.everyNDays };
-    case 'monthlyByDay':
-      return { ...base, interval: rule.everyNMonths, dayOfMonth: rule.dayOfMonth };
-    case 'monthlyByWeekday':
-      return {
-        ...base,
-        interval: rule.everyNMonths,
-        nth: rule.nth,
-        nthWeekday: rule.weekday,
-      };
-    case 'monthlyFloating':
-      return { ...base, interval: rule.everyNMonths, timesPerPeriod: rule.timesPerPeriod };
-    case 'once':
-      return { ...base, dueOn: rule.dueOn };
-    case 'unscheduled':
-      return base;
-  }
+  const parts = ((): RecurrenceDraft => {
+    switch (rule.kind) {
+      case 'weekly':
+        return {
+          ...base,
+          // An empty set is not expressible in the UI and not accepted by the
+          // schema; fall back to today rather than carrying it forward.
+          weekdays: rule.weekdays.length > 0 ? rule.weekdays : base.weekdays,
+          interval: rule.everyNWeeks,
+        };
+      case 'weeklyFloating':
+        return { ...base, interval: rule.everyNWeeks, timesPerPeriod: rule.timesPerPeriod };
+      case 'daily':
+        return { ...base, interval: rule.everyNDays };
+      case 'monthlyByDay':
+        return { ...base, interval: rule.everyNMonths, dayOfMonth: rule.dayOfMonth };
+      case 'monthlyByWeekday':
+        return { ...base, interval: rule.everyNMonths, nth: rule.nth, nthWeekday: rule.weekday };
+      case 'monthlyFloating':
+        return { ...base, interval: rule.everyNMonths, timesPerPeriod: rule.timesPerPeriod };
+      case 'once':
+        return { ...base, dueOn: rule.dueOn };
+      case 'unscheduled':
+        return base;
+    }
+  })();
+
+  return {
+    ...parts,
+    rule: ruleFrom(parts, frequencyOf(rule), weeklyPatternOf(rule), monthlyPatternOf(rule)),
+  };
 }
 
 /** Rebuilds the rule from the draft's parts. Total over every combination. */
