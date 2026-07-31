@@ -17,7 +17,12 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 
-import { planReminders, type PlannedReminder, type ReminderPolicy } from '@/core/notify/plan';
+import {
+  keepAliveFor,
+  planReminders,
+  type PlannedReminder,
+  type ReminderPolicy,
+} from '@/core/notify/plan';
 import { useUserId } from '@/stores/sessionStore';
 import { localTransport, notificationsAvailable } from '../notifications';
 import { useToday } from '../today';
@@ -60,12 +65,28 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
 
   const plan = useMemo<readonly PlannedReminder[]>(() => {
     if (!enabled || userId === null) return [];
-    return planReminders({ occurrences: items, today, userId, policy });
+    const reminders = planReminders({ occurrences: items, today, userId, policy });
+    // The keep-alive rides along with the rest so it is cancelled and rewritten
+    // by the same reconcile — a queue-topping reminder that outlives the queue
+    // it was meant to top up would be its own small joke.
+    const keepAlive = keepAliveFor(reminders, policy);
+    return keepAlive === null ? reminders : [...reminders, keepAlive];
   }, [enabled, items, today, userId, policy]);
 
   /** The last plan actually written to the OS, so an identical one is skipped. */
   const written = useRef<string>('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Bumped on every attempt, so a slow reconcile that has been overtaken stops
+   * instead of finishing.
+   *
+   * `reconcile` cancels everything and then schedules up to sixty items one
+   * await at a time, which can outlast the debounce on a real device. Without
+   * this, an overtaken run resumes after the newer one has finished and
+   * schedules the *rest of its stale plan* — including a chore that was
+   * completed in between.
+   */
+  const generation = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -76,12 +97,14 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       timer.current = null;
+      const mine = (generation.current += 1);
       void (async () => {
         if (plan.length > 0) {
           const allowed = await localTransport.ensurePermission();
-          if (!allowed) return;
+          if (!allowed || mine !== generation.current) return;
         }
-        await localTransport.reconcile(plan, timeZone);
+        await localTransport.reconcile(plan, () => mine === generation.current);
+        if (mine !== generation.current) return;
         written.current = fingerprint;
       })();
     }, SETTLE_MS);
@@ -90,5 +113,5 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
       if (timer.current !== null) clearTimeout(timer.current);
       timer.current = null;
     };
-  }, [plan, enabled, timeZone]);
+  }, [plan, enabled]);
 }

@@ -293,23 +293,56 @@ describe('assignment', () => {
    * toggling away from "take turns" and back rewrote who was responsible in the
    * past. Three taps, silent, permanent.
    */
-  it('never rewrites a rotation segment that has already taken effect', async () => {
-    const { onSubmit } = await renderForm({ chore: ROTATING_CHORE });
+  /**
+   * The fixture matters as much as the assertion here.
+   *
+   * The first version of this test used a rotation whose roster was identical
+   * to the household — so a segment *rebuilt from current membership* came out
+   * byte-for-byte the same as one that was preserved, and the test passed
+   * either way. It also asserted only `segments[0]`, so it could not see the
+   * cadence being reset on the very path it exercised.
+   *
+   * So: a third housemate who is NOT in the rotation, a second segment, and an
+   * assertion on the whole assignment.
+   */
+  const THIRD = 'user-third';
+  const HISTORIED: Chore = {
+    ...ROTATING_CHORE,
+    assignment: {
+      kind: 'rotate',
+      cadence: { unit: 'week', every: 1 },
+      segments: [
+        { effectiveFrom: civilDate('2026-03-02'), memberIds: [ME, THEM], offset: 0 },
+        { effectiveFrom: civilDate('2026-06-01'), memberIds: [THEM, ME], offset: 1 },
+      ],
+    },
+  };
+
+  it('never rewrites a rotation that has already taken effect', async () => {
+    const { onSubmit } = await renderForm({
+      chore: HISTORIED,
+      members: [...MEMBERS, { userId: THIRD, displayName: 'Robin', accent: 'moss' }],
+    });
 
     // Away and back: the exact path that used to overwrite it.
     await fireEvent.press(screen.getByRole('radio', { name: /Anyone/ }));
     await fireEvent.press(screen.getByRole('radio', { name: /Take turns/ }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
 
-    const assignment = submitted(onSubmit).assignment;
-    if (assignment.kind !== 'rotate') throw new Error('expected a rotation');
-    // The original segment, byte for byte. A new one may be appended; this one
-    // is history and may not move.
-    expect(assignment.segments[0]).toEqual({
-      effectiveFrom: '2026-03-02',
-      memberIds: [ME, THEM],
-      offset: 0,
+    // Every segment, and the cadence — which a rebuild silently reset to
+    // per-occurrence.
+    expect(submitted(onSubmit).assignment).toEqual(HISTORIED.assignment);
+  });
+
+  it('does not touch the roster when you tap the mode it is already in', async () => {
+    // OptionRow fires on every press, including the selected one.
+    const { onSubmit } = await renderForm({
+      chore: HISTORIED,
+      members: [...MEMBERS, { userId: THIRD, displayName: 'Robin', accent: 'moss' }],
     });
+    await fireEvent.press(screen.getByRole('radio', { name: /Take turns/ }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+    expect(submitted(onSubmit).assignment).toEqual(HISTORIED.assignment);
   });
 
   it('distinguishes one shared job from one job each', async () => {

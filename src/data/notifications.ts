@@ -20,8 +20,15 @@ import type { PlannedReminder } from '@/core/notify/plan';
 export interface NotificationTransport {
   /** Ask, if we have not already. Returns whether we may post notifications. */
   ensurePermission: () => Promise<boolean>;
-  /** Replace every pending reminder with this plan. */
-  reconcile: (plan: readonly PlannedReminder[], timeZone: string) => Promise<void>;
+  /**
+   * Replace every pending reminder with this plan.
+   *
+   * `stillCurrent` is checked between scheduling calls: this is a sequential
+   * loop over up to sixty native calls, and on a real device it can outlast the
+   * debounce that triggered it. A run that has been overtaken must stop rather
+   * than finish writing a plan that is already wrong.
+   */
+  reconcile: (plan: readonly PlannedReminder[], stillCurrent?: () => boolean) => Promise<void>;
   cancelAll: () => Promise<void>;
 }
 
@@ -32,10 +39,12 @@ export interface NotificationTransport {
  * and it is the app's edge — the operating system wants an instant, and a civil
  * date is not one. The engine stays free of both.
  *
- * `DateTriggerInput` takes a `Date`, which is interpreted in the *device's*
- * current zone. That is the right behaviour for a reminder: if you fly
- * somewhere, "09:00" should still mean nine in the morning where you are, not
- * nine o'clock back home.
+ * `DateTriggerInput` takes a `Date`, so the instant is fixed at the moment it
+ * is scheduled, using the device's zone *then*. Fly somewhere and the already
+ * queued reminders keep firing at the old wall time until something replans —
+ * which happens on the next data change, not on the zone change itself. Worth
+ * knowing rather than claiming otherwise; the alternative is a calendar trigger
+ * per reminder, which the sixty-item queue does not have room for.
  */
 export function fireAt(onDate: string, atTime: string): Date {
   const [y, m, d] = onDate.split('-').map(Number) as [number, number, number];
@@ -56,12 +65,13 @@ async function ensurePermission(): Promise<boolean> {
 export const localTransport: NotificationTransport = {
   ensurePermission,
 
-  async reconcile(plan) {
+  async reconcile(plan, stillCurrent) {
     await Notifications.cancelAllScheduledNotificationsAsync();
     if (plan.length === 0) return;
 
     const now = Date.now();
     for (const reminder of plan) {
+      if (stillCurrent !== undefined && !stillCurrent()) return;
       const when = fireAt(reminder.onDate, reminder.atTime);
       // A reminder for 09:00 planned at 14:00 the same day is already past.
       // Scheduling it would fire immediately, which reads as a bug.

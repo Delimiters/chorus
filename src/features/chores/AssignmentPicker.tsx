@@ -13,6 +13,7 @@
  * express that. See docs/ROTATION.md.
  */
 
+import { useRef } from 'react';
 import { View } from 'react-native';
 
 import type { CivilDate } from '@/core/civil/types';
@@ -60,6 +61,16 @@ export function AssignmentPicker({
 }: Props) {
   const { colors, isDark } = useTheme();
 
+  /**
+   * The rotation as it was before you switched away from it.
+   *
+   * Stashed in the handler rather than an effect: mirroring a prop into state
+   * on every change is the pattern `react-hooks/set-state-in-effect` exists to
+   * stop, and the only moment worth capturing is the one where the mode
+   * actually leaves `rotate`.
+   */
+  const stashedRotation = useRef<Assignment | null>(value.kind === 'rotate' ? value : null);
+
   const roster = members.map((m) => m.userId);
   const currentRoster = rosterOn(value, today);
   const stale = rosterIsStale(value, roster, today);
@@ -79,6 +90,9 @@ export function AssignmentPicker({
   );
 
   const setMode = (mode: Mode) => {
+    // Capture on the way out, while `value` is still the rotation.
+    if (value.kind === 'rotate' && mode !== 'rotate') stashedRotation.current = value;
+
     switch (mode) {
       case 'anyone':
         return onChange({ kind: 'anyone' });
@@ -90,11 +104,24 @@ export function AssignmentPicker({
           memberId: value.kind === 'fixed' ? value.memberId : (userId ?? roster[0] ?? ''),
         });
       case 'rotate':
-        // `withRoster` appends rather than overwrites, so switching mode back
-        // and forth on an existing rotation cannot rewrite who was responsible
-        // last month. It used to: this branch rebuilt segment 0 from current
-        // membership every time, which was the one in-app route to corrupting
-        // the history — three taps away. See src/core/rotation/roster.ts.
+        /**
+         * Three cases, and getting them confused is what corrupted history
+         * before.
+         *
+         * Already rotating: do nothing. Re-selecting the mode you are already
+         * in must not touch the roster, and `OptionRow` fires on every press
+         * including the selected one.
+         *
+         * Rotating a moment ago, toggled away and back: restore exactly what
+         * was there. Switching to "anyone" replaces the assignment in form
+         * state, so without this the segments — and the cadence — are simply
+         * gone, and coming back rebuilds them from current membership.
+         *
+         * Never rotated: there is no history to protect, so one segment from
+         * the chore's own start is the whole story.
+         */
+        if (value.kind === 'rotate') return;
+        if (stashedRotation.current !== null) return onChange(stashedRotation.current);
         return onChange(
           withRoster({
             assignment: value,
