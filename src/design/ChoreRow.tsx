@@ -177,6 +177,7 @@ export function ChoreRow({
   const { colors } = useTheme();
   const done = item.status === 'completed';
   const overdue = item.status === 'overdue';
+  const skipped = item.status === 'skipped';
 
   return (
     <View
@@ -194,7 +195,7 @@ export function ChoreRow({
           backgroundColor: overdue ? 'transparent' : colors.sunken,
           borderWidth: overdue ? 1 : 0,
           borderColor: colors.overdue,
-          opacity: done ? 0.55 : 1,
+          opacity: done || skipped ? 0.55 : 1,
         },
         style,
       ]}
@@ -212,7 +213,10 @@ export function ChoreRow({
         accessibilityLabel={`${item.choreTitle}, ${turnLabel ?? 'anyone can do it'}. Open options.`}
         style={{ flex: 1, gap: 4 }}
       >
-        <Txt variant="bodyStrong" style={done ? { textDecorationLine: 'line-through' } : undefined}>
+        <Txt
+          variant="bodyStrong"
+          style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
+        >
           {item.choreTitle}
         </Txt>
 

@@ -280,6 +280,16 @@ export interface TodayView {
   readonly theirs: readonly AgendaItem[];
   /** Completed today, or completed earlier and still on today's list. */
   readonly done: readonly AgendaItem[];
+  /**
+   * Skipped, and still the current occurrence of their chore.
+   *
+   * Shown rather than hidden, because skipping is undoable and undo has to be
+   * reachable. Hiding them was a dead end found by driving the app: skip
+   * something and it vanishes from Today, while Upcoming only lists from today
+   * forward — so a skipped past occurrence existed in the database with no
+   * screen anywhere able to show it, and "Un-skip it" could never be reached.
+   */
+  readonly skipped: readonly AgendaItem[];
   readonly outstandingCount: number;
   readonly doneCount: number;
 }
@@ -307,6 +317,8 @@ export function buildTodayView(
   const isOutstanding = (i: AgendaItem): boolean => i.status === 'due' || i.status === 'overdue';
   const outstandingDated = dated.filter(isOutstanding);
   const done = dated.filter((i) => i.status === 'completed' && i.completedOn === today);
+  // At or before today only: a skip made in advance is not today's business.
+  const skipped = dated.filter((i) => i.status === 'skipped' && compareCivil(i.dueOn, today) <= 0);
 
   // A finished floating group stays in its own band rather than moving to Done —
   // one struck-through row with full pips, not three rows saying the same thing.
@@ -320,6 +332,7 @@ export function buildTodayView(
     mine: outstandingDated.filter(isMine),
     theirs: outstandingDated.filter((i) => !isMine(i)),
     done,
+    skipped,
     outstandingCount: outstandingDated.length + floating.filter((g) => g.nextSlot !== null).length,
     doneCount: done.length + floatingDoneToday,
   };

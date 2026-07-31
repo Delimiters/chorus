@@ -7,6 +7,7 @@
  * cannot do. See docs/DESIGN_SYSTEM.md.
  */
 
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,13 +17,18 @@ import type { CivilDate } from '@/core/civil/types';
 import { groupFloating, type AgendaItem } from '@/core/occurrence/agenda';
 import { describeRule } from '@/core/recurrence/describe';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
-import { useOccurrences, useToggleCompletion } from '@/data/hooks/useOccurrences';
+import {
+  useOccurrenceActions,
+  useOccurrences,
+  useToggleCompletion,
+} from '@/data/hooks/useOccurrences';
 import { ChoreRow, FloatingRow, SectionHeader } from '@/design/ChoreRow';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { useToday } from '@/data/today';
+import { OccurrenceSheet } from '../today/OccurrenceSheet';
 import { MonthGrid, type DayMark } from './MonthGrid';
 import { dayOfMonth, formatDayCaption, formatFlexibleWindow, weekdayShort } from '../today/format';
 
@@ -32,6 +38,9 @@ export function UpcomingScreen() {
   const household = useHousehold();
   const members = useMembers();
   const toggle = useToggleCompletion();
+  const router = useRouter();
+  const { skip, reschedule, clear } = useOccurrenceActions();
+  const [open, setOpen] = useState<AgendaItem | null>(null);
 
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
   const today = useToday(household.data?.timeZone ?? 'UTC');
@@ -164,9 +173,7 @@ export function UpcomingScreen() {
                     onToggle={() => {
                       if (next) toggle.mutate({ item: next, complete: true });
                     }}
-                    onOpen={() => {
-                      /* Sheet arrives in Phase 6. */
-                    }}
+                    onOpen={() => setOpen(next ?? group.slots[0] ?? null)}
                   />
                 );
               })}
@@ -220,15 +227,25 @@ export function UpcomingScreen() {
                   turnLabel={turnLabelOf(item)}
                   scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
                   onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
-                  onOpen={() => {
-                    /* Sheet arrives in Phase 6. */
-                  }}
+                  onOpen={() => setOpen(item)}
                 />
               ))}
             </Stack>
           </View>
         ))}
       </ScrollView>
+
+      <OccurrenceSheet
+        item={open}
+        today={today}
+        weekStartsOn={weekStartsOn}
+        onClose={() => setOpen(null)}
+        onToggleComplete={(item) => toggle.mutate({ item, complete: item.status !== 'completed' })}
+        onSkip={(item) => skip.mutate(item)}
+        onReschedule={(item, movedTo) => reschedule.mutate({ item, movedTo })}
+        onClearException={(item) => clear.mutate(item)}
+        onEditChore={(choreId) => router.push(`/chore/${choreId}`)}
+      />
     </SafeAreaView>
   );
 }

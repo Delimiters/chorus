@@ -9,26 +9,36 @@
  * stops you having to ask.
  */
 
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { AgendaItem, FloatingGroup } from '@/core/occurrence/agenda';
 import { describeRule } from '@/core/recurrence/describe';
-import { useMembers } from '@/data/hooks/useHousehold';
-import { useToday_View, useToggleCompletion } from '@/data/hooks/useOccurrences';
+import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
+import {
+  useOccurrenceActions,
+  useToday_View,
+  useToggleCompletion,
+} from '@/data/hooks/useOccurrences';
 import { ChoreRow, FloatingRow, SectionHeader } from '@/design/ChoreRow';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
+import { OccurrenceSheet } from './OccurrenceSheet';
 import { formatDayLong, formatFlexibleWindow } from './format';
 
 export function TodayScreen() {
   const { colors } = useTheme();
+  const router = useRouter();
   const userId = useUserId();
   const members = useMembers();
+  const household = useHousehold();
+  const { skip, reschedule, clear } = useOccurrenceActions();
+  const [open, setOpen] = useState<AgendaItem | null>(null);
   const { view, chores, today, isLoading, error, unreadable, refetch } = useToday_View();
   const toggle = useToggleCompletion();
   const [refreshing, setRefreshing] = useState(false);
@@ -87,9 +97,7 @@ export function TodayScreen() {
         turnLabel={turnLabel}
         scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
         onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
-        onOpen={() => {
-          /* The occurrence sheet arrives in Phase 6. */
-        }}
+        onOpen={() => setOpen(item)}
       />
     );
   };
@@ -107,9 +115,9 @@ export function TodayScreen() {
         onToggle={() => {
           if (next) toggle.mutate({ item: next, complete: true });
         }}
-        onOpen={() => {
-          /* The occurrence sheet arrives in Phase 6. */
-        }}
+        // A floating group's row acts on its next outstanding slot, so that is
+        // the occurrence the sheet is about.
+        onOpen={() => setOpen(next ?? group.slots[0] ?? null)}
       />
     );
   };
@@ -179,7 +187,28 @@ export function TodayScreen() {
             <Stack gap={space.xs}>{view.done.map(renderRow)}</Stack>
           </>
         ) : null}
+
+        {/* Skipping is a decision, not a failure — but it is undoable, and undo
+            has to be reachable from somewhere. */}
+        {view.skipped.length > 0 ? (
+          <>
+            <SectionHeader title="Skipped" count={view.skipped.length} />
+            <Stack gap={space.xs}>{view.skipped.map(renderRow)}</Stack>
+          </>
+        ) : null}
       </ScrollView>
+
+      <OccurrenceSheet
+        item={open}
+        today={today}
+        weekStartsOn={(household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6}
+        onClose={() => setOpen(null)}
+        onToggleComplete={(item) => toggle.mutate({ item, complete: item.status !== 'completed' })}
+        onSkip={(item) => skip.mutate(item)}
+        onReschedule={(item, movedTo) => reschedule.mutate({ item, movedTo })}
+        onClearException={(item) => clear.mutate(item)}
+        onEditChore={(choreId) => router.push(`/chore/${choreId}`)}
+      />
     </SafeAreaView>
   );
 }
