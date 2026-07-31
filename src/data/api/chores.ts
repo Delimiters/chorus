@@ -161,6 +161,26 @@ export async function listCompletionsForChores(
   return (data ?? []).map(toCompletion);
 }
 
+/** Exceptions for a specific handful of chores, unbounded by date. */
+export async function listExceptionsForChores(
+  householdId: string,
+  choreIds: readonly string[],
+): Promise<readonly ExceptionInput[]> {
+  if (choreIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('chore_exceptions')
+    .select('chore_id, occurrence_key, kind, moved_to')
+    .eq('household_id', householdId)
+    .in('chore_id', choreIds);
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    choreId: row.chore_id,
+    occurrenceKey: row.occurrence_key,
+    kind: row.kind as ExceptionInput['kind'],
+    movedTo: (row.moved_to as CivilDate | null) ?? null,
+  }));
+}
+
 /**
  * Every unarchived one-time chore, regardless of date.
  *
@@ -242,7 +262,15 @@ export interface ChoreDraft {
 }
 
 /**
- * Validates a draft on the way out, not just on the way in.
+ * A draft, validated and turned into the columns a chore row is made of.
+ *
+ * Exported and pure so it can be tested without a database — which matters,
+ * because the integration suite drives raw queries (the app's Supabase client
+ * cannot load in a Node test environment) and so cannot catch a wrong column
+ * name here. This is the one piece both writers share, so a mistake in it is a
+ * mistake in every write.
+ *
+ * Validates on the way out, not just on the way in.
  *
  * `schedule` and `assignment` are jsonb, so the database will accept any shape
  * at all — nothing structurally stops a bad write, and a bad write is
@@ -254,7 +282,12 @@ export interface ChoreDraft {
  * own `dueOn`, which is what keeps the generated `starts_on` column agreeing
  * with the engine. See docs/RECURRENCE.md.
  */
-function validateDraft(draft: ChoreDraft): { schedule: Schedule; assignment: Assignment } {
+export function choreRow(draft: ChoreDraft): {
+  title: string;
+  notes: string | null;
+  schedule: Json;
+  assignment: Json;
+} {
   const title = draft.title.trim();
   if (title.length === 0) throw new Error('A chore needs a name.');
   if (title.length > 120) throw new Error('That name is too long — 120 characters at most.');
@@ -265,7 +298,15 @@ function validateDraft(draft: ChoreDraft): { schedule: Schedule; assignment: Ass
   const assignment = safeParseAssignment(draft.assignment);
   if (!assignment.success) throw new Error('That assignment is not one the app can store.');
 
-  return { schedule: schedule.data, assignment: assignment.data };
+  const notes = draft.notes?.trim();
+
+  return {
+    title,
+    // Empty notes are null, not '', so "has notes" is one check rather than two.
+    notes: notes === undefined || notes.length === 0 ? null : notes,
+    schedule: schedule.data as unknown as Json,
+    assignment: assignment.data as unknown as Json,
+  };
 }
 
 export async function createChore(
@@ -273,19 +314,9 @@ export async function createChore(
   userId: string,
   draft: ChoreDraft,
 ): Promise<string> {
-  const { schedule, assignment } = validateDraft(draft);
-  const notes = draft.notes?.trim();
-
   const { data, error } = await supabase
     .from('chores')
-    .insert({
-      household_id: householdId,
-      title: draft.title.trim(),
-      notes: notes === undefined || notes.length === 0 ? null : notes,
-      schedule: schedule as unknown as Json,
-      assignment: assignment as unknown as Json,
-      created_by: userId,
-    })
+    .insert({ household_id: householdId, ...choreRow(draft), created_by: userId })
     .select('id')
     .single();
   if (error) fail(error);
@@ -306,18 +337,7 @@ export async function createChore(
  * the edit brings it back.
  */
 export async function updateChore(choreId: string, draft: ChoreDraft): Promise<void> {
-  const { schedule, assignment } = validateDraft(draft);
-  const notes = draft.notes?.trim();
-
-  const { error } = await supabase
-    .from('chores')
-    .update({
-      title: draft.title.trim(),
-      notes: notes === undefined || notes.length === 0 ? null : notes,
-      schedule: schedule as unknown as Json,
-      assignment: assignment as unknown as Json,
-    })
-    .eq('id', choreId);
+  const { error } = await supabase.from('chores').update(choreRow(draft)).eq('id', choreId);
   if (error) fail(error);
 }
 

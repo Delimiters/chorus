@@ -128,7 +128,12 @@ export function ChoreForm({
           maxLength={2000}
         />
 
-        <RecurrencePicker draft={recurrence} onChange={setRecurrence} today={today} />
+        <RecurrencePicker
+          draft={recurrence}
+          onChange={setRecurrence}
+          today={today}
+          weekStartsOn={calendar.weekStartsOn}
+        />
 
         <FieldGroup label="Next few times">
           <SchedulePreview schedule={schedule} today={today} calendar={calendar} />
@@ -153,10 +158,18 @@ export function ChoreForm({
 
           {editing && onArchive ? (
             <View style={{ paddingTop: space.lg, gap: space.xs }}>
-              <Button label="Archive this chore" onPress={onArchive} variant="ghost" />
+              {/* The action reverses on an archived chore, so the words have to
+                  as well — this button used to say "Archive this chore" while
+                  bringing it back. */}
+              <Button
+                label={chore.archived ? 'Bring this chore back' : 'Archive this chore'}
+                onPress={onArchive}
+                variant="ghost"
+              />
               <Txt variant="small" tone="faint">
-                It stops appearing, and everything already ticked off stays counted. You can bring
-                it back from the archived list.
+                {chore.archived
+                  ? 'It starts appearing again, from its next scheduled date.'
+                  : 'It stops appearing, and everything already ticked off stays counted. You can bring it back from the archived list.'}
               </Txt>
             </View>
           ) : null}

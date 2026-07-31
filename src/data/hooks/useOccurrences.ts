@@ -32,6 +32,7 @@ import {
   listCompletions,
   listCompletionsForChores,
   listExceptions,
+  listExceptionsForChores,
   listOneTimeChores,
   rescheduleOccurrence,
   skipOccurrence,
@@ -122,7 +123,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
 
   const members = useMembers();
 
-  const items = useMemo(() => {
+  const projected = useMemo(() => {
     const chores = choresQuery.data?.chores ?? [];
     if (chores.length === 0) return [];
 
@@ -137,7 +138,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
       calendar,
       window,
     );
-    return toAgendaItems(projected, today);
+    return projected;
   }, [
     choresQuery.data,
     completionsQuery.data,
@@ -148,7 +149,19 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
     window,
   ]);
 
-  const agenda = useMemo(() => collapseSupersededMisses(items, today), [items, today]);
+  /**
+   * Both views derive from the **projector's** output, not from each other.
+   *
+   * This was wrong and the bug was invisible: `items` used to be
+   * `toAgendaItems(projected)`, which strips displaced occurrences, and the
+   * agenda was then collapsed from `items`. So the collapse rule never saw a
+   * displaced occurrence and the whole mechanism added to support it was inert
+   * in the running app while its unit tests — which call the collapse directly —
+   * passed. `AgendaItem extends ProjectedOccurrence`, so the double conversion
+   * type-checked in silence.
+   */
+  const calendarItems = useMemo(() => toAgendaItems(projected, today), [projected, today]);
+  const agenda = useMemo(() => collapseSupersededMisses(projected, today), [projected, today]);
 
   /**
    * Broad rather than surgical, and deliberately so — a household's whole
@@ -163,7 +176,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
   }, [householdId, queryClient]);
 
   return {
-    items,
+    items: calendarItems,
     agenda,
     chores: choresQuery.data?.chores ?? [],
     today,
@@ -214,6 +227,22 @@ function useLingeringOneTimeChores(
     enabled: householdId !== null && choreIds.length > 0,
   });
 
+  /**
+   * Their exceptions, fetched for the same reason as their completions.
+   *
+   * Omitting these made skip and reschedule silent no-ops on exactly these
+   * rows — and Phase 6 is what made them tappable. Skipping wrote the exception,
+   * the next render ignored it, the row stayed put, and tapping again hit the
+   * unique constraint, which the API maps to success. A chore that cannot be
+   * skipped and never says why.
+   */
+  const exceptionsQuery = useQuery({
+    queryKey: qk.exceptionsForChores(householdId ?? '__none__', choreIds),
+    queryFn:
+      householdId === null ? skipToken : () => listExceptionsForChores(householdId, choreIds),
+    enabled: householdId !== null && choreIds.length > 0,
+  });
+
   const items = useMemo(() => {
     const chores = choresQuery.data?.chores ?? [];
     if (chores.length === 0) return [];
@@ -225,7 +254,7 @@ function useLingeringOneTimeChores(
       {
         chores,
         completions: (completionsQuery.data ?? []) as CompletionInput[],
-        exceptions: [],
+        exceptions: (exceptionsQuery.data ?? []) as ExceptionInput[],
         memberIds: (members.data ?? []).map((m) => m.userId),
         today,
       },
@@ -238,11 +267,22 @@ function useLingeringOneTimeChores(
       projected.filter((o) => o.status === 'due' || o.status === 'overdue'),
       today,
     );
-  }, [choresQuery.data, completionsQuery.data, members.data, today, calendar, before]);
+  }, [
+    choresQuery.data,
+    completionsQuery.data,
+    exceptionsQuery.data,
+    members.data,
+    today,
+    calendar,
+    before,
+  ]);
 
   return {
     items,
-    error: (choresQuery.error as Error | null) ?? (completionsQuery.error as Error | null),
+    error:
+      (choresQuery.error as Error | null) ??
+      (completionsQuery.error as Error | null) ??
+      (exceptionsQuery.error as Error | null),
   };
 }
 

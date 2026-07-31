@@ -114,7 +114,14 @@ export function collapseSupersededMisses(
     }
   }
 
-  return [...kept, ...untouched.map((occ) => toAgendaItem(occ, today, 0))].sort(
+  // `untouched` needs the same filter as the groups above. An occurrence whose
+  // position is after today but whose effective date fell before the window
+  // start lands here, and would otherwise render at a date the caller never
+  // asked about.
+  return [
+    ...kept,
+    ...untouched.filter((occ) => !occ.displaced).map((occ) => toAgendaItem(occ, today, 0)),
+  ].sort(
     (a, b) =>
       compareCivil(a.dueOn, b.dueOn) || a.choreTitle.localeCompare(b.choreTitle) || a.slot - b.slot,
   );
