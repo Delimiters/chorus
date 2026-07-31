@@ -66,6 +66,38 @@ describe('rule validation', () => {
 });
 
 describe('schedule validation', () => {
+  /**
+   * A `once` rule carries its own date, so `startsOn` is a second copy of the
+   * same fact — and the two had already drifted apart in the seed. Normalised
+   * on parse rather than rejected: rejecting would fail existing rows over a
+   * field that means nothing for this rule.
+   */
+  it('normalises startsOn to the date a one-time chore is actually due', () => {
+    const parsed = parseSchedule({
+      rule: { kind: 'once', dueOn: '2026-02-14', granularity: 'day' },
+      startsOn: '2026-01-04',
+    });
+    expect(parsed.startsOn).toBe('2026-02-14');
+  });
+
+  it('normalises even when startsOn is after the due date', () => {
+    // This is the shape that broke the bounds property: an occurrence emitted
+    // on a date before its own schedule started.
+    const parsed = parseSchedule({
+      rule: { kind: 'once', dueOn: '1990-01-01', granularity: 'day' },
+      startsOn: '1990-01-02',
+    });
+    expect(parsed.startsOn).toBe('1990-01-01');
+  });
+
+  it('leaves startsOn alone for every recurring rule', () => {
+    const parsed = parseSchedule({
+      rule: { kind: 'daily', everyNDays: 2 },
+      startsOn: '2026-01-04',
+    });
+    expect(parsed.startsOn).toBe('2026-01-04');
+  });
+
   it('defaults optional fields', () => {
     const parsed = parseSchedule({
       rule: { kind: 'daily', everyNDays: 1 },

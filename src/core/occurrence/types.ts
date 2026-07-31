@@ -62,6 +62,13 @@ export interface ProjectedOccurrence extends Occurrence {
   readonly rescheduled: boolean;
   /** The date the rule originally produced, when `rescheduled`. */
   readonly originalDueOn: CivilDate | null;
+  /**
+   * True when a reschedule moved this occurrence out of the requested window.
+   *
+   * Present only so supersession can see that a newer occurrence exists. Never
+   * display one: its date is outside what the caller asked for.
+   */
+  readonly displaced: boolean;
 }
 
 /** Everything the projector needs. All of it is plain data. */

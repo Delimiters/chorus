@@ -254,7 +254,12 @@ describe('reschedule', () => {
     expect(result.filter((o) => o.dueOn === '2026-01-08')).toHaveLength(2);
   });
 
-  it('drops an occurrence rescheduled OUT of the window', () => {
+  it('marks an occurrence rescheduled OUT of the window as displaced', () => {
+    // It is emitted rather than dropped, and this is deliberate. The agenda's
+    // collapse rule has to know a newer occurrence exists, or the previous one
+    // becomes "the latest at or before today" and resurfaces as overdue. The
+    // flag is how a consumer tells "this is here for bookkeeping" from "this is
+    // here to be rendered". See docs/RECURRENCE.md.
     const target = project()[2];
     const result = project({
       exceptions: [
@@ -266,8 +271,31 @@ describe('reschedule', () => {
         },
       ],
     });
-    expect(result).toHaveLength(6);
-    expect(result.some((o) => o.occurrenceKey === target?.occurrenceKey)).toBe(false);
+
+    const moved = result.find((o) => o.occurrenceKey === target?.occurrenceKey);
+    expect(moved?.displaced).toBe(true);
+    expect(moved?.dueOn).toBe('2026-02-15');
+    expect(moved?.originalDueOn).toBe(target?.dueOn);
+
+    // Nothing else is displaced, and the window is otherwise unchanged.
+    expect(result.filter((o) => !o.displaced)).toHaveLength(6);
+  });
+
+  it('does not mark an occurrence displaced when it merely moves within the window', () => {
+    // The flag must be rare and precise: a routine reschedule is not displaced,
+    // and treating it as one would hide the row the user just moved.
+    const target = project()[2];
+    const result = project({
+      exceptions: [
+        {
+          choreId: 'chore-1',
+          occurrenceKey: target?.occurrenceKey as string,
+          kind: 'reschedule',
+          movedTo: d('2026-01-08'),
+        },
+      ],
+    });
+    expect(result.every((o) => !o.displaced)).toBe(true);
   });
 });
 

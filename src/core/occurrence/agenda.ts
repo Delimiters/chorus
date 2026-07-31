@@ -95,10 +95,15 @@ export function collapseSupersededMisses(
     const missedBefore = earlier.filter((o) => o.status === 'overdue' || o.status === 'due').length;
 
     for (const occ of latest) {
+      // A displaced occurrence did its job by existing — it told us the older
+      // ones are superseded. Its date is outside the window, so it is not ours
+      // to render.
+      if (occ.displaced) continue;
       kept.push(toAgendaItem(occ, today, missedBefore));
     }
 
     for (const occ of earlier) {
+      if (occ.displaced) continue;
       // Completed TODAY: ticking something off should not make it vanish.
       const doneToday = occ.status === 'completed' && occ.completedOn === today;
       // Deliberately moved to today or later: somebody said "do it then", and
@@ -143,14 +148,19 @@ export function toAgendaItems(
   projected: readonly ProjectedOccurrence[],
   today: CivilDate,
 ): readonly AgendaItem[] {
-  return projected
-    .map((occ) => toAgendaItem(occ, today, 0))
-    .sort(
-      (a, b) =>
-        compareCivil(a.dueOn, b.dueOn) ||
-        a.choreTitle.localeCompare(b.choreTitle) ||
-        a.slot - b.slot,
-    );
+  return (
+    projected
+      // Displaced occurrences exist only so the collapse rule can see them; their
+      // dates are outside the window the caller asked for.
+      .filter((occ) => !occ.displaced)
+      .map((occ) => toAgendaItem(occ, today, 0))
+      .sort(
+        (a, b) =>
+          compareCivil(a.dueOn, b.dueOn) ||
+          a.choreTitle.localeCompare(b.choreTitle) ||
+          a.slot - b.slot,
+      )
+  );
 }
 
 function toAgendaItem(
