@@ -39,8 +39,7 @@ export function useChoreList(options: { includeArchived?: boolean } = {}) {
 
   return useQuery({
     queryKey: qk.choreList(householdId ?? '__none__', { archived: includeArchived }),
-    queryFn:
-      householdId === null ? skipToken : () => listChores(householdId, { includeArchived }),
+    queryFn: householdId === null ? skipToken : () => listChores(householdId, { includeArchived }),
   });
 }
 
