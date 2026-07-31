@@ -158,7 +158,15 @@ export function TodayScreen() {
           </View>
         ) : null}
 
-        {nothingToDo ? <EmptyToday done={view.done} byMember={byMember} userId={userId} /> : null}
+        {nothingToDo ? (
+          <EmptyToday
+            done={view.done}
+            byMember={byMember}
+            userId={userId}
+            hasAnyChores={chores.length > 0}
+            onAddChore={() => router.push('/chore/new')}
+          />
+        ) : null}
 
         {view.floating.length > 0 ? (
           <>

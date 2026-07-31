@@ -10,7 +10,7 @@ import { View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import type { AgendaItem } from '@/core/occurrence/agenda';
-import { Stack, Txt } from '@/design/components';
+import { Button, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
 
@@ -29,9 +29,12 @@ interface Props {
   done: readonly AgendaItem[];
   byMember: ReadonlyMap<string, { name: string; ink: string }>;
   userId: string | null;
+  /** False for a household that has never had a chore, which reads differently. */
+  hasAnyChores: boolean;
+  onAddChore?: (() => void) | undefined;
 }
 
-export function EmptyToday({ done, byMember, userId }: Props) {
+export function EmptyToday({ done, byMember, userId, hasAnyChores, onAddChore }: Props) {
   /**
    * Credit where it's due.
    *
@@ -44,6 +47,33 @@ export function EmptyToday({ done, byMember, userId }: Props) {
   const otherName =
     firstOther?.completedBy != null ? byMember.get(firstOther.completedBy)?.name : undefined;
 
+  /**
+   * A household with no chores at all is not "all clear".
+   *
+   * It said so anyway — a brand new household, thirty seconds after signup,
+   * was congratulated for finishing a list it had never had. Worse than wrong:
+   * the one moment the screen should say what to do next, it said there was
+   * nothing to do.
+   */
+  if (!hasAnyChores) {
+    return (
+      <View
+        style={{ alignItems: 'center', paddingVertical: space.xxxl, paddingHorizontal: space.lg }}
+      >
+        <Stack gap={space.md} style={{ alignItems: 'center' }}>
+          <Mark />
+          <Txt variant="title" accessibilityRole="header">
+            Nothing here yet
+          </Txt>
+          <Txt tone="muted" style={{ textAlign: 'center' }}>
+            Add a chore and it will show up here on the days it is due.
+          </Txt>
+          {onAddChore === undefined ? null : <Button label="Add a chore" onPress={onAddChore} />}
+        </Stack>
+      </View>
+    );
+  }
+
   const subtitle =
     otherName !== undefined
       ? byOthers.length === 1
@@ -51,7 +81,7 @@ export function EmptyToday({ done, byMember, userId }: Props) {
         : `${otherName} and others cleared the list.`
       : done.length > 0
         ? 'You cleared the list.'
-        : 'Nothing due. Enjoy it.';
+        : 'Nothing due today. Enjoy it.';
 
   return (
     <View

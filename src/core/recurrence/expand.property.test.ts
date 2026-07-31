@@ -21,6 +21,7 @@ import {
 } from '../__testing__/rules';
 import {
   addDays,
+  civilDate,
   compareCivil,
   isSameOrAfter,
   isSameOrBefore,
@@ -125,6 +126,64 @@ describe('P3 — ordering and key uniqueness', () => {
         const indices = expand(schedule, cal, window).map((o) => o.occurrenceIndex);
         expect(new Set(indices).size).toBe(indices.length);
       }),
+    );
+  });
+
+  /**
+   * The index has to *increase with the date*, and distinctness is not that.
+   *
+   * `occurrenceIndex` is what an `occurrence`-cadence rotation counts turns
+   * with — the default cadence — so an index that jumps around hands out turns
+   * in an order nobody asked for. A weekly Mon/Wed/Fri chore created on a
+   * Friday produced alice, alice, bob, bob, bob, alice: three in a row, from a
+   * rule that says "alternate".
+   *
+   * The old property passed throughout. Every index was distinct; they were
+   * simply in the wrong order, and nothing looked at the order.
+   */
+  it('numbers occurrences in the order they fall', () => {
+    fc.assert(
+      fc.property(arbScheduleAndWindow(), arbCalendarConfig(), ({ schedule, window }, cal) => {
+        const occurrences = expand(schedule, cal, window);
+        for (let i = 1; i < occurrences.length; i += 1) {
+          const prev = occurrences[i - 1] as {
+            dueOn: string;
+            occurrenceIndex: number;
+            slot: number;
+          };
+          const next = occurrences[i] as { dueOn: string; occurrenceIndex: number; slot: number };
+          // Same date means concurrent floating slots, which are ordered by
+          // slot rather than by date; anything later must have a higher index.
+          if (next.dueOn > prev.dueOn) {
+            expect(next.occurrenceIndex).toBeGreaterThan(prev.occurrenceIndex);
+          }
+        }
+      }),
+      { numRuns: 300 },
+    );
+  });
+
+  it('numbers a multi-day weekly rule in date order whatever weekday it starts on', () => {
+    // The specific shape the property above generalises, pinned because it is
+    // the one a person actually creates: "bins on Mon, Wed and Fri".
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 6 }), (startWeekday) => {
+        // A week in 2026 beginning on a Sunday, offset to the chosen weekday.
+        const anchor = addDays(civilDate('2026-07-26'), startWeekday);
+        const occurrences = expand(
+          {
+            rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [1, 3, 5] },
+            startsOn: anchor,
+            endsOn: null,
+            timeOfDay: null,
+          } as never,
+          { weekStartsOn: 0 },
+          { start: anchor, end: addDays(anchor, 40) },
+        );
+        const indices = occurrences.map((o) => o.occurrenceIndex);
+        expect(indices).toEqual([...indices].sort((a, b) => a - b));
+      }),
+      { numRuns: 7 },
     );
   });
 });

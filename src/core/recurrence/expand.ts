@@ -229,7 +229,26 @@ function expandWeekly(
   to: CivilDate,
   build: Build,
 ): Occurrence[] {
-  const sorted = [...weekdays].sort((a, b) => a - b);
+  /**
+   * Ordered by **when they fall**, not by weekday number.
+   *
+   * This is the whole of a real bug. The dates within a block run forward from
+   * the anchor's own weekday, but the index used to run in weekday-number
+   * order — so unless the anchor happened to land on the earliest selected day,
+   * index and date disagreed. `occurrenceIndex` is what an `occurrence`-cadence
+   * rotation counts turns with, and that is the default cadence, so "bins
+   * Mon/Wed/Fri, we alternate" produced:
+   *
+   *   Fri alice · Mon alice · Wed bob · Fri bob · Mon bob · Wed alice …
+   *
+   * Nobody who asks for alternation gets three in a row. The expander even
+   * called `sortOccurrences` afterwards to fix the *display* order, which
+   * repaired the symptom and left the indices scrambled.
+   */
+  const origin = weekdayOf(anchor);
+  const inDateOrder = [...weekdays].sort(
+    (a, b) => offsetToWeekday(a, origin) - offsetToWeekday(b, origin),
+  );
 
   // Cycle 0 is the 7-day block beginning at the anchor. Stepping back one cycle
   // from `from` guarantees occurrences early in that block are still considered.
@@ -241,11 +260,13 @@ function expandWeekly(
     const blockStart = addDays(anchor, cycle * everyNWeeks * 7);
     if (compareCivil(blockStart, to) > 0) break;
 
-    for (const [slot, weekday] of sorted.entries()) {
+    for (const [slot, weekday] of inDateOrder.entries()) {
       // Days forward from the anchor's own weekday to the requested weekday.
-      const dueOn = addDays(blockStart, offsetToWeekday(weekday, weekdayOf(anchor)));
+      const dueOn = addDays(blockStart, offsetToWeekday(weekday, origin));
       if (compareCivil(dueOn, from) < 0 || compareCivil(dueOn, to) > 0) continue;
-      out.push(build(dueOn, dayPeriodKey(dueOn), 0, cycle * sorted.length + slot, dueOn, dueOn));
+      out.push(
+        build(dueOn, dayPeriodKey(dueOn), 0, cycle * inDateOrder.length + slot, dueOn, dueOn),
+      );
     }
   }
   return sortOccurrences(out);
