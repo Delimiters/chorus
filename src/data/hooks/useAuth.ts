@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { useSessionStore } from '@/stores/sessionStore';
+import { localTransport } from '../notifications';
 import { describeError, supabase, watchAppStateForAuth } from '../supabase';
 
 /**
@@ -92,6 +93,23 @@ export function useSignUp() {
 export function useSignOut() {
   return useMutation({
     mutationFn: async () => {
+      /**
+       * Clear the notification queue *first*.
+       *
+       * Local reminders live in the operating system, not in the session, so
+       * signing out does not touch them — up to sixty reminders naming the
+       * previous account's chores would keep firing for weeks, on a phone whose
+       * app no longer has any of that data to show.
+       *
+       * Before the sign-out rather than after, because the auth listener tears
+       * the app shell down as soon as the session goes and nothing after that
+       * point is guaranteed to run.
+       */
+      await localTransport.cancelAll().catch(() => {
+        // A phone that will not let us clear the queue is not a reason to
+        // refuse to sign out.
+      });
+
       const { error } = await supabase.auth.signOut();
       if (error) throw new Error(describeError(error));
     },

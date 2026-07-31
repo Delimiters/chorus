@@ -17,8 +17,8 @@ import type { ProjectedOccurrence } from '../occurrence/types';
 import {
   DEFAULT_POLICY,
   MAX_PENDING,
+  keepAliveFor,
   planReminders,
-  planWasTruncated,
   type ReminderPolicy,
 } from './plan';
 
@@ -121,18 +121,29 @@ describe('what earns a reminder', () => {
 });
 
 describe('what the notification says', () => {
-  it('is plain about today and tomorrow', () => {
-    expect(plan([occ()])[0]?.body).toBe('Due today');
-    expect(plan([occ({ dueOn: addDays(TODAY, 1) })])[0]?.body).toBe('Due tomorrow');
+  /**
+   * The body is written for the moment it is *read*, not the moment it is
+   * planned. A reminder fires on its own due date, so that date is always
+   * "today" by the time anybody sees it — however far out it was when planned.
+   *
+   * The first version compared against plan-time `today`, so anything two or
+   * more days ahead was labelled "Due tomorrow" and arrived saying so on the
+   * morning it was genuinely due. The tests covered offsets 0 and 1 only, which
+   * is precisely where that cannot show.
+   */
+  it.each([0, 1, 2, 5, 29])('says "Due today" for a chore %i days out', (offset) => {
+    const due = addDays(TODAY, offset);
+    const [reminder] = plan([occ({ dueOn: due, flexibleFrom: due, flexibleUntil: due })]);
+    expect(reminder?.body).toBe('Due today');
   });
 
-  it('says "sometime this week" for a floating chore, because a date would lie', () => {
+  it('says "sometime this period" for a floating chore, because a day would lie', () => {
     const floating = occ({
       dueOn: TODAY,
       flexibleFrom: TODAY,
       flexibleUntil: addDays(TODAY, 4),
     });
-    expect(plan([floating])[0]?.body).toBe('Sometime this week');
+    expect(plan([floating])[0]?.body).toBe('Due sometime this period');
   });
 });
 
@@ -195,16 +206,23 @@ describe('P — the cap', () => {
 
   it('is not vacuous — the generator really does exceed the cap', () => {
     // The guard the Phase 4 retrospective taught: a property over inputs that
-    // never reach the interesting case proves nothing. Measured, not assumed.
+    // never reach the interesting case proves nothing.
+    //
+    // The first version of this counted with a helper that could only ever
+    // return true for this generator, so it could not fail — a meta-test that
+    // needed a meta-test. This measures and reports, like the expander's
+    // generator-coverage check does.
+    let runs = 0;
     let truncated = 0;
     fc.assert(
       fc.property(arbOccurrences(120), (occurrences) => {
-        const planned = plan(occurrences, { horizonDays: 90 });
-        if (planWasTruncated(planned, occurrences.length)) truncated += 1;
+        runs += 1;
+        if (plan(occurrences, { horizonDays: 90 }).length < occurrences.length) truncated += 1;
       }),
       { numRuns: 50 },
     );
-    expect(truncated).toBe(50);
+    console.log(`cap coverage: ${((truncated / runs) * 100).toFixed(1)}% truncated`);
+    expect(truncated).toBeGreaterThan(runs * 0.9);
   });
 
   it('is ordered by when it fires', () => {
@@ -219,6 +237,45 @@ describe('P — the cap', () => {
       }),
       { numRuns: 100 },
     );
+  });
+});
+
+describe('the keep-alive', () => {
+  /**
+   * The one failure mode local notifications have that nothing else covers:
+   * the app schedules its own reminders, so if nobody opens the app, nothing
+   * tops the queue up. A week away is fine — the horizon is thirty days. A
+   * month away is not: the queue drains and reminders stop, silently.
+   *
+   * ADR-0005 specified this and the first implementation omitted it, while a
+   * comment in this very file referred to "the keep-alive below".
+   */
+  it('lands a day before the queue would run dry', () => {
+    const reminders = plan([
+      occ({ dueOn: addDays(TODAY, 1) }),
+      occ({ choreId: 'b', occurrenceKey: 'b', dueOn: addDays(TODAY, 20) }),
+    ]);
+    const keepAlive = keepAliveFor(reminders, DEFAULT_POLICY);
+    expect(keepAlive?.onDate).toBe(addDays(TODAY, 19));
+  });
+
+  it('asks for the one thing that fixes it', () => {
+    const keepAlive = keepAliveFor(plan([occ()]), DEFAULT_POLICY);
+    expect(keepAlive?.body).toMatch(/open the app/i);
+  });
+
+  it('has a stable identifier that no occurrence can collide with', () => {
+    const keepAlive = keepAliveFor(plan([occ()]), DEFAULT_POLICY);
+    expect(keepAlive?.id).toBe('keepalive:v1');
+    expect(plan([occ()]).some((r) => r.id === keepAlive?.id)).toBe(false);
+  });
+
+  it('is absent when there is nothing to keep alive', () => {
+    expect(keepAliveFor([], DEFAULT_POLICY)).toBeNull();
+  });
+
+  it('is absent when reminders are off', () => {
+    expect(keepAliveFor(plan([occ()]), { ...DEFAULT_POLICY, enabled: false })).toBeNull();
   });
 });
 

@@ -22,7 +22,12 @@ jest.mock('@/data/hooks/useHousehold', () => ({
   useUpdateHousehold: () => ({ mutate: mockUpdate }),
 }));
 
-jest.mock('@/data/notifications', () => ({ notificationsAvailable: true }));
+let mockAvailable = true;
+jest.mock('@/data/notifications', () => ({
+  get notificationsAvailable() {
+    return mockAvailable;
+  },
+}));
 
 async function renderScreen() {
   return render(
@@ -36,6 +41,7 @@ beforeEach(() => {
   mockUpdate.mockClear();
   mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York' };
   useReminderStore.setState({ policy: DEFAULT_POLICY });
+  mockAvailable = true;
 });
 
 describe('household settings', () => {
@@ -93,6 +99,17 @@ describe('reminder settings', () => {
     // bug: past the cap, later reminders simply never arrive.
     await renderScreen();
     expect(screen.getByText(new RegExp(String(MAX_PENDING)))).toBeOnTheScreen();
+  });
+});
+
+describe('when this build cannot schedule notifications at all', () => {
+  it('says so rather than offering a switch that does nothing', async () => {
+    // Expo Go and the web build both land here. A toggle that silently fails
+    // is worse than an honest sentence.
+    mockAvailable = false;
+    await renderScreen();
+    expect(screen.getByText(/cannot schedule them/)).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Remind me about my chores')).toBeNull();
   });
 });
 

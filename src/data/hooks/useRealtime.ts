@@ -60,9 +60,20 @@ export function useRealtimeHousehold(): void {
           event: '*',
           schema: 'public',
           table,
-          // Server-side filter, so another household's traffic never reaches
-          // this device. RLS already stops it being *readable*; this stops it
-          // being *sent*, which matters on a metered connection.
+          /**
+           * Server-side filter, so another household's traffic never reaches
+           * this device. RLS already stops it being *readable*; this stops it
+           * being *sent*, which matters on a metered connection.
+           *
+           * It only works on DELETE where replica identity is FULL — otherwise
+           * Postgres emits just the primary key and there is no `household_id`
+           * to match on. The core schema sets FULL on `chore_completions` and
+           * `chore_exceptions` for exactly this reason: un-ticking a chore and
+           * undoing a skip are both deletes, and both need to reach the other
+           * phone. `chores` does not need it (DELETE is revoked; archiving is an
+           * update), and `household_members` will if a "leave household" action
+           * is ever added.
+           */
           filter: `household_id=eq.${householdId}`,
         },
         schedule,
