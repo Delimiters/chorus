@@ -7,29 +7,7 @@ name: Database
 on:
   push:
     branches: [main]
-    paths: [
-        'supabase/**',
-        'test/integration/**',
-        # engine-over-db.test.ts exists to catch drift between src/core and the
-        # database, so a change to either has to run it. Without these, the one
-        # test designed to catch that drift never fired on the changes most
-        # likely to cause it.
-        'src/core/**',
-        'src/data/**',
-        '.github/workflows/db.yml',
-      ]
   pull_request:
-    paths: [
-        'supabase/**',
-        'test/integration/**',
-        # engine-over-db.test.ts exists to catch drift between src/core and the
-        # database, so a change to either has to run it. Without these, the one
-        # test designed to catch that drift never fired on the changes most
-        # likely to cause it.
-        'src/core/**',
-        'src/data/**',
-        '.github/workflows/db.yml',
-      ]
   workflow_dispatch:
 
 concurrency:
@@ -42,18 +20,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Needed to diff against the base commit below.
+          fetch-depth: 0
+
+      # This job is a REQUIRED status check, so it has to report on every pull
+      # request — including one that only touches a doc. A `paths:` filter on the
+      # trigger cannot do that: a filtered-out workflow never runs, never
+      # reports, and the pull request stays "Expected — waiting for status"
+      # forever. That is not hypothetical; it blocked a one-line ROADMAP change.
+      #
+      # So the trigger is unconditional and the *work* is conditional. An
+      # irrelevant change costs about ten seconds instead of four minutes.
+      - name: Decide whether the database matters here
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base='${{ github.event.pull_request.base.sha }}'
+          [ -n "$base" ] || base="${{ github.event.before }}"
+          # A first push to a branch has no usable base; run everything rather
+          # than guess.
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # engine-over-db.test.ts exists to catch drift between src/core and the
+          # database, so a change to either has to run it.
+          if git diff --name-only "$base" HEAD | grep -qE '^(supabase/|test/integration/|src/core/|src/data/|\.github/workflows/db\.yml)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No database-relevant changes; skipping the stack." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/setup-node@v6
+        if: steps.scope.outputs.run == 'true'
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
+        if: steps.scope.outputs.run == 'true'
 
       - uses: supabase/setup-cli@v1
+        if: steps.scope.outputs.run == 'true'
         with:
           version: latest
 
       - name: Start Supabase
+        if: steps.scope.outputs.run == 'true'
         # Excluding what the policy tests don't need keeps startup down. Realtime
         # is deliberately included: Phase 7 will add subscription authorization
         # tests, and the publication is created by the migration.
@@ -63,17 +80,21 @@ jobs:
       # the only thing that guarantees a new environment can be stood up. It also
       # applies seed.sql, which the engine-over-db suite reads.
       - name: Reset from scratch
+        if: steps.scope.outputs.run == 'true'
         run: supabase db reset
 
       - name: Policy tests (pgTAP)
+        if: steps.scope.outputs.run == 'true'
         run: supabase test db
 
       - name: Integration tests
+        if: steps.scope.outputs.run == 'true'
         run: npm run test:integration -- --ci --runInBand
 
       # If the live schema and the migration files disagree, someone changed the
       # database out of band. An empty diff is the only acceptable answer.
       - name: Schema drift guard
+        if: steps.scope.outputs.run == 'true'
         run: |
           DIFF="$(supabase db diff --schema public)"
           if [ -n "$DIFF" ]; then
@@ -87,6 +108,7 @@ jobs:
       # database. This fails if someone changed the schema and forgot to
       # regenerate them.
       - name: Generated types are current
+        if: steps.scope.outputs.run == 'true'
         run: |
           supabase gen types typescript --local --schema public > /tmp/database.types.ts
           if ! diff -q /tmp/database.types.ts src/data/database.types.ts; then
