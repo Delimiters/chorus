@@ -29,13 +29,35 @@ export const qk = {
   invites: (householdId: string) => [...qk.household(householdId), 'invites'] as const,
   chores: (householdId: string) => [...qk.household(householdId), 'chores'] as const,
   chore: (householdId: string, choreId: string) => [...qk.chores(householdId), choreId] as const,
+  /** Chores filtered client-side — archived, and any other list variants. */
+  choreList: (householdId: string, filters: Record<string, unknown>) =>
+    [...qk.chores(householdId), 'list', filters] as const,
+  /**
+   * One-time chores, fetched without a date bound because no window contains
+   * them. See `listOneTimeChores`.
+   */
+  oneTimeChores: (householdId: string) => [...qk.household(householdId), 'one-time'] as const,
+  completionsForChores: (householdId: string, choreIds: readonly string[]) =>
+    [...qk.completionsAll(householdId), 'for-chores', [...choreIds].sort()] as const,
 
+  /**
+   * Every completions query, whatever its window.
+   *
+   * Exists so an optimistic patch can target completions **and nothing else**.
+   * Patching the whole `household` prefix instead was a real bug: `members` is
+   * also an array under that prefix, so an `Array.isArray` guard let a
+   * completion row be appended to the member list, and the House tab then read
+   * `displayName` off it and threw mid-render.
+   */
+  completionsAll: (householdId: string) => [...qk.household(householdId), 'completions'] as const,
   /**
    * Windows are quantized to whole weeks by the caller, so the key does not
    * churn on every render and trigger a refetch storm.
    */
   completions: (householdId: string, from: CivilDate, to: CivilDate) =>
-    [...qk.household(householdId), 'completions', from, to] as const,
+    [...qk.completionsAll(householdId), from, to] as const,
+
+  exceptionsAll: (householdId: string) => [...qk.household(householdId), 'exceptions'] as const,
   exceptions: (householdId: string, from: CivilDate, to: CivilDate) =>
-    [...qk.household(householdId), 'exceptions', from, to] as const,
+    [...qk.exceptionsAll(householdId), from, to] as const,
 } as const;

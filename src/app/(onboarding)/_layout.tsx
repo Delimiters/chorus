@@ -20,7 +20,7 @@ export default function OnboardingLayout() {
   if (status === 'loading') return <LoadingState />;
   if (status === 'signedOut') return <Redirect href="/sign-in" />;
   if (!resolved) return <LoadingState />;
-  if (hasHousehold) return <Redirect href="/today" />;
+  if (hasHousehold) return <Redirect href="/(app)/(tabs)" />;
 
   return (
     <Stack

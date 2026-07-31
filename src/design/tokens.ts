@@ -144,13 +144,6 @@ export const type = {
 export const HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 } as const;
 export const MIN_TARGET = 44;
 
-/** Which ink a member is drawn in. Stored on the profile. */
-export type Accent = 'blue' | 'pink';
-
-export function accentColor(accent: Accent, colors: Palette): string {
-  return accent === 'blue' ? colors.inkA : colors.inkB;
-}
-
-export function accentSoftColor(accent: Accent, colors: Palette): string {
-  return accent === 'blue' ? colors.inkASoft : colors.inkBSoft;
-}
+// Person inks live in ./inks.ts, keyed by name and stored per household
+// membership. `inkA`/`inkB` here are the *brand* pair used for the app's own
+// mark and for the two-ink flourishes that are not about a specific person.

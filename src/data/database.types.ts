@@ -251,6 +251,7 @@ export type Database = {
       }
       household_members: {
         Row: {
+          accent: string
           household_id: string
           id: string
           joined_at: string
@@ -259,6 +260,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          accent?: string
           household_id: string
           id?: string
           joined_at?: string
@@ -267,6 +269,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          accent?: string
           household_id?: string
           id?: string
           joined_at?: string
@@ -298,7 +301,6 @@ export type Database = {
           default_reminder_time: string | null
           id: string
           name: string
-          overdue_horizon_days: number
           time_zone: string
           updated_at: string
           week_starts_on: number
@@ -309,7 +311,6 @@ export type Database = {
           default_reminder_time?: string | null
           id?: string
           name: string
-          overdue_horizon_days?: number
           time_zone?: string
           updated_at?: string
           week_starts_on?: number
@@ -320,7 +321,6 @@ export type Database = {
           default_reminder_time?: string | null
           id?: string
           name?: string
-          overdue_horizon_days?: number
           time_zone?: string
           updated_at?: string
           week_starts_on?: number
@@ -337,21 +337,18 @@ export type Database = {
       }
       profiles: {
         Row: {
-          accent: string
           created_at: string
           display_name: string
           id: string
           updated_at: string
         }
         Insert: {
-          accent?: string
           created_at?: string
           display_name: string
           id: string
           updated_at?: string
         }
         Update: {
-          accent?: string
           created_at?: string
           display_name?: string
           id?: string
