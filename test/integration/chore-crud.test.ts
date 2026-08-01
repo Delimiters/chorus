@@ -269,6 +269,120 @@ describe('writing chores', () => {
   });
 });
 
+/**
+ * Rescheduling, which is the app's only upsert.
+ *
+ * It was broken in production and no test noticed, because every other write in
+ * the app is a plain insert and the suite only covered those. `authenticated`
+ * had SELECT, INSERT and DELETE on `chore_exceptions` but not UPDATE, and an
+ * upsert compiles to `INSERT ... ON CONFLICT DO UPDATE` — so every reschedule
+ * returned 403 and the occurrence silently never moved.
+ *
+ * These drive the same `on_conflict` shape the app does, as a real member.
+ */
+describe('rescheduling an occurrence', () => {
+  let userId: string;
+  let householdId: string;
+  let choreId: string;
+  let client: ReturnType<typeof createClient<Database>>;
+
+  beforeAll(async () => {
+    const user = await createUser(uniqueEmail('resched'), 'Resched Tester');
+    userId = user.userId;
+
+    const created = await user.client.rpc('create_household', { household_name: 'Resched House' });
+    if (created.error) throw new Error(created.error.message);
+    householdId = created.data as string;
+
+    const session = await user.client.auth.getSession();
+    const stack = localStack();
+    client = createClient<Database>(stack.apiUrl, stack.publishableKey, {
+      global: { headers: { Authorization: `Bearer ${session.data.session?.access_token}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const chore = await client
+      .from('chores')
+      .insert({
+        household_id: householdId,
+        title: 'Bins',
+        schedule: DAILY as never,
+        created_by: userId,
+      })
+      .select('id')
+      .single();
+    if (chore.error) throw new Error(chore.error.message);
+    choreId = chore.data.id;
+  });
+
+  afterAll(async () => {
+    await deleteUsers([userId]);
+  });
+
+  const move = (movedTo: string) =>
+    client.from('chore_exceptions').upsert(
+      {
+        household_id: householdId,
+        chore_id: choreId,
+        occurrence_key: 'v1:bins:2026-01-04:0:-',
+        kind: 'reschedule',
+        due_on: d('2026-01-04'),
+        moved_to: movedTo,
+        created_by: userId,
+      },
+      { onConflict: 'chore_id,occurrence_key' },
+    );
+
+  it('moves an occurrence', async () => {
+    const { error } = await move('2026-01-09');
+    expect(error).toBeNull();
+
+    const { data } = await client
+      .from('chore_exceptions')
+      .select('kind, moved_to')
+      .eq('chore_id', choreId)
+      .single();
+    expect(data?.kind).toBe('reschedule');
+    expect(data?.moved_to).toBe('2026-01-09');
+  });
+
+  it('moves it again, replacing the first move rather than colliding', async () => {
+    // The upsert path — the one that was denied. Changing your mind twice must
+    // not leave two exceptions arguing about the same occurrence.
+    const { error } = await move('2026-01-11');
+    expect(error).toBeNull();
+
+    const { data } = await client
+      .from('chore_exceptions')
+      .select('moved_to')
+      .eq('chore_id', choreId);
+    expect(data).toHaveLength(1);
+    expect(data?.[0]?.moved_to).toBe('2026-01-11');
+  });
+
+  it('will not let a stranger move it', async () => {
+    const stranger = await createUser(uniqueEmail('resched-stranger'), 'Stranger');
+    try {
+      const { error } = await stranger.client
+        .from('chore_exceptions')
+        .update({ moved_to: '2026-02-01' })
+        .eq('chore_id', choreId);
+      // RLS filters rather than rejecting, so the honest assertion is that the
+      // row is unchanged — not that an error was thrown.
+      expect(error).toBeNull();
+
+      const { data } = await client
+        .from('chore_exceptions')
+        .select('moved_to')
+        .eq('chore_id', choreId)
+        .single();
+      expect(data?.moved_to).toBe('2026-01-11');
+    } finally {
+      await deleteUsers([stranger.userId]);
+    }
+  });
+});
+
 /** Guards the assumption the whole suite rests on. */
 describe('the test harness itself', () => {
   it('has a working admin client for setup', async () => {

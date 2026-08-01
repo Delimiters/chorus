@@ -31,6 +31,15 @@ import { formatDayShort } from './format';
 
 interface Props {
   item: AgendaItem | null;
+  /**
+   * The last failure from one of the actions below, if any.
+   *
+   * Worth threading through rather than swallowing. Rescheduling was rejected
+   * by the database for weeks and the sheet simply closed as though it had
+   * worked — the row did not move, nothing said why, and it looked like the app
+   * had ignored the tap. A mutation that can fail has to be able to say so.
+   */
+  error?: string | null;
   today: CivilDate;
   weekStartsOn: Weekday;
   onClose: () => void;
@@ -45,6 +54,7 @@ export function OccurrenceSheet({
   item,
   today,
   weekStartsOn,
+  error = null,
   onClose,
   onToggleComplete,
   onSkip,
@@ -84,6 +94,14 @@ export function OccurrenceSheet({
           : `Due ${formatDayShort(item.dueOn)}`
       }
     >
+      {error === null ? null : (
+        <View style={{ paddingHorizontal: space.md, paddingBottom: space.xs }}>
+          <Txt variant="small" tone="danger">
+            {error}
+          </Txt>
+        </View>
+      )}
+
       {moving ? (
         <View style={{ gap: space.md }}>
           <FieldGroup label="Move it to">

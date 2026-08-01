@@ -108,22 +108,35 @@ export async function listMembers(householdId: string): Promise<Member[]> {
   });
 }
 
+/**
+ * Changes household settings.
+ *
+ * `overdueHorizonDays` is gone from the accepted patch: the column was dropped
+ * when the overdue rule became cadence-derived, and this signature went on
+ * advertising a field the function silently ignored.
+ *
+ * Note the `.select()`. Row-level security *filters* rather than rejects, so an
+ * update the caller is not allowed to make matches zero rows and returns 204 —
+ * success, with nothing changed. The setting then snapped back on the next
+ * refetch with no explanation, which is how "only the founder can change
+ * anything" stayed invisible. Asking for the row back turns a silent no-op into
+ * a sentence.
+ */
 export async function updateHousehold(
   householdId: string,
-  patch: Partial<{
-    name: string;
-    timeZone: string;
-    weekStartsOn: number;
-    overdueHorizonDays: number;
-  }>,
+  patch: Partial<{ name: string; timeZone: string; weekStartsOn: number }>,
 ): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('households')
     .update({
       ...(patch.name !== undefined ? { name: patch.name } : {}),
       ...(patch.timeZone !== undefined ? { time_zone: patch.timeZone } : {}),
       ...(patch.weekStartsOn !== undefined ? { week_starts_on: patch.weekStartsOn } : {}),
     })
-    .eq('id', householdId);
+    .eq('id', householdId)
+    .select('id');
   if (error) fail(error);
+  if ((data ?? []).length === 0) {
+    throw new Error('That change was not allowed. Try signing out and back in.');
+  }
 }

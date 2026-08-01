@@ -100,9 +100,16 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
     if (occ.status === 'completed' || occ.status === 'skipped') return false;
     if (occ.displaced) return false;
 
-    // Never remind about the past. An overdue chore is already visible on
-    // Today, and a notification about last Tuesday helps nobody.
-    if (compareCivil(occ.dueOn, today) < 0) return false;
+    /**
+     * Never remind about the past — an overdue chore is already on Today, and a
+     * notification about last Tuesday helps nobody.
+     *
+     * Compared against `flexibleUntil`, not `dueOn`. A floating occurrence's
+     * `dueOn` is the *period start*, so any plan made after Monday dropped the
+     * whole of the current week: "3× a week" got no reminder at all in the week
+     * it was actually due.
+     */
+    if (compareCivil(occ.flexibleUntil, today) < 0) return false;
     if (compareCivil(occ.dueOn, horizonEnd) > 0) return false;
 
     if (occ.assignee.kind === 'member') return occ.assignee.memberId === userId;
@@ -112,14 +119,36 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
     return false;
   });
 
-  const planned = candidates.map((occ): PlannedReminder => ({
-    id: occ.occurrenceKey,
-    choreId: occ.choreId,
-    title: occ.choreTitle,
-    body: bodyFor(occ),
-    onDate: occ.dueOn,
-    atTime: occ.timeOfDay ?? policy.defaultTime,
-  }));
+  /**
+   * One reminder per floating *group*, not per slot.
+   *
+   * "Gym, 3× a week" is three occurrences sharing a due date, so mapping them
+   * one-to-one produced three identical notifications — same title, same body,
+   * same minute. Three buzzes in one second teaches somebody to turn reminders
+   * off faster than anything else in this app could.
+   *
+   * The screens have collapsed floating chores into a single row since Phase 5;
+   * the planner never learned. Keyed on the same triple `groupFloating` uses.
+   */
+  const seenGroups = new Set<string>();
+  const planned: PlannedReminder[] = [];
+
+  for (const occ of candidates) {
+    const flexible = occ.flexibleFrom !== occ.flexibleUntil;
+    if (flexible) {
+      const group = `${occ.choreId}::${occ.periodKey}::${occ.subject ?? '-'}`;
+      if (seenGroups.has(group)) continue;
+      seenGroups.add(group);
+    }
+    planned.push({
+      id: occ.occurrenceKey,
+      choreId: occ.choreId,
+      title: occ.choreTitle,
+      body: bodyFor(occ),
+      onDate: occ.dueOn,
+      atTime: occ.timeOfDay ?? policy.defaultTime,
+    });
+  }
 
   /**
    * Sorted by when it fires, then truncated — so the cap keeps the *nearest*

@@ -477,11 +477,15 @@ export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: P
 
       {/* The rule in words, always visible. It is the one thing that tells you
           whether the controls above mean what you think they mean. */}
-      <View accessibilityRole="summary" accessibilityLabel={`Repeats ${summary}`}>
-        <Txt variant="small" tone="faint">
-          Repeats {summary}.
-        </Txt>
-      </View>
+      {/* "Repeats no schedule." is not a sentence. The unscheduled case has
+          nothing to summarise, and the field above it already explains itself. */}
+      {frequency === 'someday' ? null : (
+        <View accessibilityRole="summary" accessibilityLabel={`Repeats ${summary}`}>
+          <Txt variant="small" tone="faint">
+            Repeats {summary}.
+          </Txt>
+        </View>
+      )}
     </View>
   );
 }

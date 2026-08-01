@@ -12,9 +12,20 @@ import { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useAuthListener } from '@/data/hooks/useAuth';
+import { configureNotificationHandler } from '@/data/notifications';
 import { createQueryClient, wireFocusManager, wireOnlineManager } from '@/data/queryClient';
 import { ErrorBoundary } from '@/design/ErrorBoundary';
 import { ThemeProvider, useTheme } from '@/design/theme';
+
+/**
+ * Once, at module load, before anything renders.
+ *
+ * It was exported with no caller — its own docstring said "set once at module
+ * load" and nothing called it — which meant foreground notification behaviour
+ * was whatever the library defaults to, rather than the decision the function
+ * exists to express.
+ */
+configureNotificationHandler();
 
 function Providers() {
   useAuthListener();

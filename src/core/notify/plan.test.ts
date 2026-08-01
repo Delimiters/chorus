@@ -240,6 +240,65 @@ describe('P — the cap', () => {
   });
 });
 
+describe('floating chores', () => {
+  /** "3x a week" — three occurrences sharing a due date and a period. */
+  const floatingSlots = (count: number, from = TODAY, until = addDays(TODAY, 6)) =>
+    Array.from({ length: count }, (_, slot) =>
+      occ({
+        choreId: 'gym',
+        choreTitle: 'Gym',
+        occurrenceKey: `v1:gym:W:${from}:${slot}:-`,
+        periodKey: `W:${from}`,
+        slot,
+        dueOn: from,
+        flexibleFrom: from,
+        flexibleUntil: until,
+      }),
+    );
+
+  it('plans ONE reminder for a group, not one per slot', () => {
+    // Three identical notifications in the same second is the fastest way to
+    // teach somebody to turn reminders off.
+    const planned = plan(floatingSlots(3));
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.title).toBe('Gym');
+  });
+
+  it('still plans separately for different periods', () => {
+    const thisWeek = floatingSlots(3);
+    const nextWeek = floatingSlots(3, addDays(TODAY, 7), addDays(TODAY, 13));
+    expect(plan([...thisWeek, ...nextWeek])).toHaveLength(2);
+  });
+
+  it('still plans separately per person for a fan-out chore', () => {
+    const mine = floatingSlots(2).map((o) => ({
+      ...o,
+      subject: ME,
+      occurrenceKey: `${o.occurrenceKey}:me`,
+    }));
+    const theirs = floatingSlots(2).map((o) => ({
+      ...o,
+      subject: ME,
+      occurrenceKey: `${o.occurrenceKey}:x`,
+      periodKey: 'W:other',
+    }));
+    expect(plan([...mine, ...theirs] as never)).toHaveLength(2);
+  });
+
+  it('reminds during the period, not only on the day it opens', () => {
+    // A floating occurrence's `dueOn` is the period START, so comparing that
+    // against today dropped the whole current week from Tuesday onward — the
+    // chore got no reminder at all in the week it was due.
+    const startedYesterday = floatingSlots(3, addDays(TODAY, -1), addDays(TODAY, 5));
+    expect(plan(startedYesterday)).toHaveLength(1);
+  });
+
+  it('still drops a period that has closed', () => {
+    const lastWeek = floatingSlots(3, addDays(TODAY, -9), addDays(TODAY, -3));
+    expect(plan(lastWeek)).toEqual([]);
+  });
+});
+
 describe('the keep-alive', () => {
   /**
    * The one failure mode local notifications have that nothing else covers:
