@@ -99,9 +99,14 @@ export function DateField({ value, onChange, today, label, weekStartsOn = 0, ear
         </Pressable>
       </View>
 
+      {/* "Sun 9 Aug · Sun 9 Aug" — `formatRelativeDay` falls back to the same
+          short date once a day is more than a week out, so the two halves
+          collapse into one and the separator has nothing to separate. */}
       <View accessibilityLabel={`${label} is ${formatDayShort(value)}`}>
         <Txt variant="small" tone="faint">
-          {formatRelativeDay(value, today)} · {formatDayShort(value)}
+          {formatRelativeDay(value, today) === formatDayShort(value)
+            ? formatDayShort(value)
+            : `${formatRelativeDay(value, today)} · ${formatDayShort(value)}`}
         </Txt>
       </View>
 

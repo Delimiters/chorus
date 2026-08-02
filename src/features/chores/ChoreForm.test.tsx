@@ -244,6 +244,60 @@ describe('editing an existing chore', () => {
   });
 });
 
+describe('when it starts', () => {
+  it('defaults to today for a new chore', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.startsOn).toBe(TODAY);
+  });
+
+  it('can begin later, for something that has not started yet', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Water the plants');
+    await fireEvent.press(screen.getByRole('button', { name: 'Start date: Next week' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    // 30 July 2026 is a Thursday; a Sunday-start week puts "next week" on 2 Aug.
+    expect(submitted(onSubmit).schedule.startsOn).toBe('2026-08-02');
+  });
+
+  it('re-phases a fortnightly chore, which is the point of the field', async () => {
+    // "Every other Monday" starting this week and starting next week are
+    // different chores. Until this field existed, which one you got was decided
+    // by the day you happened to be adding it.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByRole('tab', { name: 'Weekly' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Increase weeks between' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Start date: Next week' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    const schedule = submitted(onSubmit).schedule;
+    expect(schedule.rule).toMatchObject({ kind: 'weekly', everyNWeeks: 2 });
+    expect(schedule.startsOn).toBe('2026-08-02');
+  });
+
+  it('is not offered for a one-time chore, which carries its own date', async () => {
+    await renderForm();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Once' }));
+    expect(screen.queryByText('Starts on')).toBeNull();
+    // Its own date field is still there.
+    expect(screen.getByRole('button', { name: 'Due date: Tomorrow' })).toBeOnTheScreen();
+  });
+
+  it('is not offered for a Someday chore, which has no dates at all', async () => {
+    await renderForm();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Someday' }));
+    expect(screen.queryByText('Starts on')).toBeNull();
+  });
+
+  it('opens on the chore’s own start date, not today', async () => {
+    // Editing a name must not silently re-phase the schedule.
+    await renderForm({ chore: ROTATING_CHORE });
+    expect(screen.getByLabelText('Start date is Mon 2 Mar')).toBeOnTheScreen();
+  });
+});
+
 describe('the schedule preview', () => {
   it('shows the next few dates for a weekly rule', async () => {
     await renderForm({ chore: ROTATING_CHORE });
