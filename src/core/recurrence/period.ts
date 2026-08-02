@@ -69,6 +69,27 @@ export function occurrenceKeyOf(
   return `${OCCURRENCE_KEY_VERSION}:${choreId}:${periodKey}:${slot}:${subject ?? '-'}`;
 }
 
+/**
+ * The period key a Someday chore's single completion is filed under.
+ *
+ * An `unscheduled` rule expands to nothing — that is the mechanism that stops a
+ * one-time chore claiming to be due forever, and it is not being weakened here.
+ * But "no occurrence" and "no record that you did it" are different things, and
+ * conflating them left the Someday list with no way to tick anything off.
+ *
+ * So a Someday chore gets a stable key with no date in it. Nothing expands to
+ * it, nothing on the agenda matches it, and the unique constraint on
+ * `(chore_id, occurrence_key)` still makes ticking it idempotent. The Someday
+ * list has always been its own section rather than part of the agenda, which is
+ * exactly what makes this safe.
+ */
+export const SOMEDAY_PERIOD_KEY = 'someday';
+
+/** The one key under which a Someday chore can be completed. */
+export function somedayKeyOf(choreId: string): string {
+  return occurrenceKeyOf(choreId, SOMEDAY_PERIOD_KEY, 0, null);
+}
+
 /** Parsed form of an occurrence key. */
 export interface ParsedOccurrenceKey {
   readonly version: string;

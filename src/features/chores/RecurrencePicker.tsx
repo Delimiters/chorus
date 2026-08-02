@@ -292,7 +292,7 @@ export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: P
 
       {frequency === 'someday' ? (
         <Txt variant="small" tone="faint">
-          No date. It waits on the Someday list until you schedule it or tick it off.
+          No date. It waits on the Someday list until you tick it off or give it a schedule.
         </Txt>
       ) : null}
 

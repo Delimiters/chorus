@@ -14,13 +14,18 @@
  */
 
 import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 
+import type { CivilDate } from '@/core/civil/types';
+import { somedayKeyOf } from '@/core/recurrence/period';
 import { useActiveHouseholdId, useUserId } from '@/stores/sessionStore';
 import {
   archiveChore,
+  completeOccurrence,
   createChore,
   listChores,
+  listCompletionsForChores,
+  uncompleteOccurrence,
   updateChore,
   type Chore,
   type ChoreDraft,
@@ -64,6 +69,73 @@ function useInvalidateHousehold() {
     if (householdId === null) return;
     await queryClient.invalidateQueries({ queryKey: qk.household(householdId) });
   }, [householdId, queryClient]);
+}
+
+/**
+ * Ticking a Someday chore off.
+ *
+ * Someday chores produce no occurrences, so they were creatable and never
+ * completable — the picker promised you could "tick it off" from a list with no
+ * checkbox on it. They now get one stable key each (see `somedayKeyOf`) and an
+ * ordinary completion row, so "we finally cleared the loft on 3 March" is a real
+ * record rather than a chore quietly disappearing.
+ *
+ * `dueOn` is set to the day it was done. A Someday chore was never due on any
+ * particular date, and "due whenever you got to it" is the honest reading —
+ * which also keeps the column non-null without a migration.
+ */
+export function useSomedayCompletions() {
+  const householdId = useActiveHouseholdId();
+  const list = useChoreList({ includeArchived: true });
+
+  const choreIds = useMemo(
+    () =>
+      (list.data?.chores ?? [])
+        .filter((c) => c.schedule.rule.kind === 'unscheduled')
+        .map((c) => c.id),
+    [list.data],
+  );
+
+  return useQuery({
+    queryKey: qk.completionsForChores(householdId ?? '__none__', choreIds),
+    queryFn:
+      householdId === null ? skipToken : () => listCompletionsForChores(householdId, choreIds),
+    enabled: householdId !== null && choreIds.length > 0,
+  });
+}
+
+export function useToggleSomeday() {
+  const householdId = useActiveHouseholdId();
+  const userId = useUserId();
+  const invalidate = useInvalidateHousehold();
+
+  return useMutation({
+    mutationFn: async ({
+      choreId,
+      done,
+      today,
+    }: {
+      choreId: string;
+      done: boolean;
+      today: CivilDate;
+    }) => {
+      if (householdId === null || userId === null) throw new Error('Please sign in again.');
+      const occurrenceKey = somedayKeyOf(choreId);
+      if (done) {
+        await completeOccurrence({
+          householdId,
+          choreId,
+          occurrenceKey,
+          dueOn: today,
+          completedOn: today,
+          userId,
+        });
+      } else {
+        await uncompleteOccurrence(choreId, occurrenceKey);
+      }
+    },
+    onSuccess: invalidate,
+  });
 }
 
 export function useCreateChore() {
