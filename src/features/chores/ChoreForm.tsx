@@ -24,6 +24,7 @@ import { FieldGroup } from '@/design/controls';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
+import { DateField } from './DateField';
 import { RecurrencePicker, draftFromRule, type RecurrenceDraft } from './RecurrencePicker';
 import { SchedulePreview } from './SchedulePreview';
 
@@ -64,13 +65,19 @@ export function ChoreForm({
   const [assignment, setAssignment] = useState<Assignment>(chore?.assignment ?? { kind: 'anyone' });
 
   /**
-   * The start date is the chore's own, not today's, when editing.
+   * When the chore begins. Editable, and it does real work.
    *
-   * Moving it would shift every occurrence the rule produces — and for a
-   * rotating chore it would also shift whose turn each one is, because the turn
-   * is computed from the distance since the roster took effect.
+   * It seeds from the chore's own date rather than today, so opening an
+   * existing chore to change its name does not re-phase it — moving this shifts
+   * every occurrence the rule produces, and for a rotating chore it shifts
+   * whose turn each one is, because the turn is measured from here.
+   *
+   * For a repeating rule it also chooses *which* week or month the cycle falls
+   * in: "every other Monday" starting the 3rd and starting the 10th are
+   * different chores, and until this field existed the answer was decided by
+   * whichever day you happened to be adding it on.
    */
-  const startsOn = chore?.schedule.startsOn ?? today;
+  const [startsOn, setStartsOn] = useState<CivilDate>(chore?.schedule.startsOn ?? today);
 
   const schedule: Schedule = useMemo(
     () => ({
@@ -134,6 +141,30 @@ export function ChoreForm({
           today={today}
           weekStartsOn={calendar.weekStartsOn}
         />
+
+        {/*
+          Only for rules that repeat. A one-time chore already carries its own
+          date in the rule, and a Someday chore has no dates at all — offering a
+          start date for either is a control with nothing to control.
+        */}
+        {recurrence.rule.kind === 'once' || recurrence.rule.kind === 'unscheduled' ? null : (
+          <FieldGroup
+            label="Starts on"
+            hint={
+              startsOn === today
+                ? 'Leave it on today unless it should begin later.'
+                : 'Nothing happens before this date.'
+            }
+          >
+            <DateField
+              value={startsOn}
+              onChange={setStartsOn}
+              today={today}
+              label="Start date"
+              weekStartsOn={calendar.weekStartsOn}
+            />
+          </FieldGroup>
+        )}
 
         {/* A Someday chore has no dates, so a "next few times" heading over
             "nothing to preview" is a field asking to be ignored. */}
