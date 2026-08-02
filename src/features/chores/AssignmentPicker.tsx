@@ -49,6 +49,8 @@ interface Props {
   effectiveFrom: CivilDate;
   userId: string | null;
   today: CivilDate;
+  /** False for a one-time or unscheduled chore, which has no second turn. */
+  recurs: boolean;
 }
 
 export function AssignmentPicker({
@@ -58,6 +60,7 @@ export function AssignmentPicker({
   effectiveFrom,
   userId,
   today,
+  recurs,
 }: Props) {
   const { colors, isDark } = useTheme();
 
@@ -185,19 +188,23 @@ export function AssignmentPicker({
 
       {value.kind === 'rotate' ? (
         <>
-          <FieldGroup
-            label="Turns change"
-            hint="Separate from how often the chore happens — bins can go out three times a week while whose job it is changes weekly."
-          >
-            <SegmentedControl
-              segments={CADENCES}
-              value={value.cadence.unit}
-              onChange={(unit) =>
-                onChange({ ...value, cadence: { unit, every: value.cadence.every } })
-              }
-              label="How often turns change"
-            />
-          </FieldGroup>
+          {/* A chore that happens once has no second turn to hand over, so the
+              cadence is a control with nothing to control. */}
+          {recurs ? (
+            <FieldGroup
+              label="Turns change"
+              hint="Separate from how often the chore happens — bins can go out three times a week while whose job it is changes weekly."
+            >
+              <SegmentedControl
+                segments={CADENCES}
+                value={value.cadence.unit}
+                onChange={(unit) =>
+                  onChange({ ...value, cadence: { unit, every: value.cadence.every } })
+                }
+                label="How often turns change"
+              />
+            </FieldGroup>
+          ) : null}
 
           {stale ? (
             <View

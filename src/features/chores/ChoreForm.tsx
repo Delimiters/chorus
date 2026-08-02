@@ -135,9 +135,13 @@ export function ChoreForm({
           weekStartsOn={calendar.weekStartsOn}
         />
 
-        <FieldGroup label="Next few times">
-          <SchedulePreview schedule={schedule} today={today} calendar={calendar} />
-        </FieldGroup>
+        {/* A Someday chore has no dates, so a "next few times" heading over
+            "nothing to preview" is a field asking to be ignored. */}
+        {recurrence.rule.kind === 'unscheduled' ? null : (
+          <FieldGroup label="Next few times">
+            <SchedulePreview schedule={schedule} today={today} calendar={calendar} />
+          </FieldGroup>
+        )}
 
         <AssignmentPicker
           value={assignment}
@@ -146,6 +150,7 @@ export function ChoreForm({
           effectiveFrom={startsOn}
           userId={userId}
           today={today}
+          recurs={recurrence.rule.kind !== 'once' && recurrence.rule.kind !== 'unscheduled'}
         />
 
         <Stack gap={space.sm}>

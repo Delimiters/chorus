@@ -174,36 +174,40 @@ window even when the effective one is not, flagged so only the collapse sees
 them; that keeps composability, which is a property of rule expansion rather
 than of exception application.
 
-### Known: "every N weeks" on several days uses the anchor's week, not the calendar's
+### Which week does "every N weeks" fall in?
 
-A consequence of the rule above, worth stating because it looks like a bug and
-is a trade-off.
+The block begins on the **earliest weekday the rule names**, phased so that the
+first occurrence on or after `startsOn` lands in block zero.
 
-"Every 2 weeks on Monday and Wednesday", created on a Wednesday, gives:
+That matters only for `everyNWeeks >= 2`. With `1`, consecutive blocks tile the
+calendar with no gaps, so every named weekday lands once a week wherever the
+block starts.
+
+"Every other Monday and Wednesday", set up on a Wednesday:
 
 ```
-Wed 29 Jul   Mon 3 Aug      <- five days apart, different calendar weeks
-Wed 12 Aug   Mon 17 Aug     <- then a nine-day gap
+Wed 29 Jul   ·   Mon 10 · Wed 12   ·   Mon 24 · Wed 26
 ```
 
-The cycle is a 14-day block starting at the anchor, and the selected weekdays
-are placed *within that block*. Somebody asking for "Mon and Wed of alternating
-weeks" would expect the pair to sit in the same calendar week.
+Set up on the Monday of that same week, it agrees — Mon 27, Wed 29, then the
+same dates. Two people adding the same chore on different days get the same
+schedule, which is the property that makes "every other week" mean something.
 
-Fixing it means phasing the block off `startOfWeek(anchor, weekStartsOn)` —
-which is exactly what Phase 1 removed, because it made "every other Tuesday"
-land on different dates depending on a display preference, silently
-rescheduling every biweekly chore and orphaning its completions when somebody
-toggled Sunday/Monday in settings.
+It used to start the block on the creation date and count each weekday forward
+from *that* day, so the Wednesday version gave `Wed 29 · Mon 3 · Wed 12 · Mon
+17` — the pair split across two calendar weeks with a nine-day gap, and the two
+people disagreed.
 
-So: week-start independence and calendar-week grouping cannot both hold for
-this rule. The current choice keeps independence, which is the one that cannot
-corrupt stored data. `everyNWeeks: 1` is unaffected — consecutive blocks tile
-the calendar exactly — and that is the overwhelmingly common case.
+**What this deliberately does not consult: the household week-start setting.**
+Phasing off `startOfWeek(anchor, weekStartsOn)` was the original implementation,
+and it meant toggling Sunday/Monday in settings silently moved every biweekly
+chore by a week and orphaned its completions. The earliest named weekday is part
+of the rule, so it cannot change underneath a chore.
 
-**Not decided.** If calendar grouping turns out to matter more in practice, the
-honest fix is a `weekAnchor` on the rule so the choice is stored per chore
-rather than read from a setting that can change underneath it.
+The cost is a corner: a household whose weeks start on Saturday, with a rule
+naming Saturday and Monday, still gets them in different calendar weeks, because
+"earliest" is by weekday number. Fixing that needs the alignment stored per
+chore rather than derived — worth doing if it ever comes up, not before.
 
 ## Bounds
 

@@ -98,6 +98,26 @@ const CASES: readonly GoldenCase[] = [
     expected: ['2026-01-05', '2026-01-19', '2026-02-02', '2026-02-16'],
   },
   {
+    description: 'every other Mon+Wed, set up on the Wednesday, keeps the pair in one week',
+    // The bug this fixture exists for: blocks used to start on the day the
+    // chore was created, so "Monday" meant the Monday five days *after* the
+    // Wednesday rather than the one two days before it, and the pair straddled
+    // two calendar weeks with a nine-day gap between them.
+    rule: { kind: 'weekly', everyNWeeks: 2, weekdays: [1, 3] },
+    startsOn: '2026-07-29', // a Wednesday
+    window: ['2026-07-29', '2026-08-31'],
+    expected: ['2026-07-29', '2026-08-10', '2026-08-12', '2026-08-24', '2026-08-26'],
+  },
+  {
+    description: 'the same rule set up on the Monday agrees with it',
+    // Two people adding the same chore on different days must end up with the
+    // same schedule, or "every other week" means whenever you happened to tap.
+    rule: { kind: 'weekly', everyNWeeks: 2, weekdays: [1, 3] },
+    startsOn: '2026-07-27', // the Monday of the same week
+    window: ['2026-08-01', '2026-08-31'],
+    expected: ['2026-08-10', '2026-08-12', '2026-08-24', '2026-08-26'],
+  },
+  {
     description: 'every 3 weeks on Saturday',
     rule: { kind: 'weekly', everyNWeeks: 3, weekdays: [6] },
     startsOn: '2026-01-04',
