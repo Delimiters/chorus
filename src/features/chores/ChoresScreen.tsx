@@ -13,10 +13,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { describeSchedule } from '@/core/recurrence/describe';
 import { type Chore } from '@/data/api/chores';
-import { useChoreList } from '@/data/hooks/useChores';
-import { useMembers } from '@/data/hooks/useHousehold';
-import { SectionHeader } from '@/design/ChoreRow';
+import type { CivilDate } from '@/core/civil/types';
+import { useChoreList, useSomedayCompletions, useToggleSomeday } from '@/data/hooks/useChores';
+import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
+import { useToday } from '@/data/today';
+import { Checkbox, SectionHeader } from '@/design/ChoreRow';
 import { Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { formatDayShort } from '../today/format';
 import { inkColor } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
@@ -28,6 +31,17 @@ export function ChoresScreen() {
   const [showArchived, setShowArchived] = useState(false);
 
   const query = useChoreList({ includeArchived: showArchived });
+  const somedayDone = useSomedayCompletions();
+  const toggleSomeday = useToggleSomeday();
+  const household = useHousehold();
+  const today = useToday(household.data?.timeZone ?? 'UTC');
+
+  /** When each Someday chore was ticked off, if it was. */
+  const doneByChore = useMemo(() => {
+    const map = new Map<string, CivilDate>();
+    for (const c of somedayDone.data ?? []) map.set(c.choreId, c.completedOn);
+    return map;
+  }, [somedayDone.data]);
 
   const inkFor = (chore: Chore): string | null => {
     // Only a fixed assignment has a single owner. Rotating and fan-out chores
@@ -51,12 +65,11 @@ export function ChoresScreen() {
 
   const row = (chore: Chore, dashed = false) => {
     const ink = inkFor(chore);
+    const somedayRow = chore.schedule.rule.kind === 'unscheduled';
+    const doneOn = somedayRow ? (doneByChore.get(chore.id) ?? null) : null;
     return (
-      <Pressable
+      <View
         key={chore.id}
-        onPress={() => router.push(`/chore/${chore.id}`)}
-        accessibilityRole="button"
-        accessibilityLabel={`${chore.title}, ${describeSchedule(chore.schedule)}. Edit.`}
         style={{
           flexDirection: 'row',
           gap: space.md,
@@ -67,26 +80,58 @@ export function ChoresScreen() {
           borderWidth: dashed ? 1 : 0,
           borderStyle: dashed ? 'dashed' : 'solid',
           borderColor: colors.rule,
-          opacity: chore.archived ? 0.5 : 1,
+          opacity: chore.archived || doneOn !== null ? 0.5 : 1,
         }}
       >
-        <View
-          style={{
-            width: 20,
-            height: 20,
-            marginTop: 1,
-            borderRadius: radius.sm,
-            borderWidth: 1.5,
-            borderColor: ink === null ? colors.textFaint : inkColor(ink, isDark),
-          }}
-        />
-        <Stack gap={3} style={{ flex: 1 }}>
-          <Txt variant="bodyStrong">{chore.title}</Txt>
-          <Txt variant="small" tone="faint">
-            {describeSchedule(chore.schedule)}
-          </Txt>
-        </Stack>
-      </Pressable>
+        {/*
+          A Someday chore gets a real checkbox; everything else gets the inert
+          mark it always had. Only Someday can be completed from this screen —
+          a repeating chore is ticked off on Today, on the day it is due, and a
+          checkbox here would be ambiguous about which occurrence it meant.
+        */}
+        {somedayRow ? (
+          <Checkbox
+            checked={doneOn !== null}
+            ink={ink}
+            onPress={() =>
+              toggleSomeday.mutate({ choreId: chore.id, done: doneOn === null, today })
+            }
+            label={doneOn === null ? `Mark ${chore.title} done` : `Mark ${chore.title} not done`}
+          />
+        ) : (
+          <View
+            style={{
+              width: 20,
+              height: 20,
+              marginTop: 1,
+              borderRadius: radius.sm,
+              borderWidth: 1.5,
+              borderColor: ink === null ? colors.textFaint : inkColor(ink, isDark),
+            }}
+          />
+        )}
+
+        <Pressable
+          onPress={() => router.push(`/chore/${chore.id}`)}
+          accessibilityRole="button"
+          accessibilityLabel={`${chore.title}, ${describeSchedule(chore.schedule)}. Edit.`}
+          style={{ flex: 1 }}
+        >
+          <Stack gap={3}>
+            <Txt
+              variant="bodyStrong"
+              style={doneOn === null ? undefined : { textDecorationLine: 'line-through' }}
+            >
+              {chore.title}
+            </Txt>
+            <Txt variant="small" tone="faint">
+              {doneOn === null
+                ? describeSchedule(chore.schedule)
+                : `Done ${formatDayShort(doneOn)}`}
+            </Txt>
+          </Stack>
+        </Pressable>
+      </View>
     );
   };
 
