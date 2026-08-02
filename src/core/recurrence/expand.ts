@@ -245,19 +245,68 @@ function expandWeekly(
    * called `sortOccurrences` afterwards to fix the *display* order, which
    * repaired the symptom and left the indices scrambled.
    */
-  const origin = weekdayOf(anchor);
+  /**
+   * The block begins on the **earliest weekday you chose**, not on whichever
+   * day you happened to create the chore.
+   *
+   * That distinction only shows up for `everyNWeeks >= 2`, and it showed up
+   * badly. Blocks used to start at the anchor date, and each weekday was placed
+   * by counting forward from the anchor's own weekday — so "every 2 weeks on
+   * Monday and Wednesday", set up on a Wednesday, gave:
+   *
+   *     Wed 29 Jul · Mon 3 Aug   (nine-day gap)   Wed 12 Aug · Mon 17 Aug
+   *
+   * The pair straddled two calendar weeks, because "Monday" meant the Monday
+   * five days *after* the Wednesday rather than the one two days before it.
+   * Anchoring the block to Monday instead groups them:
+   *
+   *     Wed 29 Jul   ·   Mon 10 · Wed 12   ·   Mon 24 · Wed 26
+   *
+   * With `everyNWeeks: 1` nothing changes at all — consecutive blocks tile the
+   * calendar with no gaps, so every weekday lands once a week wherever the
+   * block starts.
+   *
+   * Note what this deliberately does NOT consult: the household's week-start
+   * setting. Phasing off `startOfWeek(anchor, weekStartsOn)` was the original
+   * implementation and it meant toggling Sunday/Monday in settings silently
+   * moved every biweekly chore by a week, orphaning its completions. The
+   * earliest chosen weekday is stored on the rule, so it cannot change
+   * underneath a chore.
+   */
+  const origin = [...weekdays].sort((a, b) => a - b)[0] as Weekday;
   const inDateOrder = [...weekdays].sort(
     (a, b) => offsetToWeekday(a, origin) - offsetToWeekday(b, origin),
   );
 
-  // Cycle 0 is the 7-day block beginning at the anchor. Stepping back one cycle
-  // from `from` guarantees occurrences early in that block are still considered.
-  const daysIn = daysBetween(anchor, from);
+  /**
+   * Phase the blocks so that the **first occurrence on or after `startsOn`**
+   * lands in block zero.
+   *
+   * Two simpler rules both fail, and a golden fixture caught the second:
+   *
+   * - the nearest origin weekday *after* `startsOn` skips days left in the
+   *   current week, so a Mon+Wed chore created on Wednesday waits five days
+   *   instead of firing that day;
+   * - the nearest one *before* it shifts the whole sequence back a week, so
+   *   "every other Monday" starting Sunday 4 Jan produced 12 Jan rather than
+   *   5 Jan — the 5th fell in the gap between blocks.
+   *
+   * Finding the first real occurrence and working backwards to its origin
+   * weekday gets both: the Wednesday still fires, and the Monday sequence keeps
+   * the week the author asked for.
+   */
+  const toFirstHit = Math.min(...weekdays.map((w) => offsetToWeekday(w, weekdayOf(anchor))));
+  const firstHit = addDays(anchor, toFirstHit);
+  const blockOrigin = addDays(firstHit, -offsetToWeekday(weekdayOf(firstHit), origin));
+
+  // Stepping back one cycle from `from` guarantees occurrences early in that
+  // block are still considered.
+  const daysIn = daysBetween(blockOrigin, from);
   const firstCycle = Math.max(0, Math.floor(daysIn / (everyNWeeks * 7)));
 
   const out: Occurrence[] = [];
   for (let cycle = firstCycle; ; cycle += 1) {
-    const blockStart = addDays(anchor, cycle * everyNWeeks * 7);
+    const blockStart = addDays(blockOrigin, cycle * everyNWeeks * 7);
     if (compareCivil(blockStart, to) > 0) break;
 
     for (const [slot, weekday] of inDateOrder.entries()) {

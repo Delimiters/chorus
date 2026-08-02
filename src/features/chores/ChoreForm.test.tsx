@@ -259,10 +259,29 @@ describe('the schedule preview', () => {
     expect(screen.getByLabelText('Then: Fri 31 Jul')).toBeOnTheScreen();
   });
 
-  it('says there is nothing to preview for a someday chore', async () => {
+  it('is not shown at all for a someday chore', async () => {
+    // A "next few times" heading over "nothing to preview" is a field asking to
+    // be ignored. The frequency picker already says what Someday means.
     await renderForm();
     await fireEvent.press(screen.getByRole('tab', { name: 'Someday' }));
-    expect(screen.getByText(/no dates until you schedule it/)).toBeOnTheScreen();
+    expect(screen.queryByText('Next few times')).toBeNull();
+    expect(screen.getByText(/waits on the Someday list/)).toBeOnTheScreen();
+  });
+
+  it('hides the rotation cadence for a chore that only happens once', async () => {
+    // There is no second turn to hand over.
+    await renderForm();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Once' }));
+    await fireEvent.press(screen.getByRole('radio', { name: /Take turns/ }));
+    expect(screen.queryByText('Turns change')).toBeNull();
+    expect(screen.getByText('In this order')).toBeOnTheScreen();
+  });
+
+  it('shows the cadence again for a recurring one', async () => {
+    await renderForm();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Weekly' }));
+    await fireEvent.press(screen.getByRole('radio', { name: /Take turns/ }));
+    expect(screen.getByText('Turns change')).toBeOnTheScreen();
   });
 
   it('clamps a 31st rule into short months rather than skipping them', async () => {
