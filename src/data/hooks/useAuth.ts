@@ -69,10 +69,27 @@ export function useSignIn() {
   });
 }
 
+/**
+ * Creating an account.
+ *
+ * Returns whether the account still needs confirming, and the caller has to say
+ * so — because this is the one success case that looks exactly like a failure.
+ *
+ * With "Confirm email" enabled (the default for a new Supabase project) signup
+ * returns **200 with a user and no session**. The first version ignored the
+ * response and only checked `error`, so tapping "Create account" against such a
+ * project created the account, returned nothing, navigated nowhere and showed no
+ * message. The account existed; the app looked broken; trying again would then
+ * report the address as already registered.
+ */
 export function useSignUp() {
   return useMutation({
-    mutationFn: async (input: { email: string; password: string; displayName: string }) => {
-      const { error } = await supabase.auth.signUp({
+    mutationFn: async (input: {
+      email: string;
+      password: string;
+      displayName: string;
+    }): Promise<{ needsConfirmation: boolean }> => {
+      const { data, error } = await supabase.auth.signUp({
         email: input.email.trim(),
         password: input.password,
         options: { data: { display_name: input.displayName.trim() } },
@@ -86,6 +103,9 @@ export function useSignUp() {
             : describeError(error),
         );
       }
+      // A user without a session means the address has to be confirmed first.
+      // The auth listener will not fire, so nothing else is coming.
+      return { needsConfirmation: data.session === null };
     },
   });
 }
