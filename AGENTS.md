@@ -186,9 +186,15 @@ the input isn't vacuous.
 ## Environment constraints
 
 - The dev machine is a **2018 Intel MacBook Pro** on macOS Sequoia. macOS Tahoe
-  dropped all 2018 Macs, so **Xcode 26 is permanently unavailable**, so SDK 55+
-  can never be compiled locally. Develop in **Expo Go**; native binaries come
-  from free **EAS cloud builds** only.
+  dropped all 2018 Macs, so **Xcode 26 is permanently unavailable**, so this
+  project can never be compiled locally. Develop in **Expo Go**; native binaries
+  come from **EAS cloud builds** only.
+
+  Verified rather than assumed: prebuild and `pod install` both succeed, and the
+  compile dies on `package 'apple' is using Swift tools version 6.2.0 but the
+  installed version is 6.1.0`. Xcode 16.4 ships Swift 6.1; SDK 57 needs 6.2.
+  Do not spend time retrying this — it is a toolchain floor, not a
+  configuration problem. Details in docs/RELEASE.md.
 - No Apple Developer account yet. Remote push notifications are therefore out of
   v1 — local notifications only. Do not build APNs plumbing.
 - Local Postgres runs under Colima. **CI is the source of truth for DB tests** —

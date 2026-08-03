@@ -7,9 +7,28 @@ a plan with its uncertainties marked, not a report.
 ## The constraint that shapes all of this
 
 The dev machine is a 2018 Intel MacBook Pro on macOS Sequoia. macOS Tahoe
-dropped every 2018 Mac, so **Xcode 26 can never be installed on it**, so SDK 55+
-can never be compiled locally. There is no workaround and no upgrade path short
-of new hardware.
+dropped every 2018 Mac, so **Xcode 26 can never be installed on it**, so this
+project can never be compiled locally. There is no workaround short of new
+hardware.
+
+**Verified, not assumed** (2026-08-03). `expo prebuild` and `pod install` both
+succeed; the compile fails at:
+
+```
+xcodebuild: error: Could not resolve package dependencies:
+  package 'apple' is using Swift tools version 6.2.0
+  but the installed version is 6.1.0
+```
+
+Xcode 16.4 ships Swift 6.1. Expo SDK 57's native modules need Swift tools 6.2,
+which ships only with Xcode 26. The chain is
+`SDK 57 → Swift 6.2 → Xcode 26 → macOS Tahoe → not a 2018 Mac`, and it breaks at
+the last link.
+
+The practical consequence is about money: `eas build --local` compiles on your
+own machine and consumes **no** EAS quota, and it is exactly what this error
+rules out. Every iOS build therefore has to be a cloud build, and cloud builds
+are metered.
 
 Consequence: every native binary comes from **EAS cloud builds**. Day-to-day
 development happens in Expo Go, which needs no compilation at all. This is why
