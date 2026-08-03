@@ -87,6 +87,37 @@ Ordered roughly by expected value.
   already an append-only event log with the right columns and indexes, and
   expected-vs-actual works precisely because occurrences are computed rather
   than materialized (replay the expander over any past window and diff).
+- **Sign in with Apple, and OAuth generally.** Email and password is fine for
+  two people testing, and deliberately so — it needs no Apple account and no
+  redirect plumbing. It is not what you want on the App Store.
+
+  Most of the groundwork is already right: `onAuthStateChange` is
+  provider-agnostic, and `sessionStore` holds a session without caring where it
+  came from. Adding a provider is a button, a redirect, and a Supabase provider
+  config — not a rework.
+
+  Four things to know before starting, because each one changes a decision:
+
+  1. **Apple's rule is conditional.** If the app offers *any* third-party
+     sign-in (Google, Facebook), it must also offer Sign in with Apple. Email
+     and password alone triggers no such requirement. So adding Google first,
+     alone, is the one order that is not allowed.
+  2. **It needs the $99/yr Apple Developer account** — the same one already
+     gating TestFlight and remote push, so these three arrive together.
+  3. **`detectSessionInUrl` is `false`** (src/data/supabase.ts) and must stay
+     that way on native. OAuth on device is a deep link via
+     `expo-auth-session`, not a URL fragment. `expo-web-browser` is already a
+     dependency; `expo-apple-authentication` is not.
+  4. **Hide My Email produces relay addresses.** Harmless here — the app shows
+     display names beside chores and never an email — but worth knowing before
+     anything is keyed on an address.
+
+  The real work is **identity linking**: somebody who signed up with an email
+  and password and later taps Sign in with Apple, with the same address, must
+  land in the same account rather than a second empty household. Supabase
+  supports linking, and it needs deliberate handling rather than discovery in
+  production.
+
 - **Remote push notifications.** Gated on a $99/yr Apple Developer account.
   "Your partner completed X", nudges, and server-side daily digests via a
   Supabase Edge Function. The `NotificationTransport` seam already exists, so
