@@ -91,6 +91,20 @@ export function SignUpScreen() {
                 </Txt>
               ) : null}
 
+              {/*
+                The success that looks like a failure. With email confirmation
+                turned on, signup returns a user and no session — nothing
+                navigates, because there is nothing to navigate with. Saying so
+                is the whole fix: without it the screen just sits there having
+                silently created the account.
+              */}
+              {signUp.data?.needsConfirmation ? (
+                <Txt variant="small" tone="accent">
+                  Account created. Check {email.trim()} for a confirmation link, then come back and
+                  sign in.
+                </Txt>
+              ) : null}
+
               <Button
                 label="Create account"
                 onPress={submit}
