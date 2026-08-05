@@ -14,6 +14,7 @@ async function renderPicker(
 ) {
   const onChangeCategory = jest.fn();
   const onChangePriority = jest.fn();
+  const onCreateCategory = jest.fn().mockResolvedValue('c-new');
   await render(
     <ThemeProvider>
       <CategoryAndPriorityPicker
@@ -22,11 +23,12 @@ async function renderPicker(
         onChangeCategory={onChangeCategory}
         priority="normal"
         onChangePriority={onChangePriority}
+        onCreateCategory={onCreateCategory}
         {...over}
       />
     </ThemeProvider>,
   );
-  return { onChangeCategory, onChangePriority };
+  return { onChangeCategory, onChangePriority, onCreateCategory };
 }
 
 describe('CategoryAndPriorityPicker', () => {
@@ -65,6 +67,47 @@ describe('CategoryAndPriorityPicker', () => {
     }
     await userEvent.press(screen.getByLabelText('Priority: Crucial'));
     expect(onChangePriority).toHaveBeenCalledWith('crucial');
+  });
+
+  describe('adding a category without leaving the form', () => {
+    it('is reachable even when the household has none yet', async () => {
+      // The case that motivated this: a brand-new household filing its first
+      // chore should not have to abandon the form to make a category.
+      await renderPicker({ categories: [] });
+      expect(screen.getByLabelText('Add a category')).toBeTruthy();
+    });
+
+    it('creates with the typed name and chosen colour', async () => {
+      const { onCreateCategory } = await renderPicker();
+      await userEvent.press(screen.getByLabelText('Add a category'));
+      await userEvent.type(screen.getByLabelText('New category'), 'Garage');
+      await userEvent.press(screen.getByLabelText('Colour: Teal'));
+      await userEvent.press(screen.getByText('Add category'));
+      expect(onCreateCategory).toHaveBeenCalledWith({ name: 'Garage', ink: 'teal' });
+    });
+
+    it('selects the new category, so it does not have to be found and tapped', async () => {
+      const { onCreateCategory, onChangeCategory } = await renderPicker();
+      onCreateCategory.mockResolvedValue('c-garage');
+      await userEvent.press(screen.getByLabelText('Add a category'));
+      await userEvent.type(screen.getByLabelText('New category'), 'Garage');
+      await userEvent.press(screen.getByText('Add category'));
+      expect(onChangeCategory).toHaveBeenCalledWith('c-garage');
+    });
+
+    it('creates with no colour when none is chosen', async () => {
+      const { onCreateCategory } = await renderPicker();
+      await userEvent.press(screen.getByLabelText('Add a category'));
+      await userEvent.type(screen.getByLabelText('New category'), 'Garage');
+      await userEvent.press(screen.getByText('Add category'));
+      expect(onCreateCategory).toHaveBeenCalledWith({ name: 'Garage', ink: null });
+    });
+
+    it('shows a creation error rather than swallowing it', async () => {
+      await renderPicker({ createError: 'There is already a category with that name.' });
+      await userEvent.press(screen.getByLabelText('Add a category'));
+      expect(screen.getByText('There is already a category with that name.')).toBeTruthy();
+    });
   });
 
   it('still offers Other when the household has no categories at all', async () => {

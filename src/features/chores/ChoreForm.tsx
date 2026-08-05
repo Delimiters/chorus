@@ -22,7 +22,7 @@ import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { Button, ErrorState, Field, Stack, Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
-import { useCategoryList } from '@/data/hooks/useCategories';
+import { useCategoryList, useCreateCategory } from '@/data/hooks/useCategories';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
@@ -69,6 +69,7 @@ export function ChoreForm({
   const [categoryId, setCategoryId] = useState<string | null>(chore?.categoryId ?? null);
   const [priority, setPriority] = useState<Priority>(chore?.priority ?? DEFAULT_PRIORITY);
   const categories = useCategoryList();
+  const createCategory = useCreateCategory();
 
   /**
    * When the chore begins. Editable, and it does real work.
@@ -149,6 +150,9 @@ export function ChoreForm({
           onChangeCategory={setCategoryId}
           priority={priority}
           onChangePriority={setPriority}
+          onCreateCategory={(input) => createCategory.mutateAsync(input)}
+          creating={createCategory.isPending}
+          createError={(createCategory.error as Error | null)?.message ?? null}
         />
 
         <RecurrencePicker

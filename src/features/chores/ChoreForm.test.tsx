@@ -26,6 +26,7 @@ import { ChoreForm } from './ChoreForm';
 jest.mock('@/data/hooks/useCategories', () => ({
   useCategoryList: () => [],
   useCategories: () => ({ data: [], isPending: false, isError: false }),
+  useCreateCategory: () => ({ mutateAsync: jest.fn(), isPending: false, error: null }),
 }));
 
 const TODAY = civilDate('2026-07-30'); // a Thursday

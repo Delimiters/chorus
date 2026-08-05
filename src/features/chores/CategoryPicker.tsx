@@ -8,16 +8,22 @@
  * "Other" is offered as a real-looking option even though it is the *absence*
  * of a category — a null `category_id`. Presenting "no category" as an empty
  * state to opt out of would make the common case feel like a mistake.
+ *
+ * A category can be created from here. The moment you want one is the moment
+ * you are filing a chore and none of the existing names fit — sending someone
+ * to a settings screen at that point means abandoning a half-written form, and
+ * the usual result is that nobody bothers and everything stays in Other.
  */
 
+import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { describePriority, PRIORITIES, type Priority } from '@/core/chore/priority';
 import { OTHER_TITLE } from '@/core/occurrence/grouping';
 import type { Category } from '@/data/api/categories';
-import { Txt } from '@/design/components';
+import { Button, Field, Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
-import { inkColor, inkSoft } from '@/design/inks';
+import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 
@@ -27,6 +33,17 @@ interface Props {
   onChangeCategory: (categoryId: string | null) => void;
   priority: Priority;
   onChangePriority: (priority: Priority) => void;
+  /**
+   * Creates a category and resolves to its id, which is then selected.
+   *
+   * A callback rather than the mutation itself, so this component stays
+   * presentational and testable without standing up a QueryClient.
+   */
+  onCreateCategory: (input: { name: string; ink: string | null }) => Promise<string>;
+  /** True while a creation is in flight. */
+  creating?: boolean;
+  /** Surfaced under the inline form — a duplicate name is the common one. */
+  createError?: string | null;
 }
 
 export function CategoryAndPriorityPicker({
@@ -35,8 +52,28 @@ export function CategoryAndPriorityPicker({
   onChangeCategory,
   priority,
   onChangePriority,
+  onCreateCategory,
+  creating = false,
+  createError = null,
 }: Props) {
   const { colors, isDark } = useTheme();
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newInk, setNewInk] = useState<string | null>(null);
+
+  const submitNew = () => {
+    const name = newName.trim();
+    if (name.length === 0) return;
+    void onCreateCategory({ name, ink: newInk }).then((id) => {
+      // Selecting it is the point. Creating a category mid-form and then
+      // having to find and tap it would be a worse version of the trip to
+      // settings this exists to avoid.
+      onChangeCategory(id);
+      setAdding(false);
+      setNewName('');
+      setNewInk(null);
+    });
+  };
 
   return (
     <View style={{ gap: space.xl }}>
@@ -44,7 +81,7 @@ export function CategoryAndPriorityPicker({
         label="Category"
         hint={
           categories.length === 0
-            ? 'Add categories in House → Categories to group your chores.'
+            ? 'No categories yet — add one below, or leave this chore in Other.'
             : undefined
         }
       >
@@ -75,7 +112,75 @@ export function CategoryAndPriorityPicker({
             tint={colors.text}
             wash={colors.sunken}
           />
+
+          <Chip
+            label={adding ? '× Cancel' : '+ New'}
+            selected={false}
+            onPress={() => {
+              setAdding((open) => !open);
+              setNewName('');
+              setNewInk(null);
+            }}
+            accessibilityLabel={adding ? 'Cancel new category' : 'Add a category'}
+            tint={colors.text}
+            wash={colors.sunken}
+          />
         </View>
+
+        {adding ? (
+          <View style={{ gap: space.sm, paddingTop: space.sm }}>
+            <Field
+              label="New category"
+              value={newName}
+              onChangeText={setNewName}
+              placeholder="Kitchen"
+              maxLength={40}
+              autoFocus
+              {...(createError === null ? {} : { error: createError })}
+            />
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
+              {INKS.map((option) => {
+                const selected = newInk === option.name;
+                return (
+                  <Pressable
+                    key={option.name}
+                    onPress={() => setNewInk(selected ? null : option.name)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Colour: ${option.label}`}
+                    style={{
+                      minWidth: 44,
+                      minHeight: 44,
+                      borderRadius: radius.sm,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: inkSoft(option.name, isDark),
+                      borderWidth: selected ? 2 : 0,
+                      borderColor: inkColor(option.name, isDark),
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 8,
+                        backgroundColor: inkColor(option.name, isDark),
+                      }}
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Button
+              label="Add category"
+              onPress={submitNew}
+              loading={creating}
+              disabled={newName.trim().length === 0}
+            />
+          </View>
+        ) : null}
       </FieldGroup>
 
       <FieldGroup label="Priority" hint="Sorts the chore within whatever it is grouped by.">
