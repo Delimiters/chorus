@@ -1,10 +1,21 @@
 # Chorus — agent operating instructions
 
-A shared household chore app for two people. Expo SDK 57 + React Native + Supabase.
+A shared household chore app for two people. Expo SDK 54 + React Native + Supabase.
 
 **Expo has changed.** Read the exact versioned docs at
-<https://docs.expo.dev/versions/v57.0.0/> before writing Expo-specific code.
+<https://docs.expo.dev/versions/v54.0.0/> before writing Expo-specific code.
 Do not rely on recalled API shapes.
+
+**Why 54 and not 57**, since docs/PLAN.md specifies 57 and is otherwise
+authoritative. SDK 57 could not run anywhere this project can reach: App Store
+Expo Go supports exactly one SDK (54), and a local compile needs Swift 6.2,
+which needs Xcode 26, which needs macOS Tahoe, which dropped every 2018 Mac.
+SDK 54 runs in Expo Go *and* compiles locally, so the app is now installed on
+two physical iPhones. Nothing in `src/` changed to get there — the engine is
+plain TypeScript and the app code compiled against 54 unmodified.
+
+This is a deliberate, temporary trade for reachable hardware. Revisit it when
+an App Store release is on the table.
 
 ## Start here
 
@@ -185,16 +196,25 @@ the input isn't vacuous.
 
 ## Environment constraints
 
-- The dev machine is a **2018 Intel MacBook Pro** on macOS Sequoia. macOS Tahoe
-  dropped all 2018 Macs, so **Xcode 26 is permanently unavailable**, so this
-  project can never be compiled locally. Develop in **Expo Go**; native binaries
-  come from **EAS cloud builds** only.
+- The dev machine is a **2018 Intel MacBook Pro** on macOS Sequoia running Xcode
+  16.4 (Swift 6.1.2). macOS Tahoe dropped all 2018 Macs, so **Xcode 26 is
+  permanently unavailable**.
 
-  Verified rather than assumed: prebuild and `pod install` both succeed, and the
-  compile dies on `package 'apple' is using Swift tools version 6.2.0 but the
-  installed version is 6.1.0`. Xcode 16.4 ships Swift 6.1; SDK 57 needs 6.2.
-  Do not spend time retrying this — it is a toolchain floor, not a
-  configuration problem. Details in docs/RELEASE.md.
+  **This limits SDK 57, not the machine.** The distinction matters and this file
+  previously got it wrong, asserting the project "can never be compiled locally".
+
+  - **On SDK 57**: prebuild and `pod install` succeed; the compile dies at
+    `package 'apple' is using Swift tools version 6.2.0 but the installed
+    version is 6.1.0`. Swift 6.2 ships only with Xcode 26. A real toolchain
+    floor — do not retry it.
+  - **On SDK 54** (`experiment/sdk-54`): the whole thing compiles. Verified end
+    to end — Debug and Release both `BUILD SUCCEEDED` with zero errors, and the
+    Release `.app` runs in the simulator **with Metro killed**, because Release
+    embeds `main.jsbundle`.
+
+  So on SDK 54 `eas build --local` works and consumes **no** EAS quota, which
+  makes rule 6 non-binding there. It stays binding on SDK 57. Details and the
+  code-signing caveat are in docs/RELEASE.md.
 - No Apple Developer account yet. Remote push notifications are therefore out of
   v1 — local notifications only. Do not build APNs plumbing.
 - Local Postgres runs under Colima. **CI is the source of truth for DB tests** —

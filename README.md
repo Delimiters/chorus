@@ -5,7 +5,7 @@
 A household chore app for two people. Chores recur on any schedule you can
 describe, rotate fairly between housemates, and sync in real time.
 
-Built with Expo SDK 57, React Native, TypeScript, and Supabase.
+Built with Expo SDK 54, React Native, TypeScript, and Supabase.
 
 > **Status:** in active development. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for
 > what works today.

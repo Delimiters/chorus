@@ -39,7 +39,8 @@
         }
       ],
       "expo-localization",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/without-push-entitlement"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -51,6 +52,12 @@
         "projectId": "5f10c62d-c21b-461b-b4a2-197403f80e4e"
       }
     },
-    "owner": "delimiters-development"
+    "owner": "delimiters-development",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/5f10c62d-c21b-461b-b4a2-197403f80e4e"
+    }
   }
 }
