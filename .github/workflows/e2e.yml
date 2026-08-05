@@ -11,12 +11,19 @@ name: End-to-end
 # What this catches that nothing else can: the app actually launching, the
 # navigator wiring up, and a completion surviving a real relaunch.
 #
-# ⚠️ Never run. It needs an Expo project link and secrets that do not exist yet;
-# see docs/RELEASE.md. Expect the first run to need fixing.
+# ⚠️ Never run. It needs secrets that do not exist yet; see docs/RELEASE.md.
+# Expect the first run to need fixing.
+#
+# The nightly schedule is deliberately commented out rather than deleted. With
+# EXPO_TOKEN, SUPABASE_URL, and SUPABASE_KEY unset, every nightly run failed at
+# the guard below — a red result that carried no information, arriving daily.
+# A check that cannot pass is not a signal, and one that fails on a timer trains
+# you to ignore the notification that eventually matters. Restore the schedule
+# in the same commit that adds the secrets.
 on:
-  schedule:
-    # 07:00 UTC, so a failure is waiting rather than interrupting.
-    - cron: '0 7 * * *'
+  # schedule:
+  #   # 07:00 UTC, so a failure is waiting rather than interrupting.
+  #   - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       rebuild:
