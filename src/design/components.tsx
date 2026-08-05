@@ -219,3 +219,45 @@ export function LoadingState({ label }: { label?: string }) {
     </View>
   );
 }
+
+/**
+ * A back control for a pushed screen.
+ *
+ * Every screen under `(app)` is rendered with `headerShown: false`, so there is
+ * no navigation chrome at all — and swiping from the left edge is an invisible
+ * affordance that assumes the person already knows iOS. The chore form did have
+ * a Cancel, but at the *bottom* of a long scrolling form, past recurrence and
+ * assignment; Settings and Categories had nothing.
+ *
+ * Rendered as text rather than a bare chevron so it is unambiguous, and sized
+ * to the minimum touch target rather than to the glyph.
+ */
+export function BackBar({
+  label = 'Back',
+  onPress,
+}: {
+  /** "Cancel" on a form, where leaving discards work; "Back" elsewhere. */
+  label?: string;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <View style={{ flexDirection: 'row' }}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        hitSlop={8}
+        style={{
+          minHeight: MIN_TARGET,
+          justifyContent: 'center',
+          paddingRight: space.md,
+        }}
+      >
+        <Txt variant="body" style={{ color: colors.textMuted }}>
+          {`‹  ${label}`}
+        </Txt>
+      </Pressable>
+    </View>
+  );
+}

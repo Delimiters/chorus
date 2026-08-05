@@ -378,3 +378,55 @@ export function SectionHeader({ title, count }: { title: string; count?: number 
     </View>
   );
 }
+
+/**
+ * A second-level heading, for a category nested inside an ownership section.
+ *
+ * Indented and quieter than `SectionHeader`, so the two levels read as a
+ * hierarchy rather than as two competing lists. Carries the category's ink as
+ * a dot, which is the cheapest way to make a group recognisable without
+ * colouring the text and fighting contrast in one theme or the other.
+ */
+export function SubHeader({
+  title,
+  ink,
+  count,
+}: {
+  title: string;
+  ink?: string | null;
+  count?: number;
+}) {
+  const { colors, isDark } = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.xs,
+        paddingLeft: space.lg,
+        paddingRight: space.sm,
+        paddingTop: space.sm,
+        paddingBottom: 2,
+      }}
+    >
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: 4,
+          backgroundColor: ink == null ? colors.textFaint : inkColor(ink, isDark),
+        }}
+      />
+      <Txt variant="small" tone="faint" accessibilityRole="header" style={{ flex: 1 }}>
+        {title}
+      </Txt>
+      {count === undefined ? null : (
+        <Txt variant="small" tone="faint">
+          {count}
+        </Txt>
+      )}
+    </View>
+  );
+}

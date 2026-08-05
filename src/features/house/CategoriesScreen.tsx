@@ -12,6 +12,7 @@
  * absence of one, and there is nothing to rename or delete.
  */
 
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,7 +26,7 @@ import {
   useReorderCategories,
   useUpdateCategory,
 } from '@/data/hooks/useCategories';
-import { Button, ErrorState, Field, LoadingState, Stack, Txt } from '@/design/components';
+import { BackBar, Button, ErrorState, Field, LoadingState, Stack, Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
@@ -33,6 +34,7 @@ import { radius, space } from '@/design/tokens';
 
 export function CategoriesScreen() {
   const { colors, isDark } = useTheme();
+  const router = useRouter();
   const categories = useCategories();
   const create = useCreateCategory();
   const update = useUpdateCategory();
@@ -103,6 +105,8 @@ export function CategoriesScreen() {
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl, gap: space.xl }}
         keyboardShouldPersistTaps="handled"
       >
+        <BackBar onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))} />
+
         <Txt variant="display" accessibilityRole="header">
           Categories
         </Txt>
