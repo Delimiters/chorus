@@ -20,6 +20,10 @@ import { useToday } from '@/data/today';
 import { Checkbox, SectionHeader } from '@/design/ChoreRow';
 import { Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { formatDayShort } from '../today/format';
+import { groupItems, type Groupable } from '@/core/occurrence/grouping';
+import { useCategoryList } from '@/data/hooks/useCategories';
+import { useViewPreference, useViewStore } from '@/stores/viewStore';
+import { ViewControls } from './ViewControls';
 import { inkColor } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
@@ -35,6 +39,10 @@ export function ChoresScreen() {
   const toggleSomeday = useToggleSomeday();
   const household = useHousehold();
   const today = useToday(household.data?.timeZone ?? 'UTC');
+  const categories = useCategoryList();
+  const view = useViewPreference();
+  const setGroupBy = useViewStore((s) => s.setGroupBy);
+  const setSortBy = useViewStore((s) => s.setSortBy);
 
   /** When each Someday chore was ticked off, if it was. */
   const doneByChore = useMemo(() => {
@@ -59,6 +67,29 @@ export function ChoresScreen() {
       archived: all.filter((c) => c.archived),
     };
   }, [query.data]);
+
+  /**
+   * The active chores, arranged by the device's grouping preference.
+   *
+   * Chore definitions carry no due date — a weekly chore is not due on any one
+   * day — so `dueOn` is null and the ordering falls through to priority and
+   * then title. Someday and archived keep their own sections below: they are
+   * states rather than categories, and burying "archived" inside "Kitchen"
+   * would hide it.
+   */
+  const activeSections = useMemo(() => {
+    const groupable: Groupable[] = active.map((c) => ({
+      choreId: c.id,
+      dueOn: null,
+      choreTitle: c.title,
+    }));
+    const meta = new Map(
+      active.map((c) => [c.id, { categoryId: c.categoryId, priority: c.priority }]),
+    );
+    return groupItems(groupable, meta, categories, view);
+  }, [active, categories, view]);
+
+  const byId = useMemo(() => new Map(active.map((c) => [c.id, c])), [active]);
 
   if (query.isLoading) return <LoadingState />;
   if (query.error) return <ErrorState message={(query.error as Error).message} />;
@@ -149,8 +180,27 @@ export function ChoresScreen() {
 
         {active.length > 0 ? (
           <>
-            <SectionHeader title="Repeating" />
-            <Stack gap={space.xs}>{active.map((c) => row(c))}</Stack>
+            <View style={{ paddingHorizontal: space.sm, paddingBottom: space.md }}>
+              <ViewControls
+                groupBy={view.groupBy}
+                sortBy={view.sortBy}
+                onChangeGroupBy={setGroupBy}
+                onChangeSortBy={setSortBy}
+              />
+            </View>
+            {activeSections.map((section) => (
+              <View key={section.key}>
+                {/* Grouping off produces one untitled section, and a blank
+                    header would be a rule with nothing above it. */}
+                {section.title === '' ? null : <SectionHeader title={section.title} />}
+                <Stack gap={space.xs}>
+                  {section.items.map((item) => {
+                    const chore = byId.get(item.choreId);
+                    return chore === undefined ? null : row(chore);
+                  })}
+                </Stack>
+              </View>
+            ))}
           </>
         ) : (
           <View style={{ paddingVertical: space.xxl, alignItems: 'center' }}>

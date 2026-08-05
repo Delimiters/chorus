@@ -17,6 +17,7 @@ import { useReminderPolicy, useReminderStore } from '@/stores/reminderStore';
 import { LoadingState } from '@/design/components';
 import { useColors } from '@/design/theme';
 import { useActiveHouseholdId, useAuthStatus } from '@/stores/sessionStore';
+import { useViewStore } from '@/stores/viewStore';
 
 export default function AppLayout() {
   const status = useAuthStatus();
@@ -34,6 +35,12 @@ export default function AppLayout() {
   useEffect(() => {
     void hydrateReminders();
   }, [hydrateReminders]);
+
+  // The grouping preference, read once per session for the same reason.
+  const hydrateView = useViewStore((s) => s.hydrate);
+  useEffect(() => {
+    void hydrateView();
+  }, [hydrateView]);
 
   const reminderPolicy = useReminderPolicy();
   useRealtimeHousehold();

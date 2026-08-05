@@ -23,6 +23,9 @@ import {
   useToggleCompletion,
 } from '@/data/hooks/useOccurrences';
 import { ChoreRow, FloatingRow, SectionHeader } from '@/design/ChoreRow';
+import { groupItems } from '@/core/occurrence/grouping';
+import { useCategoryList } from '@/data/hooks/useCategories';
+import { useViewPreference } from '@/stores/viewStore';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
@@ -40,6 +43,15 @@ export function TodayScreen() {
   const { skip, reschedule, clear } = useOccurrenceActions();
   const [open, setOpen] = useState<AgendaItem | null>(null);
   const { view, chores, today, isLoading, error, unreadable, refetch } = useToday_View();
+  const categories = useCategoryList();
+  const viewPref = useViewPreference();
+
+  /** The two grouping axes per chore, and the categories by id, for the rows. */
+  const choreMeta = useMemo(
+    () => new Map(chores.map((c) => [c.id, { categoryId: c.categoryId, priority: c.priority }])),
+    [chores],
+  );
+  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   const toggle = useToggleCompletion();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -89,6 +101,8 @@ export function TodayScreen() {
 
   const renderRow = (item: AgendaItem) => {
     const { ink, turnLabel } = ownership(item.assignee);
+    const meta = choreMeta.get(item.choreId);
+    const category = categoryById.get(meta?.categoryId ?? '') ?? null;
     return (
       <ChoreRow
         key={item.occurrenceKey}
@@ -96,10 +110,32 @@ export function TodayScreen() {
         ink={ink}
         turnLabel={turnLabel}
         scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
+        category={category === null ? null : { name: category.name, ink: category.ink }}
+        priority={meta?.priority ?? 'normal'}
         onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
         onOpen={() => setOpen(item)}
       />
     );
+  };
+
+  /**
+   * Applies the sort preference within Today's existing sections.
+   *
+   * Today is already sectioned by ownership and state — Yours, Everyone else,
+   * Done — and those answer a different question than category does. Replacing
+   * them with category sections would lose "is this mine", which is the thing a
+   * two-person household actually looks for; nesting would multiply headers.
+   *
+   * So the grouping control does not restructure this screen. It reorders
+   * within each section, and the category rides on the row as a chip. The
+   * Chores tab, whose list is flat, is where grouping changes the shape.
+   */
+  const sorted = (items: readonly AgendaItem[]): readonly AgendaItem[] => {
+    const sections = groupItems(items, choreMeta, categories, {
+      groupBy: 'none',
+      sortBy: viewPref.sortBy,
+    });
+    return sections[0]?.items ?? [];
   };
 
   const renderFloating = (group: FloatingGroup) => {
@@ -178,14 +214,14 @@ export function TodayScreen() {
         {view.mine.length > 0 ? (
           <>
             <SectionHeader title="Yours" count={view.mine.length} />
-            <Stack gap={space.xs}>{view.mine.map(renderRow)}</Stack>
+            <Stack gap={space.xs}>{sorted(view.mine).map(renderRow)}</Stack>
           </>
         ) : null}
 
         {view.theirs.length > 0 ? (
           <>
             <SectionHeader title="Everyone else" count={view.theirs.length} />
-            <Stack gap={space.xs}>{view.theirs.map(renderRow)}</Stack>
+            <Stack gap={space.xs}>{sorted(view.theirs).map(renderRow)}</Stack>
           </>
         ) : null}
 

@@ -32,6 +32,8 @@ const draft = (over: Partial<ChoreDraft> = {}): ChoreDraft => ({
   notes: null,
   schedule: DAILY,
   assignment: ANYONE,
+  categoryId: null,
+  priority: 'normal',
   ...over,
 });
 
@@ -41,10 +43,26 @@ describe('building the row', () => {
     // a typo, and the point of this test is the names.
     expect(Object.keys(choreRow(draft())).sort()).toEqual([
       'assignment',
+      'category_id',
       'notes',
+      'priority',
       'schedule',
       'title',
     ]);
+  });
+
+  it('normalises a priority it does not recognise', () => {
+    // The column has a CHECK, so an unrecognised value would surface as a
+    // 23514 from Postgres rather than anything a person could act on. This is
+    // the one function both writers share, so normalising here covers both.
+    const row = choreRow(draft({ priority: 'urgent' as never }));
+    expect(row.priority).toBe('normal');
+  });
+
+  it('passes a null category through as null rather than dropping it', () => {
+    // Null is the "Other" group, not a missing value. Omitting the key would
+    // leave an edited chore in whatever category it was already in.
+    expect(choreRow(draft({ categoryId: null }))).toHaveProperty('category_id', null);
   });
 
   it('carries the schedule and assignment through unchanged', () => {

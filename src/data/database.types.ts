@@ -9,6 +9,44 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      chore_categories: {
+        Row: {
+          created_at: string
+          household_id: string
+          id: string
+          ink: string | null
+          name: string
+          position: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          household_id: string
+          id?: string
+          ink?: string | null
+          name: string
+          position?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          household_id?: string
+          id?: string
+          ink?: string | null
+          name?: string
+          position?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chore_categories_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chore_completions: {
         Row: {
           chore_id: string
@@ -133,12 +171,14 @@ export type Database = {
           archived_at: string | null
           assignment: Json
           assignment_kind: string | null
+          category_id: string | null
           created_at: string
           created_by: string
           ends_on: string | null
           household_id: string
           id: string
           notes: string | null
+          priority: string
           schedule: Json
           schedule_kind: string | null
           starts_on: string | null
@@ -149,12 +189,14 @@ export type Database = {
           archived_at?: string | null
           assignment?: Json
           assignment_kind?: string | null
+          category_id?: string | null
           created_at?: string
           created_by: string
           ends_on?: string | null
           household_id: string
           id?: string
           notes?: string | null
+          priority?: string
           schedule: Json
           schedule_kind?: string | null
           starts_on?: string | null
@@ -165,12 +207,14 @@ export type Database = {
           archived_at?: string | null
           assignment?: Json
           assignment_kind?: string | null
+          category_id?: string | null
           created_at?: string
           created_by?: string
           ends_on?: string | null
           household_id?: string
           id?: string
           notes?: string | null
+          priority?: string
           schedule?: Json
           schedule_kind?: string | null
           starts_on?: string | null
@@ -178,6 +222,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "chores_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "chore_categories"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "chores_created_by_fkey"
             columns: ["created_by"]

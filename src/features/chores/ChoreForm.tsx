@@ -21,10 +21,13 @@ import type { Assignment } from '@/core/rotation/types';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { Button, ErrorState, Field, Stack, Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
+import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
+import { useCategoryList } from '@/data/hooks/useCategories';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
 import { DateField } from './DateField';
+import { CategoryAndPriorityPicker } from './CategoryPicker';
 import { RecurrencePicker, draftFromRule, type RecurrenceDraft } from './RecurrencePicker';
 import { SchedulePreview } from './SchedulePreview';
 
@@ -63,6 +66,9 @@ export function ChoreForm({
     draftFromRule(chore?.schedule.rule ?? { kind: 'weekly', everyNWeeks: 1, weekdays: [] }, today),
   );
   const [assignment, setAssignment] = useState<Assignment>(chore?.assignment ?? { kind: 'anyone' });
+  const [categoryId, setCategoryId] = useState<string | null>(chore?.categoryId ?? null);
+  const [priority, setPriority] = useState<Priority>(chore?.priority ?? DEFAULT_PRIORITY);
+  const categories = useCategoryList();
 
   /**
    * When the chore begins. Editable, and it does real work.
@@ -101,6 +107,8 @@ export function ChoreForm({
       notes: notes.trim().length === 0 ? null : notes.trim(),
       schedule,
       assignment,
+      categoryId,
+      priority,
     });
   };
 
@@ -133,6 +141,14 @@ export function ChoreForm({
           placeholder="Optional"
           multiline
           maxLength={2000}
+        />
+
+        <CategoryAndPriorityPicker
+          categories={categories}
+          categoryId={categoryId}
+          onChangeCategory={setCategoryId}
+          priority={priority}
+          onChangePriority={setPriority}
         />
 
         <RecurrencePicker

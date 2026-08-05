@@ -11,6 +11,7 @@ import { safeParseAssignment } from '@/core/rotation/schema';
 import type { Assignment } from '@/core/rotation/types';
 import type { ChoreInput, CompletionInput, ExceptionInput } from '@/core/occurrence/types';
 import type { CivilDate } from '@/core/civil/types';
+import { toPriority, type Priority } from '@/core/chore/priority';
 import type { Json } from '../database.types';
 import { describeError, isDuplicate, supabase } from '../supabase';
 
@@ -22,6 +23,16 @@ function fail(error: { code?: string | undefined; message: string }): never {
 export interface Chore extends ChoreInput {
   readonly notes: string | null;
   readonly archivedAt: string | null;
+  /**
+   * Grouping and ordering, neither of which the engine knows about.
+   *
+   * `categoryId` is null for the "Other" group, which is the absence of a
+   * category rather than a row. `priority` is read through `toPriority`, so a
+   * value written by some future version with a fourth level degrades to
+   * `normal` instead of scrambling a sort.
+   */
+  readonly categoryId: string | null;
+  readonly priority: Priority;
 }
 
 /**
@@ -39,6 +50,8 @@ function toChore(row: {
   schedule: unknown;
   assignment: unknown;
   archived_at: string | null;
+  category_id: string | null;
+  priority: unknown;
 }): { chore: Chore } | { error: string } {
   const schedule = safeParseSchedule(row.schedule);
   if (!schedule.success) {
@@ -57,6 +70,8 @@ function toChore(row: {
       assignment: assignment.data,
       archived: row.archived_at !== null,
       archivedAt: row.archived_at,
+      categoryId: row.category_id,
+      priority: toPriority(row.priority),
     },
   };
 }
@@ -73,7 +88,7 @@ export async function listChores(
 ): Promise<ChoreListResult> {
   let query = supabase
     .from('chores')
-    .select('id, title, notes, schedule, assignment, archived_at')
+    .select('id, title, notes, schedule, assignment, archived_at, category_id, priority')
     .eq('household_id', householdId)
     .order('title');
 
@@ -202,7 +217,7 @@ export async function listExceptionsForChores(
 export async function listOneTimeChores(householdId: string): Promise<ChoreListResult> {
   const { data, error } = await supabase
     .from('chores')
-    .select('id, title, notes, schedule, assignment, archived_at')
+    .select('id, title, notes, schedule, assignment, archived_at, category_id, priority')
     .eq('household_id', householdId)
     .eq('schedule_kind', 'once')
     .is('archived_at', null)
@@ -259,6 +274,9 @@ export interface ChoreDraft {
   readonly notes: string | null;
   readonly schedule: Schedule;
   readonly assignment: Assignment;
+  /** Null means the "Other" group. See the categories migration. */
+  readonly categoryId: string | null;
+  readonly priority: Priority;
 }
 
 /**
@@ -287,6 +305,8 @@ export function choreRow(draft: ChoreDraft): {
   notes: string | null;
   schedule: Json;
   assignment: Json;
+  category_id: string | null;
+  priority: Priority;
 } {
   const title = draft.title.trim();
   if (title.length === 0) throw new Error('A chore needs a name.');
@@ -306,6 +326,11 @@ export function choreRow(draft: ChoreDraft): {
     notes: notes === undefined || notes.length === 0 ? null : notes,
     schedule: schedule.data as unknown as Json,
     assignment: assignment.data as unknown as Json,
+    category_id: draft.categoryId,
+    // Normalised on the way out as well as in. The column has a CHECK, so an
+    // invalid value would be a 23514 at the database rather than a clear
+    // message here, and this is the one function both writers share.
+    priority: toPriority(draft.priority),
   };
 }
 

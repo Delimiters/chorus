@@ -26,6 +26,7 @@ export const qk = {
   household: (householdId: string) => [...qk.all, 'household', householdId] as const,
 
   members: (householdId: string) => [...qk.household(householdId), 'members'] as const,
+  categories: (householdId: string) => [...qk.household(householdId), 'categories'] as const,
   invites: (householdId: string) => [...qk.household(householdId), 'invites'] as const,
   chores: (householdId: string) => [...qk.household(householdId), 'chores'] as const,
   chore: (householdId: string, choreId: string) => [...qk.chores(householdId), choreId] as const,
