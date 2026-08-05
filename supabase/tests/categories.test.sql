@@ -34,10 +34,10 @@ values
   ('ea000000-0000-0000-0000-000000000001', 'e1111111-1111-1111-1111-111111111111', 'owner', 'blue'),
   ('eb000000-0000-0000-0000-000000000002', 'e2222222-2222-2222-2222-222222222222', 'owner', 'pink');
 
-insert into public.chore_categories (id, household_id, name, color, position)
+insert into public.chore_categories (id, household_id, name, ink, position)
 values
   ('ec000000-0000-0000-0000-000000000001', 'ea000000-0000-0000-0000-000000000001',
-   'Kitchen', '#aabbcc', 0);
+   'Kitchen', 'teal', 0);
 
 insert into public.chores (id, household_id, title, schedule, created_by, category_id, priority)
 values
@@ -105,11 +105,11 @@ select lives_ok(
 );
 
 select throws_ok(
-  $$ insert into public.chore_categories (household_id, name, color, position)
-     values ('ea000000-0000-0000-0000-000000000001', 'Bad Colour', 'red', 9) $$,
+  $$ insert into public.chore_categories (household_id, name, ink, position)
+     values ('ea000000-0000-0000-0000-000000000001', 'Bad Ink', '#aabbcc', 9) $$,
   '23514',
   null,
-  'colour must be a hex triplet, not a name'
+  'ink must be one of the named inks, not a raw hex that only suits one theme'
 );
 
 -- ── Deleting a category must not delete its chores ────────────────────────

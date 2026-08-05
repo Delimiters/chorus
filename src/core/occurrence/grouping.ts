@@ -39,8 +39,13 @@ export type SortBy = 'priority' | 'due';
 export interface CategoryMeta {
   readonly id: string;
   readonly name: string;
-  /** Hex, or null to fall back to the theme's neutral. */
-  readonly color: string | null;
+  /**
+   * An ink name, or null for the theme's neutral.
+   *
+   * A name rather than a hex because each ink carries a light *and* a dark
+   * value; the renderer resolves it per theme. See src/design/inks.ts.
+   */
+  readonly ink: string | null;
   /** Ascending. Ties broken by name, so the order is always total. */
   readonly position: number;
 }
@@ -55,7 +60,7 @@ export interface Section<T> {
   /** A category id, a `Priority`, `OTHER_KEY`, or `ALL_KEY`. Stable across renders. */
   readonly key: string;
   readonly title: string;
-  readonly color: string | null;
+  readonly ink: string | null;
   readonly items: readonly T[];
 }
 
@@ -72,11 +77,26 @@ export const OTHER_TITLE = 'Other';
 /** The single section used when grouping is off. */
 export const ALL_KEY = 'all';
 
-/** The minimum an item needs for grouping to place and order it. */
+/**
+ * The minimum an item needs for grouping to place and order it.
+ *
+ * `dueOn` is nullable because this runs over two different things: agenda
+ * occurrences, which always have a date, and the Chores tab's list of chore
+ * *definitions*, which do not — a weekly chore is not due on any one day. An
+ * undated item sorts after dated ones and then falls through to its title,
+ * rather than being given a fabricated date to sort by.
+ */
 export interface Groupable {
   readonly choreId: string;
-  readonly dueOn: CivilDate;
+  readonly dueOn: CivilDate | null;
   readonly choreTitle: string;
+}
+
+/** Undated sorts last; otherwise chronological. */
+function compareDue(a: CivilDate | null, b: CivilDate | null): number {
+  if (a === null) return b === null ? 0 : 1;
+  if (b === null) return -1;
+  return compareCivil(a, b);
 }
 
 /**
@@ -98,12 +118,12 @@ export function groupItems<T extends Groupable>(
   const byPriority = (a: T, b: T): number => {
     const p = comparePriority(metaFor(a).priority, metaFor(b).priority);
     if (p !== 0) return p;
-    const d = compareCivil(a.dueOn, b.dueOn);
+    const d = compareDue(a.dueOn, b.dueOn);
     return d !== 0 ? d : a.choreTitle.localeCompare(b.choreTitle);
   };
 
   const byDue = (a: T, b: T): number => {
-    const d = compareCivil(a.dueOn, b.dueOn);
+    const d = compareDue(a.dueOn, b.dueOn);
     if (d !== 0) return d;
     const p = comparePriority(metaFor(a).priority, metaFor(b).priority);
     return p !== 0 ? p : a.choreTitle.localeCompare(b.choreTitle);
@@ -112,9 +132,7 @@ export function groupItems<T extends Groupable>(
   const ordered = [...items].sort(options.sortBy === 'priority' ? byPriority : byDue);
 
   if (options.groupBy === 'none') {
-    return ordered.length === 0
-      ? []
-      : [{ key: ALL_KEY, title: '', color: null, items: ordered }];
+    return ordered.length === 0 ? [] : [{ key: ALL_KEY, title: '', ink: null, items: ordered }];
   }
 
   if (options.groupBy === 'priority') {
@@ -132,7 +150,7 @@ export function groupItems<T extends Groupable>(
       .map(([priority, group]) => ({
         key: priority,
         title: describePriority(priority),
-        color: null,
+        ink: null,
         items: group,
       }));
   }
@@ -163,7 +181,7 @@ export function groupItems<T extends Groupable>(
       sections.push({
         key: category.id,
         title: category.name,
-        color: category.color,
+        ink: category.ink,
         items: group,
       });
     }
@@ -171,9 +189,8 @@ export function groupItems<T extends Groupable>(
 
   const other = buckets.get(OTHER_KEY);
   if (other !== undefined && other.length > 0) {
-    sections.push({ key: OTHER_KEY, title: OTHER_TITLE, color: null, items: other });
+    sections.push({ key: OTHER_KEY, title: OTHER_TITLE, ink: null, items: other });
   }
 
   return sections;
 }
-

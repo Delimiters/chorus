@@ -108,8 +108,19 @@ jest.mock('@/data/hooks/useHousehold', () => ({
   }),
 }));
 
-jest.mock('@/stores/sessionStore', () => ({ useUserId: () => ME }));
+jest.mock('@/stores/sessionStore', () => ({
+  useUserId: () => ME,
+  useActiveHouseholdId: () => 'house-1',
+}));
 jest.mock('@/data/today', () => ({ useToday: () => mockToday }));
+
+// Categories are fetched, and these suites render without a QueryClientProvider
+// on purpose — they mock the data layer rather than standing one up. An empty
+// list keeps the rows unbadged, which is what every assertion below expects.
+jest.mock('@/data/hooks/useCategories', () => ({
+  useCategoryList: () => [],
+  useCategories: () => ({ data: [], isPending: false, isError: false }),
+}));
 
 function renderScreen() {
   return render(

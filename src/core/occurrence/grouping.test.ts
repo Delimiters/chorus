@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 
 import type { CivilDate } from '../civil/types';
-import { PRIORITIES, type Priority } from '../chore/priority';
+import { PRIORITIES } from '../chore/priority';
 import {
   ALL_KEY,
   groupItems,
@@ -26,17 +26,22 @@ const row = (choreId: string, dueOn: string, choreTitle = choreId): Row => ({
   choreTitle,
 });
 
-const cat = (id: string, name: string, position: number, color: string | null = null): CategoryMeta => ({
+const cat = (
+  id: string,
+  name: string,
+  position: number,
+  ink: string | null = null,
+): CategoryMeta => ({
   id,
   name,
   position,
-  color,
+  ink,
 });
 
 const metaOf = (entries: Record<string, ChoreMeta>): ReadonlyMap<string, ChoreMeta> =>
   new Map(Object.entries(entries));
 
-const KITCHEN = cat('c-kitchen', 'Kitchen', 0, '#aabbcc');
+const KITCHEN = cat('c-kitchen', 'Kitchen', 0, 'teal');
 const LAUNDRY = cat('c-laundry', 'Laundry', 1);
 const OUTDOORS = cat('c-outdoors', 'Outdoors', 2);
 const CATEGORIES = [KITCHEN, LAUNDRY, OUTDOORS];
@@ -61,12 +66,7 @@ describe('groupItems', () => {
         groupBy: 'category',
         sortBy: 'priority',
       });
-      expect(sections.map((s) => s.title)).toEqual([
-        'Kitchen',
-        'Laundry',
-        'Outdoors',
-        OTHER_TITLE,
-      ]);
+      expect(sections.map((s) => s.title)).toEqual(['Kitchen', 'Laundry', 'Outdoors', OTHER_TITLE]);
       expect(sections.at(-1)?.key).toBe(OTHER_KEY);
     });
 
@@ -81,12 +81,12 @@ describe('groupItems', () => {
       expect(other?.items.map((i) => i.choreId)).toEqual(['taxes']);
     });
 
-    it('carries the category colour onto the section', () => {
+    it('carries the category ink onto the section', () => {
       const [kitchen] = groupItems(items, meta, CATEGORIES, {
         groupBy: 'category',
         sortBy: 'priority',
       });
-      expect(kitchen?.color).toBe('#aabbcc');
+      expect(kitchen?.ink).toBe('teal');
     });
 
     it('emits no section for a category nobody used', () => {
@@ -324,9 +324,62 @@ describe('groupItems', () => {
         { numRuns: 200 },
       );
       const ratio = sawMultiple / sawAny;
-      // eslint-disable-next-line no-console
       console.log(`multi-section coverage: ${(ratio * 100).toFixed(1)}%`);
       expect(ratio).toBeGreaterThan(0.5);
     });
+  });
+});
+
+describe('undated items', () => {
+  // The Chores tab groups chore *definitions*, which have no due date. They
+  // must still group and order sensibly rather than needing a fabricated date.
+  const undated = (id: string, title: string): Groupable => ({
+    choreId: id,
+    dueOn: null,
+    choreTitle: title,
+  });
+
+  it('orders undated items by title under either sort', () => {
+    for (const sortBy of ['priority', 'due'] as const) {
+      const sections = groupItems(
+        [undated('z', 'Zucchini'), undated('a', 'Artichoke')],
+        new Map([
+          ['z', { categoryId: null, priority: 'normal' as const }],
+          ['a', { categoryId: null, priority: 'normal' as const }],
+        ]),
+        [],
+        { groupBy: 'none', sortBy },
+      );
+      expect(sections[0]?.items.map((i) => i.choreTitle)).toEqual(['Artichoke', 'Zucchini']);
+    }
+  });
+
+  it('still honours priority over title for undated items', () => {
+    const sections = groupItems(
+      [undated('z', 'Artichoke'), undated('a', 'Zucchini')],
+      new Map([
+        ['z', { categoryId: null, priority: 'minor' as const }],
+        ['a', { categoryId: null, priority: 'crucial' as const }],
+      ]),
+      [],
+      { groupBy: 'none', sortBy: 'priority' },
+    );
+    expect(sections[0]?.items.map((i) => i.choreTitle)).toEqual(['Zucchini', 'Artichoke']);
+  });
+
+  it('sorts undated after dated when mixed', () => {
+    const sections = groupItems(
+      [
+        undated('u', 'Undated'),
+        { choreId: 'd', dueOn: '2026-08-05' as CivilDate, choreTitle: 'Dated' },
+      ],
+      new Map([
+        ['u', { categoryId: null, priority: 'normal' as const }],
+        ['d', { categoryId: null, priority: 'normal' as const }],
+      ]),
+      [],
+      { groupBy: 'none', sortBy: 'due' },
+    );
+    expect(sections[0]?.items.map((i) => i.choreTitle)).toEqual(['Dated', 'Undated']);
   });
 });

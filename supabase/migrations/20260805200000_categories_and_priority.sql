@@ -22,10 +22,20 @@ create table public.chore_categories (
   household_id uuid not null references public.households (id) on delete cascade,
   name         text not null check (char_length(trim(name)) between 1 and 40),
 
-  -- A hex colour, or null to fall back to the theme's neutral. Stored as hex
-  -- rather than a design-token name because tokens are renameable and this
-  -- data outlives any given version of the design system.
-  color        text check (color is null or color ~ '^#[0-9a-fA-F]{6}$'),
+  -- An ink name, or null for the theme's neutral.
+  --
+  -- A name rather than a hex, matching household_members.accent. Each ink
+  -- carries *two* hexes, one per theme (src/design/inks.ts), so a stored hex
+  -- would be a colour chosen for one theme and then used in both — legible in
+  -- light mode and near-invisible in dark. A name resolves per theme at render.
+  --
+  -- The set is closed and duplicated here as a CHECK, exactly as the accent
+  -- column does it. Adding an ink means a migration, which is the right amount
+  -- of friction for a palette that has accessibility tests riding on it.
+  ink          text check (
+                 ink is null
+                 or ink in ('blue', 'pink', 'teal', 'ochre', 'plum', 'green', 'rust', 'slate')
+               ),
 
   position     integer not null default 0,
   created_at   timestamptz not null default now(),

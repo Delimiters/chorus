@@ -216,6 +216,7 @@ export function HouseScreen() {
         </Stack>
 
         <View style={{ paddingTop: space.xxl, gap: space.sm }}>
+          <Button label="Categories" variant="ghost" onPress={() => router.push('/categories')} />
           <Button label="Settings" variant="ghost" onPress={() => router.push('/settings')} />
           <Button
             label="Sign out"

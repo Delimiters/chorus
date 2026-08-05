@@ -20,6 +20,14 @@ import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { ThemeProvider } from '@/design/theme';
 import { ChoreForm } from './ChoreForm';
 
+// Categories are fetched, and these suites render without a QueryClientProvider
+// on purpose — they mock the data layer rather than standing one up. An empty
+// list keeps the rows unbadged, which is what every assertion below expects.
+jest.mock('@/data/hooks/useCategories', () => ({
+  useCategoryList: () => [],
+  useCategories: () => ({ data: [], isPending: false, isError: false }),
+}));
+
 const TODAY = civilDate('2026-07-30'); // a Thursday
 const CAL: CalendarConfig = { weekStartsOn: 0 };
 const ME = 'user-me';
@@ -47,6 +55,8 @@ const ROTATING_CHORE: Chore = {
   },
   archived: false,
   archivedAt: null,
+  categoryId: null,
+  priority: 'normal',
 };
 
 /** `async` because RNTL v14's `render` is; see docs/TESTING.md. */

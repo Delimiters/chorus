@@ -18,6 +18,7 @@ import { useTheme } from './theme';
 import { MIN_TARGET, radius, space } from './tokens';
 import { Txt } from './components';
 import { formatLateness } from './format';
+import type { Priority } from '@/core/chore/priority';
 
 // ── Checkbox ────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,23 @@ interface ChoreRowProps {
   /** "Your turn" / "Sam's turn" / null. Always present when `ink` is. */
   turnLabel: string | null;
   scheduleLabel: string;
+  /**
+   * The chore's category, or null for "Other".
+   *
+   * A chip rather than a section, because Today is already sectioned by who
+   * owns the chore and what state it is in. Nesting categories inside those
+   * would multiply the headers; a chip puts the same information on the row
+   * without restructuring the screen.
+   */
+  category?: { name: string; ink: string | null } | null;
+  /**
+   * Badged only when `crucial`.
+   *
+   * Normal is the default and needs no label, and marking every minor chore
+   * "Minor" would add a chip to most rows to say nothing. A badge that appears
+   * on everything stops being a signal.
+   */
+  priority?: Priority;
   onToggle: () => void;
   onOpen: () => void;
   style?: StyleProp<ViewStyle>;
@@ -170,6 +188,8 @@ export function ChoreRow({
   ink,
   turnLabel,
   scheduleLabel,
+  category = null,
+  priority = 'normal',
   onToggle,
   onOpen,
   style,
@@ -222,6 +242,14 @@ export function ChoreRow({
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
           {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
+
+          {priority === 'crucial' ? <Chip tone="overdue">Crucial</Chip> : null}
+
+          {category === null ? null : (
+            <Chip tone={category.ink === null ? 'quiet' : 'ink'} ink={category.ink}>
+              {category.name}
+            </Chip>
+          )}
 
           {turnLabel !== null ? (
             <Chip tone="ink" ink={ink}>
