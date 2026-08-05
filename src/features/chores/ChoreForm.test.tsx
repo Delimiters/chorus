@@ -85,6 +85,22 @@ async function renderForm(over: Partial<React.ComponentProps<typeof ChoreForm>> 
 
 const submitted = (fn: jest.Mock): ChoreDraft => fn.mock.calls[0]?.[0] as ChoreDraft;
 
+describe('getting out of the form', () => {
+  it('offers a Cancel at the top, not only at the bottom of a long form', async () => {
+    // Every (app) screen is headerShown: false, so the only other way out is an
+    // edge swipe — an invisible affordance. The existing Cancel sat below the
+    // recurrence and assignment pickers, off-screen on arrival.
+    const onCancel = jest.fn();
+    await renderForm({ onCancel });
+    // Two now: the bar at the top and the button at the bottom. The first in
+    // tree order is the top one, which is the whole point of this test.
+    const exits = screen.getAllByLabelText('Cancel');
+    expect(exits.length).toBeGreaterThan(1);
+    fireEvent.press(exits[0]!);
+    expect(onCancel).toHaveBeenCalled();
+  });
+});
+
 describe('creating a chore', () => {
   it('will not save without a name', async () => {
     const { onSubmit } = await renderForm();

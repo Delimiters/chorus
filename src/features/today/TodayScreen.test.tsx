@@ -128,9 +128,14 @@ jest.mock('@/stores/sessionStore', () => ({
 // Categories are fetched, and these suites render without a QueryClientProvider
 // on purpose — they mock the data layer rather than standing one up. An empty
 // list keeps the rows unbadged, which is what every assertion below expects.
+// Mutable so a test can give the household categories. Empty by default,
+// which is what most assertions here expect: with no categories, Today falls
+// back to Yours / Everyone else rather than putting everything under "Other".
+let mockCategories: { id: string; name: string; ink: string | null; position: number }[] = [];
+
 jest.mock('@/data/hooks/useCategories', () => ({
-  useCategoryList: () => [],
-  useCategories: () => ({ data: [], isPending: false, isError: false }),
+  useCategoryList: () => mockCategories,
+  useCategories: () => ({ data: mockCategories, isPending: false, isError: false }),
 }));
 
 function renderScreen() {
@@ -142,6 +147,7 @@ function renderScreen() {
 }
 
 beforeEach(() => {
+  mockCategories = [];
   mockToggle.mockClear();
   mockRefetch.mockClear();
   mockSkip.mockClear();
@@ -232,5 +238,36 @@ describe('Today', () => {
     mockError = new Error('Could not reach the server.');
     await renderScreen();
     expect(screen.getByText('Could not reach the server.')).toBeOnTheScreen();
+  });
+});
+
+describe('grouping by category', () => {
+  it('shows a heading per category, not just a tag on each row', () => {
+    // The behaviour asked for directly: categories should be *headings*. An
+    // earlier version put them only on the row as a chip, which reads as a
+    // weaker signal than a section when the question is "what is left today".
+    mockCategories = [
+      { id: 'c-kitchen', name: 'Kitchen', ink: 'teal', position: 0 },
+      { id: 'c-outdoors', name: 'Outdoors', ink: null, position: 1 },
+    ];
+    for (const chore of mockChores as unknown as { categoryId: string | null }[]) {
+      chore.categoryId = 'c-kitchen';
+    }
+
+    renderScreen();
+
+    // Both levels: ownership first, category nested beneath it.
+    expect(screen.getByRole('header', { name: 'Yours' })).toBeTruthy();
+    expect(screen.getAllByRole('header', { name: 'Kitchen' }).length).toBeGreaterThan(0);
+    // Outdoors has nothing in it today, so it must not take up a line saying so.
+    expect(screen.queryByRole('header', { name: 'Outdoors' })).toBeNull();
+  });
+
+  it('falls back to Yours when the household has no categories at all', () => {
+    // Grouping by category before any exists would put every row under a
+    // single "Other" heading, which says nothing.
+    mockCategories = [];
+    renderScreen();
+    expect(screen.getByRole('header', { name: 'Yours' })).toBeTruthy();
   });
 });

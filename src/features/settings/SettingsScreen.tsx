@@ -11,6 +11,7 @@
  * somebody's 7am alarm changes.
  */
 
+import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { Platform, ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,7 +21,7 @@ import { MAX_PENDING } from '@/core/notify/plan';
 import { useHousehold, useUpdateHousehold } from '@/data/hooks/useHousehold';
 import { notificationsAvailable } from '@/data/notifications';
 import { SectionHeader } from '@/design/ChoreRow';
-import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { BackBar, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
@@ -42,6 +43,7 @@ const WEEK_STARTS: readonly { value: string; label: string }[] = [
 ];
 
 export function SettingsScreen() {
+  const router = useRouter();
   const { colors } = useTheme();
   const household = useHousehold();
   const updateHousehold = useUpdateHousehold();
@@ -93,6 +95,8 @@ export function SettingsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl }}>
+        <BackBar onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))} />
+
         <Txt variant="display" accessibilityRole="header">
           Settings
         </Txt>

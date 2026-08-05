@@ -19,7 +19,7 @@ import type { CalendarConfig, CivilDate } from '@/core/civil/types';
 import type { Schedule } from '@/core/recurrence/types';
 import type { Assignment } from '@/core/rotation/types';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
-import { Button, ErrorState, Field, Stack, Txt } from '@/design/components';
+import { BackBar, Button, ErrorState, Field, Stack, Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
 import { useCategoryList, useCreateCategory } from '@/data/hooks/useCategories';
@@ -119,6 +119,8 @@ export function ChoreForm({
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl, gap: space.xl }}
         keyboardShouldPersistTaps="handled"
       >
+        <BackBar label="Cancel" onPress={onCancel} />
+
         <Txt variant="display" accessibilityRole="header">
           {editing ? 'Edit chore' : 'New chore'}
         </Txt>

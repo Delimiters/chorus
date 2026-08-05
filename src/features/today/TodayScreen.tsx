@@ -22,10 +22,11 @@ import {
   useToday_View,
   useToggleCompletion,
 } from '@/data/hooks/useOccurrences';
-import { ChoreRow, FloatingRow, SectionHeader } from '@/design/ChoreRow';
+import { ChoreRow, FloatingRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
 import { groupItems } from '@/core/occurrence/grouping';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import { useViewPreference } from '@/stores/viewStore';
+import { useViewPreference, useViewStore } from '@/stores/viewStore';
+import { ViewControls } from '../chores/ViewControls';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
@@ -45,6 +46,8 @@ export function TodayScreen() {
   const { view, chores, today, isLoading, error, unreadable, refetch } = useToday_View();
   const categories = useCategoryList();
   const viewPref = useViewPreference();
+  const setGroupBy = useViewStore((s) => s.setGroupBy);
+  const setSortBy = useViewStore((s) => s.setSortBy);
 
   /** The two grouping axes per chore, and the categories by id, for the rows. */
   const choreMeta = useMemo(
@@ -119,24 +122,59 @@ export function TodayScreen() {
   };
 
   /**
-   * Applies the sort preference within Today's existing sections.
+   * Today's outstanding work, arranged by the chosen axis.
    *
-   * Today is already sectioned by ownership and state — Yours, Everyone else,
-   * Done — and those answer a different question than category does. Replacing
-   * them with category sections would lose "is this mine", which is the thing a
-   * two-person household actually looks for; nesting would multiply headers.
+   * An earlier version kept Yours / Everyone else here and refused to group by
+   * category, on the grounds that ownership is what a two-person household
+   * looks for. That reasoning does not survive contact with the screen: every
+   * row already carries a "Your turn" / "Sam's turn" chip, so category headers
+   * cost no ownership information at all. And a chip is a weaker signal than a
+   * heading when the question is "what kind of thing is left today".
    *
-   * So the grouping control does not restructure this screen. It reorders
-   * within each section, and the category rides on the row as a chip. The
-   * Chores tab, whose list is flat, is where grouping changes the shape.
+   * So the control means what it says. Group by Category or Priority and the
+   * headings change; Group by None falls back to Yours / Everyone else, which
+   * is the right shape when there is no other axis to organise by.
    */
-  const sorted = (items: readonly AgendaItem[]): readonly AgendaItem[] => {
-    const sections = groupItems(items, choreMeta, categories, {
-      groupBy: 'none',
-      sortBy: viewPref.sortBy,
-    });
-    return sections[0]?.items ?? [];
-  };
+  const grouped = (items: readonly AgendaItem[]) =>
+    groupItems(items, choreMeta, categories, viewPref);
+
+  const sorted = (items: readonly AgendaItem[]): readonly AgendaItem[] =>
+    grouped(items)[0]?.items ?? [];
+
+  /**
+   * Mine and theirs together, for the grouped views.
+   *
+   * Grouping by category and *also* splitting by owner would nest, which is the
+   * header explosion this design exists to avoid.
+   */
+  /**
+   * The two ownership groups, each then split by the chosen axis.
+   *
+   * Nesting, which this design otherwise avoids — but the objection was
+   * calibrated to three priorities inside five categories, and ownership is
+   * two groups. Two times a handful stays readable, and it keeps "is this
+   * mine" as the first question the screen answers while still giving
+   * categories real headings rather than a chip.
+   */
+  const ownershipGroups = useMemo(
+    () => [
+      { title: 'Yours', items: view.mine },
+      { title: 'Everyone else', items: view.theirs },
+    ],
+    [view.mine, view.theirs],
+  );
+
+  /**
+   * Whether to fall back to Yours / Everyone else.
+   *
+   * Grouping by category before any category exists puts every row under a
+   * single "Other" heading, which says nothing and is strictly worse than the
+   * ownership split it replaced. A household that has not used the feature
+   * should not be punished for the default. Caught by a test that expected
+   * "Yours" and found "Other".
+   */
+  const byOwnership =
+    viewPref.groupBy === 'none' || (viewPref.groupBy === 'category' && categories.length === 0);
 
   const renderFloating = (group: FloatingGroup) => {
     const next = group.nextSlot;
@@ -204,6 +242,19 @@ export function TodayScreen() {
           />
         ) : null}
 
+        {/* Only when there is something to arrange. Controls above an empty
+            screen are furniture. */}
+        {nothingToDo ? null : (
+          <View style={{ paddingHorizontal: space.sm, paddingBottom: space.md }}>
+            <ViewControls
+              groupBy={viewPref.groupBy}
+              sortBy={viewPref.sortBy}
+              onChangeGroupBy={setGroupBy}
+              onChangeSortBy={setSortBy}
+            />
+          </View>
+        )}
+
         {view.floating.length > 0 ? (
           <>
             <SectionHeader title={formatFlexibleWindow.sectionTitle} />
@@ -211,19 +262,43 @@ export function TodayScreen() {
           </>
         ) : null}
 
-        {view.mine.length > 0 ? (
+        {byOwnership ? (
           <>
-            <SectionHeader title="Yours" count={view.mine.length} />
-            <Stack gap={space.xs}>{sorted(view.mine).map(renderRow)}</Stack>
-          </>
-        ) : null}
+            {view.mine.length > 0 ? (
+              <>
+                <SectionHeader title="Yours" count={view.mine.length} />
+                <Stack gap={space.xs}>{sorted(view.mine).map(renderRow)}</Stack>
+              </>
+            ) : null}
 
-        {view.theirs.length > 0 ? (
-          <>
-            <SectionHeader title="Everyone else" count={view.theirs.length} />
-            <Stack gap={space.xs}>{sorted(view.theirs).map(renderRow)}</Stack>
+            {view.theirs.length > 0 ? (
+              <>
+                <SectionHeader title="Everyone else" count={view.theirs.length} />
+                <Stack gap={space.xs}>{sorted(view.theirs).map(renderRow)}</Stack>
+              </>
+            ) : null}
           </>
-        ) : null}
+        ) : (
+          <>
+            {ownershipGroups.map(({ title, items }) =>
+              items.length === 0 ? null : (
+                <View key={title}>
+                  <SectionHeader title={title} count={items.length} />
+                  {grouped(items).map((section) => (
+                    <View key={section.key}>
+                      <SubHeader
+                        title={section.title}
+                        ink={section.ink}
+                        count={section.items.length}
+                      />
+                      <Stack gap={space.xs}>{section.items.map(renderRow)}</Stack>
+                    </View>
+                  ))}
+                </View>
+              ),
+            )}
+          </>
+        )}
 
         {view.done.length > 0 ? (
           <>
