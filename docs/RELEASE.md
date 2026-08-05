@@ -86,6 +86,59 @@ dependencies change; a JavaScript change is delivered by the bundle at launch.
 
 Neither exists yet. Everything below the first section needs the second.
 
+## Onto a physical iPhone, for free — verified 2026-08-04
+
+Done, on `experiment/sdk-54`, with a free Apple ID and no paid membership.
+The app is installed on an iPhone 14 (iOS 26.5.2) and launches standalone:
+no Metro, no Expo Go, no laptop, because a Release build embeds
+`main.jsbundle`.
+
+```bash
+npx expo prebuild --platform ios --clean
+cd ios && xcodebuild -workspace Chorus.xcworkspace -scheme Chorus \
+  -configuration Release -destination 'id=<hardware-udid>' \
+  -derivedDataPath /tmp/ddev DEVELOPMENT_TEAM=SY59JGZ44Y \
+  CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build
+
+xcrun devicectl device install app --device <coredevice-uuid> \
+  /tmp/ddev/Build/Products/Release-iphoneos/Chorus.app
+```
+
+Note the two different identifiers: `xcodebuild -destination` wants the
+**hardware UDID** (`00008110-…`), `devicectl` wants the **coredevice UUID**
+(`509DA714-…`). `xcrun devicectl list devices` prints the second; the first
+appears in xcodebuild's "Available destinations" list when you get it wrong.
+
+Four walls, in the order they appear. Each looks like a dead end and none is:
+
+1. **`Personal development teams do not support the Push Notifications
+   capability.`** expo-notifications adds `aps-environment` during prebuild
+   whether or not remote push is used. Apple will not issue a free-team
+   profile carrying it. `plugins/without-push-entitlement.js` strips it;
+   local notifications never touch APNs, so nothing in v1 is lost.
+2. **`Your team has no devices from which to generate a provisioning
+   profile.`** Building `generic/platform=iOS` never registers the device.
+   Build against the device's real UDID instead.
+3. **`Device is busy (Waiting to reconnect)`** — misleading. The real state
+   is `developerModeStatus: disabled`, from
+   `xcrun devicectl device info details`. Developer Mode must be enabled on
+   the phone (Settings → Privacy & Security → Developer Mode), which reboots
+   it, **and confirmed again after the reboot** — skip the second prompt and
+   it silently reverts.
+4. **`its profile has not been explicitly trusted by the user`** — Settings →
+   General → VPN & Device Management → the Apple Development profile → Trust.
+   The phone needs internet at that moment; iOS verifies with Apple.
+
+**Xcode 16.4 installed to iOS 26.5.2 without complaint.** Expected to be a
+problem, since Xcode 16.4 ships device support only through iOS 18.5. It was
+not one: `devicectl` enabled developer disk image services itself. Release
+builds need no debug disk image.
+
+**The install expires after 7 days.** Free-team profiles are time-limited.
+The app then refuses to launch until rebuilt and reinstalled — the two
+commands above. This is the one real cost of not paying the $99, and it does
+not heal itself.
+
 ## A development build (no Apple account needed)
 
 Enough to run the app on your own phone with native modules — which is the only
