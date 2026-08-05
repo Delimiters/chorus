@@ -6,10 +6,15 @@ a plan with its uncertainties marked, not a report.
 
 ## The constraint that shapes all of this
 
-The dev machine is a 2018 Intel MacBook Pro on macOS Sequoia. macOS Tahoe
-dropped every 2018 Mac, so **Xcode 26 can never be installed on it**, so this
-project can never be compiled locally. There is no workaround short of new
-hardware.
+The dev machine is a 2018 Intel MacBook Pro on macOS Sequoia running Xcode 16.4
+(Swift 6.1.2). macOS Tahoe dropped every 2018 Mac, so **Xcode 26 can never be
+installed on it**.
+
+An earlier version of this section concluded from that "this project can never
+be compiled locally." **That was wrong**, and the error was one of scope: the
+constraint belongs to Expo SDK 57, not to the machine.
+
+### On SDK 57 — genuinely blocked
 
 **Verified, not assumed** (2026-08-03). `expo prebuild` and `pod install` both
 succeed; the compile fails at:
@@ -20,15 +25,47 @@ xcodebuild: error: Could not resolve package dependencies:
   but the installed version is 6.1.0
 ```
 
-Xcode 16.4 ships Swift 6.1. Expo SDK 57's native modules need Swift tools 6.2,
-which ships only with Xcode 26. The chain is
+Expo SDK 57's native modules need Swift tools 6.2, which ships only with
+Xcode 26. The chain is
 `SDK 57 → Swift 6.2 → Xcode 26 → macOS Tahoe → not a 2018 Mac`, and it breaks at
-the last link.
+the last link. This is a toolchain floor, not a configuration problem.
 
-The practical consequence is about money: `eas build --local` compiles on your
-own machine and consumes **no** EAS quota, and it is exactly what this error
-rules out. Every iOS build therefore has to be a cloud build, and cloud builds
-are metered.
+### On SDK 54 — it compiles
+
+**Verified, not assumed** (2026-08-04), on `experiment/sdk-54`:
+
+| Step | Result |
+|---|---|
+| `expo prebuild --platform ios --clean` | ✅ |
+| CocoaPods | ✅ |
+| `xcodebuild -configuration Debug -sdk iphonesimulator` | ✅ `BUILD SUCCEEDED`, 0 errors |
+| `xcodebuild -configuration Release -sdk iphonesimulator` | ✅ `BUILD SUCCEEDED`, 0 errors |
+| Release `.app` launched **with Metro killed** | ✅ renders sign-in |
+
+The package resolution step that fails outright on SDK 57 passes here, and the
+whole native tree compiles.
+
+One dependency had to go. `@expo/ui` failed with `'SafeAreaControllable' is not
+a member type of ExpoModulesCore.ExpoSwiftUI` — `expo install --fix` had pinned
+`~0.2.0-beta.9`, and npm resolved that to `0.2.0-canary-20260121-a63c0dd`,
+because in semver prerelease ordering **`canary` sorts above `beta`**. A range
+meant to hold an SDK 54 build quietly admitted a canary compiled against SDK
+57's `expo-modules-core`. Nothing imported it and nothing depended on it, so it
+was removed rather than pinned. Watch for this shape whenever a `~` range covers
+a prerelease.
+
+### What this changes
+
+`eas build --local` compiles on your own machine and consumes **no** EAS quota.
+On SDK 54 that is available, so the 15-builds-a-month ceiling stops being the
+binding constraint and the "rebuild only when native deps change" rule relaxes.
+On SDK 57 every iOS build must still be a metered cloud build.
+
+Two things this does **not** solve. Compiling is not signing: installing to a
+physical iPhone still needs a provisioning profile, and a free Apple ID personal
+team caps out at 7 days per install. And a Release build embeds the JS bundle,
+so shipping a JavaScript change means rebuilding unless `expo-updates` is added
+— it currently is not.
 
 Consequence: every native binary comes from **EAS cloud builds**. Day-to-day
 development happens in Expo Go, which needs no compilation at all. This is why
