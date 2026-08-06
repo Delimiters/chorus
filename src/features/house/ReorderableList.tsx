@@ -50,11 +50,36 @@ export function ReorderableList<T>({
 }: Props<T>) {
   /**
    * A local copy, so the list can settle under the finger without waiting on
-   * the server. The parent's mutation is optimistic too, but this also covers
-   * the frames between release and the cache updating.
+   * the server.
    */
   const [order, setOrder] = useState<readonly T[]>(items);
+
+  const keyOfRef = useRef(keyOf);
+  keyOfRef.current = keyOf;
+
+  /**
+   * The order we last handed to `onReorder`, until the props agree with it.
+   *
+   * Without this the list visibly flickers back on drop: the parent's mutation
+   * is optimistic, but `onMutate` is async — it awaits `cancelQueries` — so for
+   * a moment after release `items` still holds the *old* order. The effect
+   * below would then faithfully sync that stale prop over the correct local
+   * order, and the optimistic update would flip it again a frame later. Old,
+   * then new, exactly as reported.
+   *
+   * Comparing key sequences rather than identity because the parent rebuilds
+   * its array, so every render produces a new one that is often equal.
+   */
+  const pendingOrder = useRef<string | null>(null);
+
   useEffect(() => {
+    const incoming = items.map((i) => keyOfRef.current(i)).join(',');
+    if (pendingOrder.current !== null) {
+      // Still waiting for the server to agree. Ignore anything that is not it,
+      // and stop waiting once it arrives.
+      if (pendingOrder.current !== incoming) return;
+      pendingOrder.current = null;
+    }
     setOrder(items);
   }, [items]);
 
@@ -81,7 +106,9 @@ export function ReorderableList<T>({
     if (item === undefined) return;
     next.splice(to, 0, item);
     setOrder(next);
-    onReorder(next.map(keyOf));
+    const keys = next.map(keyOf);
+    pendingOrder.current = keys.join(',');
+    onReorder(keys);
   };
 
   return (
