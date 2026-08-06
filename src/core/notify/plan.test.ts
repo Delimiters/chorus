@@ -365,3 +365,47 @@ describe('P — nothing already dealt with', () => {
     );
   });
 });
+
+describe("someone else's chores", () => {
+  // The cross-device gap this softens: a local notification can tell you what
+  // is *scheduled* for anyone, because your phone computes the whole
+  // household's schedule itself. What it cannot do is tell you what somebody
+  // just did — that needs a server, and remote push.
+  const mine = occ({ choreId: 'dishes', choreTitle: 'Dishes' });
+  const theirs = occ({
+    choreId: 'bins',
+    choreTitle: 'Bins',
+    assignee: { kind: 'member', memberId: THEM, turn: 0 },
+  });
+
+  it('is silent about them by default', () => {
+    expect(plan([mine, theirs]).map((r) => r.choreId)).toEqual(['dishes']);
+  });
+
+  it('includes them when asked, without dropping your own', () => {
+    // Both, not instead: widening this filter could easily have replaced the
+    // ownership check rather than adding to it, and the fixture would not
+    // notice if it only ever contained one of the two.
+    expect(
+      plan([mine, theirs], { includeOthers: true })
+        .map((r) => r.choreId)
+        .sort(),
+    ).toEqual(['bins', 'dishes']);
+  });
+
+  it('still says nothing about a rotation with nobody on it', () => {
+    // `unassignable` is not "somebody else", it is nobody. Widening the
+    // ownership check must not sweep it in — there is no one to tell.
+    const orphan = occ({
+      choreId: 'orphan',
+      assignee: { kind: 'unassignable', reason: 'empty-roster' },
+    });
+    expect(plan([orphan], { includeOthers: true })).toEqual([]);
+  });
+
+  it('leaves the unassigned setting independent of it', () => {
+    const anyones = occ({ choreId: 'anyones', assignee: { kind: 'anyone' } });
+    expect(plan([anyones], { includeOthers: true })).toEqual([]);
+    expect(plan([anyones], { includeUnassigned: true })).toHaveLength(1);
+  });
+});
