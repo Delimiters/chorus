@@ -46,6 +46,20 @@ export interface ReminderPolicy {
    * unassigned job is how people learn to ignore the app.
    */
   readonly includeUnassigned: boolean;
+  /**
+   * Remind about chores that belong to somebody else.
+   *
+   * Off by default, and deliberately so: being told about a job that is not
+   * yours is a notification you cannot act on, and the fastest way to teach
+   * someone to swipe the app's alerts away without reading them.
+   *
+   * On, it is genuinely useful for a couple who cover for each other — but it
+   * roughly doubles the queue, and iOS caps pending local notifications. The
+   * planner already sorts by fire time and truncates, so the effect is a
+   * shorter horizon rather than dropped reminders, and the Settings screen
+   * says so.
+   */
+  readonly includeOthers: boolean;
   /** How many days ahead to plan. Bounded so the queue cannot run away. */
   readonly horizonDays: number;
 }
@@ -54,6 +68,7 @@ export const DEFAULT_POLICY: ReminderPolicy = {
   enabled: true,
   defaultTime: DEFAULT_REMINDER_TIME,
   includeUnassigned: false,
+  includeOthers: false,
   horizonDays: 30,
 };
 
@@ -112,7 +127,9 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
     if (compareCivil(occ.flexibleUntil, today) < 0) return false;
     if (compareCivil(occ.dueOn, horizonEnd) > 0) return false;
 
-    if (occ.assignee.kind === 'member') return occ.assignee.memberId === userId;
+    if (occ.assignee.kind === 'member') {
+      return occ.assignee.memberId === userId || policy.includeOthers;
+    }
     if (occ.assignee.kind === 'anyone') return policy.includeUnassigned;
     // `unassignable` — a rotation with no roster covering this date. There is
     // nobody to tell.

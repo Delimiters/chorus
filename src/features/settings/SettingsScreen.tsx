@@ -52,6 +52,7 @@ export function SettingsScreen() {
   const setEnabled = useReminderStore((s) => s.setEnabled);
   const setDefaultTime = useReminderStore((s) => s.setDefaultTime);
   const setIncludeUnassigned = useReminderStore((s) => s.setIncludeUnassigned);
+  const setIncludeOthers = useReminderStore((s) => s.setIncludeOthers);
 
   const weekStartsOn = String(household.data?.weekStartsOn ?? 0);
   const timeZone = household.data?.timeZone ?? 'UTC';
@@ -161,6 +162,16 @@ export function SettingsScreen() {
                       value={policy.includeUnassigned}
                       onValueChange={setIncludeUnassigned}
                       accessibilityLabel="Remind me about unassigned chores"
+                    />,
+                  )}
+
+                  {row(
+                    "Also everyone else's chores",
+                    'Reminders for jobs that are not yours. Useful if you cover for each other; it also roughly doubles the queue below.',
+                    <Switch
+                      value={policy.includeOthers}
+                      onValueChange={setIncludeOthers}
+                      accessibilityLabel="Remind me about other people's chores"
                     />,
                   )}
 
