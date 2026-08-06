@@ -31,6 +31,7 @@ import { FieldGroup } from '@/design/controls';
 import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
+import { ReorderableList } from './ReorderableList';
 
 export function CategoriesScreen() {
   const { colors, isDark } = useTheme();
@@ -44,6 +45,13 @@ export function CategoriesScreen() {
   const [name, setName] = useState('');
   const [ink, setInk] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  /**
+   * The ScrollView must stop scrolling while a row is held.
+   *
+   * Otherwise the drag and the scroll compete for the same vertical movement
+   * and the row slips out from under the finger.
+   */
+  const [dragging, setDragging] = useState(false);
 
   const rows = categories.data ?? [];
 
@@ -69,23 +77,6 @@ export function CategoriesScreen() {
     }
   };
 
-  /**
-   * Moves a row one place and rewrites the whole order.
-   *
-   * The mutation is optimistic, so the list settles immediately rather than
-   * waiting on a round trip per tap — which matters when moving something
-   * three places means three taps.
-   */
-  const move = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= rows.length) return;
-    const next = [...rows];
-    const [moved] = next.splice(index, 1);
-    if (moved === undefined) return;
-    next.splice(target, 0, moved);
-    reorder.mutate({ orderedIds: next.map((c) => c.id) });
-  };
-
   const busy = create.isPending || update.isPending;
   const error =
     (create.error as Error | null)?.message ??
@@ -104,6 +95,7 @@ export function CategoriesScreen() {
       <ScrollView
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl, gap: space.xl }}
         keyboardShouldPersistTaps="handled"
+        scrollEnabled={!dragging}
       >
         <BackBar onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))} />
 
@@ -117,19 +109,32 @@ export function CategoriesScreen() {
 
         {error === null ? null : <ErrorState message={error} />}
 
-        <Stack gap={space.md}>
-          {rows.map((category, index) => (
+        <ReorderableList
+          items={rows}
+          keyOf={(c) => c.id}
+          labelOf={(c) => c.name}
+          onReorder={(orderedIds) => reorder.mutate({ orderedIds })}
+          onDragStateChange={setDragging}
+          renderItem={(category, isDragging) => (
             <View
-              key={category.id}
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: space.sm,
-                padding: space.sm,
+                paddingHorizontal: space.sm,
+                paddingVertical: space.xs,
+                marginVertical: 2,
                 borderRadius: radius.md,
-                backgroundColor: colors.sunken,
+                backgroundColor: isDragging ? colors.raised : colors.sunken,
               }}
             >
+              {/* A grip, so "you can pick this up" is visible rather than
+                  something you have to already know. */}
+              <View accessibilityElementsHidden importantForAccessibility="no">
+                <Txt variant="small" tone="faint">
+                  ☰
+                </Txt>
+              </View>
               <View
                 accessibilityElementsHidden
                 importantForAccessibility="no"
@@ -143,18 +148,6 @@ export function CategoriesScreen() {
               />
               <Txt style={{ flex: 1 }}>{category.name}</Txt>
 
-              <ArrowButton
-                label={`Move ${category.name} up`}
-                glyph="▲"
-                disabled={index === 0}
-                onPress={() => move(index, -1)}
-              />
-              <ArrowButton
-                label={`Move ${category.name} down`}
-                glyph="▼"
-                disabled={index === rows.length - 1}
-                onPress={() => move(index, 1)}
-              />
               <Pressable
                 onPress={() => startEdit(category)}
                 accessibilityRole="button"
@@ -176,8 +169,10 @@ export function CategoriesScreen() {
                 </Txt>
               </Pressable>
             </View>
-          ))}
+          )}
+        />
 
+        <Stack gap={space.md}>
           {rows.length === 0 ? (
             <Txt variant="small" tone="faint">
               No categories yet. Add one below.
@@ -246,39 +241,5 @@ export function CategoriesScreen() {
         </Txt>
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function ArrowButton({
-  label,
-  glyph,
-  disabled,
-  onPress,
-}: {
-  label: string;
-  glyph: string;
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      style={{
-        minHeight: 40,
-        minWidth: 40,
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: disabled ? 0.3 : 1,
-      }}
-    >
-      <Txt variant="small" style={{ color: colors.textMuted }}>
-        {glyph}
-      </Txt>
-    </Pressable>
   );
 }
