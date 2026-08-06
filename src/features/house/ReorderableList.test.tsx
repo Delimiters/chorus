@@ -90,4 +90,99 @@ describe('ReorderableList', () => {
       expect(onReorder).not.toHaveBeenCalled();
     });
   });
+
+  describe('the drop flicker', () => {
+    // Reported from the device: on release the row showed the *old* content
+    // for a frame, then the new. Cause: the parent's optimistic update is
+    // async (onMutate awaits cancelQueries), so `items` still holds the old
+    // order for a moment after release, and syncing that prop stomped the
+    // correct local order.
+    it('ignores a stale items prop until the parent catches up', async () => {
+      const onReorder = jest.fn();
+      const view = await render(
+        <ThemeProvider>
+          <ReorderableList
+            items={ITEMS}
+            keyOf={(i: Item) => i.id}
+            labelOf={(i: Item) => i.name}
+            onReorder={onReorder}
+            renderItem={(i: Item) => <Txt>{i.name}</Txt>}
+          />
+        </ThemeProvider>,
+      );
+
+      screen
+        .getByLabelText('Kitchen, 1 of 3. Hold and drag to reorder.')
+        .props.onAccessibilityAction({ nativeEvent: { actionName: 'moveDown' } });
+      expect(onReorder).toHaveBeenCalledWith(['b', 'a', 'c']);
+
+      // The stale render the optimistic update has not reached yet.
+      //
+      // A *new* array with the old contents, because that is what the parent
+      // produces on every render. Passing `ITEMS` itself left the effect's
+      // dependency unchanged, so the path under test never ran and this test
+      // passed with the fix removed.
+      await view.rerender(
+        <ThemeProvider>
+          <ReorderableList
+            items={[...ITEMS]}
+            keyOf={(i: Item) => i.id}
+            labelOf={(i: Item) => i.name}
+            onReorder={onReorder}
+            renderItem={(i: Item) => <Txt>{i.name}</Txt>}
+          />
+        </ThemeProvider>,
+      );
+
+      // Laundry must still be first. Before the fix it snapped back to Kitchen.
+      expect(screen.getByLabelText('Laundry, 1 of 3. Hold and drag to reorder.')).toBeTruthy();
+    });
+
+    it('accepts the props again once they match what was requested', async () => {
+      const onReorder = jest.fn();
+      const reordered = [ITEMS[1]!, ITEMS[0]!, ITEMS[2]!];
+      const view = await render(
+        <ThemeProvider>
+          <ReorderableList
+            items={ITEMS}
+            keyOf={(i: Item) => i.id}
+            labelOf={(i: Item) => i.name}
+            onReorder={onReorder}
+            renderItem={(i: Item) => <Txt>{i.name}</Txt>}
+          />
+        </ThemeProvider>,
+      );
+
+      screen
+        .getByLabelText('Kitchen, 1 of 3. Hold and drag to reorder.')
+        .props.onAccessibilityAction({ nativeEvent: { actionName: 'moveDown' } });
+
+      await view.rerender(
+        <ThemeProvider>
+          <ReorderableList
+            items={reordered}
+            keyOf={(i: Item) => i.id}
+            labelOf={(i: Item) => i.name}
+            onReorder={onReorder}
+            renderItem={(i: Item) => <Txt>{i.name}</Txt>}
+          />
+        </ThemeProvider>,
+      );
+
+      // Having caught up, a later change from elsewhere must land — otherwise
+      // the guard would freeze the list against the other person's edits.
+      await view.rerender(
+        <ThemeProvider>
+          <ReorderableList
+            items={[ITEMS[2]!, ITEMS[1]!, ITEMS[0]!]}
+            keyOf={(i: Item) => i.id}
+            labelOf={(i: Item) => i.name}
+            onReorder={onReorder}
+            renderItem={(i: Item) => <Txt>{i.name}</Txt>}
+          />
+        </ThemeProvider>,
+      );
+      expect(screen.getByLabelText('Outdoors, 1 of 3. Hold and drag to reorder.')).toBeTruthy();
+    });
+  });
 });
