@@ -12,7 +12,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
-import type { CalendarConfig } from '@/core/civil/types';
+import type { CalendarConfig, CivilTime } from '@/core/civil/types';
 import { safeParseSchedule } from '@/core/recurrence/schema';
 import type { RecurrenceRule } from '@/core/recurrence/types';
 import { safeParseAssignment } from '@/core/rotation/schema';
@@ -137,7 +137,10 @@ describe('the reminder time', () => {
     // The form previously *preserved* timeOfDay while offering no way to set
     // it. Preserving it must survive the field existing.
     const { onSubmit } = await renderForm({
-      chore: { ...ROTATING_CHORE, schedule: { ...ROTATING_CHORE.schedule, timeOfDay: '09:00' } },
+      chore: {
+        ...ROTATING_CHORE,
+        schedule: { ...ROTATING_CHORE.schedule, timeOfDay: '09:00' as CivilTime },
+      },
     });
     await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
     expect(submitted(onSubmit).schedule.timeOfDay).toBe('09:00');

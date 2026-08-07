@@ -101,6 +101,20 @@ Tests:       225 passed, 225 total             <- the line that lies
 Check `Test Suites:` and the exit code, not just `Tests:`. A grep for `✕|Tests:`
 is blind to exactly this failure, and it let a broken suite reach CI twice.
 
+**`npm run verify` is worse, because it short-circuits.** It runs
+`format:check && typecheck && lint && test:core`, so a formatting or type error
+means the tests never run and the output contains **no test summary at all**.
+Grepping that output for `Test Suites:` then matches nothing — which looks
+identical to a command still running, and nothing like a failure:
+
+```bash
+npm run verify | grep -E "Test Suites:"   # silent on a type error
+npm run verify > /tmp/v.log 2>&1; echo $? # 0 or 1, unambiguous
+```
+
+Redirect and check `$?`. A type error and a formatting failure both reached CI
+this way on the same commit, on a branch whose author had "verified" it.
+
 ## A red CI job is a finding, never noise
 
 `main` is protected: nine checks must pass before anything merges, force pushes
