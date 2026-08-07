@@ -15,19 +15,21 @@ import { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { CalendarConfig, CivilDate } from '@/core/civil/types';
+import type { CalendarConfig, CivilDate, CivilTime } from '@/core/civil/types';
 import type { Schedule } from '@/core/recurrence/types';
 import type { Assignment } from '@/core/rotation/types';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { BackBar, Button, ErrorState, Field, Stack, Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
+import { useReminderPolicy } from '@/stores/reminderStore';
 import { useCategoryList, useCreateCategory } from '@/data/hooks/useCategories';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
 import { DateField } from './DateField';
 import { CategoryAndPriorityPicker } from './CategoryPicker';
+import { TimeField } from './TimeField';
 import { RecurrencePicker, draftFromRule, type RecurrenceDraft } from './RecurrencePicker';
 import { SchedulePreview } from './SchedulePreview';
 
@@ -69,6 +71,8 @@ export function ChoreForm({
   const [categoryId, setCategoryId] = useState<string | null>(chore?.categoryId ?? null);
   const [priority, setPriority] = useState<Priority>(chore?.priority ?? DEFAULT_PRIORITY);
   const categories = useCategoryList();
+  // The device default, so the field can name it rather than say "the default".
+  const reminderDefaultTime = useReminderPolicy().defaultTime;
   const createCategory = useCreateCategory();
 
   /**
@@ -86,6 +90,13 @@ export function ChoreForm({
    */
   const [startsOn, setStartsOn] = useState<CivilDate>(chore?.schedule.startsOn ?? today);
 
+  /**
+   * When this chore's reminder fires, or null to follow the phone default.
+   *
+   * The engine has read this since reminders were built; nothing ever wrote it.
+   */
+  const [timeOfDay, setTimeOfDay] = useState<CivilTime | null>(chore?.schedule.timeOfDay ?? null);
+
   const schedule: Schedule = useMemo(
     () => ({
       rule: recurrence.rule,
@@ -93,9 +104,9 @@ export function ChoreForm({
       // to match, so sending today's date here would be quietly overwritten.
       startsOn: recurrence.rule.kind === 'once' ? recurrence.rule.dueOn : startsOn,
       endsOn: chore?.schedule.endsOn ?? null,
-      timeOfDay: chore?.schedule.timeOfDay ?? null,
+      timeOfDay,
     }),
-    [recurrence.rule, startsOn, chore],
+    [recurrence.rule, startsOn, timeOfDay, chore],
   );
 
   const trimmed = title.trim();
@@ -186,6 +197,12 @@ export function ChoreForm({
               weekStartsOn={calendar.weekStartsOn}
             />
           </FieldGroup>
+        )}
+
+        {/* A Someday chore produces no occurrences, so there is nothing to
+            remind about and a time control would do nothing. */}
+        {recurrence.rule.kind === 'unscheduled' ? null : (
+          <TimeField value={timeOfDay} onChange={setTimeOfDay} defaultTime={reminderDefaultTime} />
         )}
 
         {/* A Someday chore has no dates, so a "next few times" heading over

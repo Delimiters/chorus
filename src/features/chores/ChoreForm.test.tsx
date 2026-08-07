@@ -12,7 +12,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
-import type { CalendarConfig } from '@/core/civil/types';
+import type { CalendarConfig, CivilTime } from '@/core/civil/types';
 import { safeParseSchedule } from '@/core/recurrence/schema';
 import type { RecurrenceRule } from '@/core/recurrence/types';
 import { safeParseAssignment } from '@/core/rotation/schema';
@@ -98,6 +98,52 @@ describe('getting out of the form', () => {
     expect(exits.length).toBeGreaterThan(1);
     fireEvent.press(exits[0]!);
     expect(onCancel).toHaveBeenCalled();
+  });
+});
+
+describe('the reminder time', () => {
+  // This UI did not exist until it was asked for. The engine had honoured
+  // schedule.timeOfDay since reminders were built, the planner fell back to
+  // the device default when it was null, tests covered both — and no screen
+  // ever set it. Settings even advertised the gap: "used when a chore has no
+  // time of its own", under the control for the fallback.
+  it('defaults to following the phone, not to a fixed hour', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timeOfDay).toBeNull();
+  });
+
+  it('saves a per-chore time when one is chosen', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByText('7pm'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timeOfDay).toBe('19:00');
+  });
+
+  it('goes back to following the phone when Default is chosen again', async () => {
+    // Null and "some time" are different states, and the control has to be able
+    // to return to null or a mistaken choice is permanent.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByText('7pm'));
+    await fireEvent.press(screen.getByText('Default'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timeOfDay).toBeNull();
+  });
+
+  it('keeps the time a chore already had when it is edited', async () => {
+    // The form previously *preserved* timeOfDay while offering no way to set
+    // it. Preserving it must survive the field existing.
+    const { onSubmit } = await renderForm({
+      chore: {
+        ...ROTATING_CHORE,
+        schedule: { ...ROTATING_CHORE.schedule, timeOfDay: '09:00' as CivilTime },
+      },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+    expect(submitted(onSubmit).schedule.timeOfDay).toBe('09:00');
   });
 });
 
