@@ -26,16 +26,9 @@ import { FieldGroup, SegmentedControl } from '@/design/controls';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { useReminderStore } from '@/stores/reminderStore';
+import { REMINDER_TIMES } from '@/design/times';
 
 /** Times people actually pick. A free-text time field is a keyboard for nothing. */
-const TIMES: readonly { value: string; label: string }[] = [
-  { value: '07:00', label: '7am' },
-  { value: '09:00', label: '9am' },
-  { value: '12:00', label: 'Noon' },
-  { value: '17:00', label: '5pm' },
-  { value: '19:00', label: '7pm' },
-];
-
 const WEEK_STARTS: readonly { value: string; label: string }[] = [
   { value: '0', label: 'Sunday' },
   { value: '1', label: 'Monday' },
@@ -148,7 +141,7 @@ export function SettingsScreen() {
                 <>
                   <FieldGroup label="At" hint="Used when a chore has no time of its own.">
                     <SegmentedControl
-                      segments={TIMES}
+                      segments={REMINDER_TIMES}
                       value={policy.defaultTime}
                       onChange={(value) => setDefaultTime(value as CivilTime)}
                       label="Reminder time"
