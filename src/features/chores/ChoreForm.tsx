@@ -23,6 +23,7 @@ import { BackBar, Button, ErrorState, Field, Stack, Txt } from '@/design/compone
 import { FieldGroup } from '@/design/controls';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
 import { useReminderPolicy } from '@/stores/reminderStore';
+import { describeSilence, whyNoReminder } from '@/core/notify/silence';
 import { useCategoryList, useCreateCategory } from '@/data/hooks/useCategories';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
@@ -72,7 +73,19 @@ export function ChoreForm({
   const [priority, setPriority] = useState<Priority>(chore?.priority ?? DEFAULT_PRIORITY);
   const categories = useCategoryList();
   // The device default, so the field can name it rather than say "the default".
-  const reminderDefaultTime = useReminderPolicy().defaultTime;
+  const reminderPolicy = useReminderPolicy();
+  const reminderDefaultTime = reminderPolicy.defaultTime;
+
+  /**
+   * Whether this chore, as currently configured, would ever remind *you*.
+   *
+   * Recomputed as the assignment changes, so switching from "Anyone" to
+   * yourself makes the warning disappear rather than leaving it stale.
+   */
+  // Signed out is not a state this form is reachable in, and guessing at a
+  // reason without knowing who "you" are would be worse than staying quiet.
+  const reminderSilence =
+    userId === null ? null : whyNoReminder({ assignment, userId, policy: reminderPolicy });
   const createCategory = useCreateCategory();
 
   /**
@@ -202,7 +215,12 @@ export function ChoreForm({
         {/* A Someday chore produces no occurrences, so there is nothing to
             remind about and a time control would do nothing. */}
         {recurrence.rule.kind === 'unscheduled' ? null : (
-          <TimeField value={timeOfDay} onChange={setTimeOfDay} defaultTime={reminderDefaultTime} />
+          <TimeField
+            value={timeOfDay}
+            onChange={setTimeOfDay}
+            defaultTime={reminderDefaultTime}
+            silence={reminderSilence === null ? null : describeSilence(reminderSilence)}
+          />
         )}
 
         {/* A Someday chore has no dates, so a "next few times" heading over

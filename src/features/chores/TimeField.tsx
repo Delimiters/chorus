@@ -46,9 +46,18 @@ interface Props {
   onChange: (value: CivilTime | null) => void;
   /** The device default, so the hint can name it rather than say "the default". */
   defaultTime: CivilTime;
+  /**
+   * Why this chore would never remind you, or null if it would.
+   *
+   * Shown here because this is where the silence was: a chore assigned to
+   * "anyone", with unassigned chores excluded by default, is never scheduled —
+   * so setting a time did nothing and said nothing, and the only feedback was
+   * a notification that failed to arrive.
+   */
+  silence?: string | null;
 }
 
-export function TimeField({ value, onChange, defaultTime }: Props) {
+export function TimeField({ value, onChange, defaultTime, silence = null }: Props) {
   /**
    * Exact mode sticks once chosen, and is inferred on open for a chore whose
    * time is not one of the presets — otherwise editing "6:45pm" would show the
@@ -89,6 +98,12 @@ export function TimeField({ value, onChange, defaultTime }: Props) {
       }
     >
       <View style={{ gap: space.sm }}>
+        {silence === null ? null : (
+          <Txt variant="small" tone="danger">
+            {silence}
+          </Txt>
+        )}
+
         <SegmentedControl
           segments={CHOICES}
           value={selected}
