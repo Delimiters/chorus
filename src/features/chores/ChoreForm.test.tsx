@@ -133,6 +133,22 @@ describe('the reminder time', () => {
     expect(submitted(onSubmit).schedule.timeOfDay).toBeNull();
   });
 
+  it('warns that a default chore will never remind you', async () => {
+    // The defect this exists for: a new chore is assigned to "Anyone", the
+    // default policy excludes unassigned chores, and so nothing is scheduled.
+    // Setting a time did nothing and said nothing — the only feedback was a
+    // notification that never arrived.
+    await renderForm();
+    expect(screen.getByText(/Nobody is assigned/)).toBeTruthy();
+  });
+
+  it('stops warning once the chore is assigned to you', async () => {
+    await renderForm();
+    await fireEvent.press(screen.getByRole('radio', { name: /One person/ }));
+    await fireEvent.press(screen.getByRole('radio', { name: /Jake/ }));
+    expect(screen.queryByText(/Nobody is assigned/)).toBeNull();
+  });
+
   it('accepts an exact time typed in', async () => {
     // Presets are convenience, not the whole story: a chore that has to happen
     // at 6:45 is not an unusual chore.
