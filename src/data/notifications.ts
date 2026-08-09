@@ -98,6 +98,37 @@ export const localTransport: NotificationTransport = {
 };
 
 /**
+ * Fires one notification a few seconds from now, to answer "does this work at
+ * all".
+ *
+ * Reminders have three independent ways to appear broken and no way to tell
+ * them apart from the outside: the planner may have scheduled nothing (an
+ * unassigned chore, reminders off), the OS may have refused, or the foreground
+ * handler may be suppressing the banner because the app is open. Waiting for a
+ * real reminder tests all three at once and reports one bit.
+ *
+ * This tests exactly the last two, immediately, and is marked so the handler
+ * shows it even in the foreground — a diagnostic you have to lock the phone to
+ * see is a poor diagnostic.
+ */
+export async function sendTestNotification(): Promise<'sent' | 'denied'> {
+  const allowed = await ensurePermission();
+  if (!allowed) return 'denied';
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Chorus',
+      body: 'Reminders are working on this phone.',
+      data: { test: true },
+    },
+    // Five seconds rather than immediately, so there is time to lock the phone
+    // and see it arrive the way a real reminder would.
+    trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 5 },
+  });
+  return 'sent';
+}
+
+/**
  * How a notification behaves when the app is open.
  *
  * Set once at module load. Banners while you are already looking at the list
@@ -106,12 +137,18 @@ export const localTransport: NotificationTransport = {
  */
 export function configureNotificationHandler(): void {
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: false,
-      shouldShowList: true,
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-    }),
+    handleNotification: async (notification) => {
+      // The test notification is the exception: it exists to be seen, and
+      // hiding it in the foreground would make it useless for the one job it
+      // has.
+      const isTest = notification.request.content.data?.['test'] === true;
+      return {
+        shouldShowBanner: isTest,
+        shouldShowList: true,
+        shouldPlaySound: isTest,
+        shouldSetBadge: false,
+      };
+    },
   });
 }
 
