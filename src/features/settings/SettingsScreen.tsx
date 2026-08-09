@@ -12,16 +12,16 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Platform, ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CivilTime, Weekday } from '@/core/civil/types';
 import { MAX_PENDING } from '@/core/notify/plan';
 import { useHousehold, useUpdateHousehold } from '@/data/hooks/useHousehold';
-import { notificationsAvailable } from '@/data/notifications';
+import { notificationsAvailable, sendTestNotification } from '@/data/notifications';
 import { SectionHeader } from '@/design/ChoreRow';
-import { BackBar, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { BackBar, Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
@@ -37,6 +37,7 @@ const WEEK_STARTS: readonly { value: string; label: string }[] = [
 
 export function SettingsScreen() {
   const router = useRouter();
+  const [testState, setTestState] = useState<'idle' | 'sending' | 'sent' | 'denied'>('idle');
   const { colors } = useTheme();
   const household = useHousehold();
   const updateHousehold = useUpdateHousehold();
@@ -157,6 +158,23 @@ export function SettingsScreen() {
                       accessibilityLabel="Remind me about unassigned chores"
                     />,
                   )}
+
+                  <View style={{ paddingTop: space.xs, gap: space.xs }}>
+                    <Button
+                      label={testState === 'sent' ? 'Sent — watch for it' : 'Send a test reminder'}
+                      variant="ghost"
+                      onPress={() => {
+                        setTestState('sending');
+                        void sendTestNotification().then(setTestState);
+                      }}
+                      loading={testState === 'sending'}
+                    />
+                    <Txt variant="small" tone="faint">
+                      {testState === 'denied'
+                        ? 'iOS is blocking notifications for Chorus. Turn them on in the iOS Settings app, under Chorus.'
+                        : 'Arrives in about five seconds. A real reminder shows no banner while the app is open — this one does, on purpose.'}
+                    </Txt>
+                  </View>
 
                   {row(
                     "Also everyone else's chores",
