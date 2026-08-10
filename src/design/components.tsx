@@ -76,7 +76,14 @@ export function Txt({
 interface ButtonProps extends Omit<PressableProps, 'style' | 'children'> {
   label: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'ghost';
+  /**
+   * `danger` is for actions that destroy something and cannot be undone.
+   *
+   * Filled rather than outlined, because it should be as legible as the
+   * primary action it sits near — an irreversible button that reads as a
+   * secondary one is a trap.
+   */
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   loading?: boolean;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -95,8 +102,14 @@ export function Button({
   const inactive = disabled || loading;
 
   const background =
-    variant === 'primary' ? colors.text : variant === 'secondary' ? colors.sunken : 'transparent';
-  const foreground = variant === 'primary' ? colors.surface : colors.text;
+    variant === 'primary'
+      ? colors.text
+      : variant === 'danger'
+        ? colors.danger
+        : variant === 'secondary'
+          ? colors.sunken
+          : 'transparent';
+  const foreground = variant === 'primary' || variant === 'danger' ? colors.surface : colors.text;
 
   return (
     <Pressable

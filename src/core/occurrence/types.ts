@@ -29,7 +29,14 @@ export interface CompletionInput {
   readonly occurrenceKey: string;
   /** Household-local civil date on which it was completed. */
   readonly completedOn: CivilDate;
-  readonly completedBy: string;
+  /**
+   * Null when the person who did it has since deleted their account.
+   *
+   * The completion survives them deliberately — it is the household's history
+   * as much as theirs — so every consumer has to cope with an author who is
+   * gone. The database keeps a display-name snapshot for showing it.
+   */
+  readonly completedBy: string | null;
 }
 
 /** A stored deviation from the schedule. */

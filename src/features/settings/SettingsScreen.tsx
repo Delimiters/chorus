@@ -26,6 +26,7 @@ import { FieldGroup, SegmentedControl } from '@/design/controls';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { useReminderStore } from '@/stores/reminderStore';
+import { useDeleteAccount } from '@/data/hooks/useAuth';
 import { REMINDER_TIMES } from '@/design/times';
 
 /** Times people actually pick. A free-text time field is a keyboard for nothing. */
@@ -38,6 +39,16 @@ const WEEK_STARTS: readonly { value: string; label: string }[] = [
 export function SettingsScreen() {
   const router = useRouter();
   const [testState, setTestState] = useState<'idle' | 'sending' | 'sent' | 'denied'>('idle');
+  /**
+   * Two steps, and the confirming step spells out what survives.
+   *
+   * Apple requires deletion to be reachable in-app; it does not require it to
+   * be reachable by accident. The wording matters more than the extra tap —
+   * "your completions stay, your housemate keeps their history" is the part
+   * nobody would guess.
+   */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const deleteAccount = useDeleteAccount();
   const { colors } = useTheme();
   const household = useHousehold();
   const updateHousehold = useUpdateHousehold();
@@ -207,6 +218,41 @@ export function SettingsScreen() {
               ) : null}
             </>
           )}
+        </Stack>
+        <SectionHeader title="Account" />
+        <Stack gap={space.sm}>
+          {confirmingDelete ? (
+            <>
+              <Txt variant="small" tone="danger">
+                This deletes your account and signs you out. Chores you have ticked off stay in the
+                household&apos;s history, still showing your name — your housemate keeps their
+                record. A household with nobody left in it is deleted with you. This cannot be
+                undone.
+              </Txt>
+              <Button
+                label="Yes, delete my account"
+                variant="danger"
+                onPress={() => deleteAccount.mutate()}
+                loading={deleteAccount.isPending}
+              />
+              <Button
+                label="Keep my account"
+                variant="ghost"
+                onPress={() => setConfirmingDelete(false)}
+              />
+            </>
+          ) : (
+            <Button
+              label="Delete my account"
+              variant="ghost"
+              onPress={() => setConfirmingDelete(true)}
+            />
+          )}
+          {deleteAccount.error ? (
+            <Txt variant="small" tone="danger">
+              {(deleteAccount.error as Error).message}
+            </Txt>
+          ) : null}
         </Stack>
       </ScrollView>
     </SafeAreaView>

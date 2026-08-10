@@ -23,6 +23,13 @@ jest.mock('@/data/hooks/useHousehold', () => ({
 }));
 
 let mockAvailable = true;
+// The screen can delete an account, which is a mutation. This suite renders
+// without a QueryClientProvider on purpose — it mocks the data layer rather
+// than standing one up.
+jest.mock('@/data/hooks/useAuth', () => ({
+  useDeleteAccount: () => ({ mutate: jest.fn(), isPending: false, error: null }),
+}));
+
 jest.mock('@/data/notifications', () => ({
   get notificationsAvailable() {
     return mockAvailable;
@@ -133,5 +140,32 @@ describe('when the phone and the household disagree about the time zone', () => 
     await renderScreen();
     expect(screen.queryByText(/This phone is in/)).toBeNull();
     expect(screen.getByText(/Decides which day a chore is due on/)).toBeOnTheScreen();
+  });
+});
+
+describe('deleting your account', () => {
+  it('does not offer it as a single tap', async () => {
+    // Apple requires deletion to be reachable in-app. It does not require it
+    // to be reachable by accident.
+    await renderScreen();
+    expect(screen.getByRole('button', { name: 'Delete my account' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Yes, delete my account' })).toBeNull();
+  });
+
+  it('says what survives before asking again', async () => {
+    // The part nobody would guess, and the reason the schema was reshaped:
+    // your completions stay, so your housemate keeps their history.
+    await renderScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Delete my account' }));
+    expect(screen.getByText(/stay in the household/)).toBeTruthy();
+    expect(screen.getByText(/cannot be undone/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Yes, delete my account' })).toBeTruthy();
+  });
+
+  it('can be backed out of', async () => {
+    await renderScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Delete my account' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Keep my account' }));
+    expect(screen.queryByRole('button', { name: 'Yes, delete my account' })).toBeNull();
   });
 });
