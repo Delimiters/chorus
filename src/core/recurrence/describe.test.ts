@@ -6,7 +6,7 @@ const schedule = (rule: RecurrenceRule, endsOn: string | null = null): Schedule 
   rule,
   startsOn: civilDate('2026-01-01'),
   endsOn: endsOn ? civilDate(endsOn) : null,
-  timeOfDay: null,
+  timesOfDay: [],
 });
 
 describe('ordinal', () => {

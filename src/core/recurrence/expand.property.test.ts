@@ -175,7 +175,7 @@ describe('P3 — ordering and key uniqueness', () => {
             rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [1, 3, 5] },
             startsOn: anchor,
             endsOn: null,
-            timeOfDay: null,
+            timesOfDay: [],
           } as never,
           { weekStartsOn: 0 },
           { start: anchor, end: addDays(anchor, 40) },
@@ -200,7 +200,7 @@ describe('P4 — floating cardinality', () => {
         (rule, cal, startDay) => {
           if (rule.kind !== 'weeklyFloating') return;
           const startsOn = addDays('2000-01-02' as CivilDate, startDay);
-          const schedule: Schedule = { rule, startsOn, endsOn: null, timeOfDay: null };
+          const schedule: Schedule = { rule, startsOn, endsOn: null, timesOfDay: [] };
           // A window covering many whole cycles, aligned to the anchor week.
           const anchorWeek = startOfWeek(startsOn, cal.weekStartsOn);
           const window = { start: anchorWeek, end: addDays(anchorWeek, 20 * 7 - 1) };
@@ -226,7 +226,7 @@ describe('P4 — floating cardinality', () => {
         (rule, cal, monthOffset) => {
           if (rule.kind !== 'monthlyFloating') return;
           const startsOn = addDays('2000-01-01' as CivilDate, monthOffset);
-          const schedule: Schedule = { rule, startsOn, endsOn: null, timeOfDay: null };
+          const schedule: Schedule = { rule, startsOn, endsOn: null, timesOfDay: [] };
           const window = { start: startsOn, end: addDays(startsOn, 360) };
 
           const byPeriod = new Map<string, number>();
@@ -252,7 +252,7 @@ describe('P4 — floating cardinality', () => {
             rule,
             startsOn: '2020-01-01' as CivilDate,
             endsOn: null,
-            timeOfDay: null,
+            timesOfDay: [],
           };
           const byPeriod = new Map<string, number[]>();
           for (const occ of expandOccurrences(CHORE, schedule, cal, window)) {
@@ -275,7 +275,7 @@ describe('P8 — once and unscheduled', () => {
           rule: { kind: 'unscheduled' },
           startsOn: '2020-01-01' as CivilDate,
           endsOn: null,
-          timeOfDay: null,
+          timesOfDay: [],
         };
         expect(expand(schedule, cal, window)).toEqual([]);
       }),
@@ -339,7 +339,7 @@ describe('P9 — bounds', () => {
       rule: { kind: 'daily', everyNDays: 1 },
       startsOn: '2020-01-01' as CivilDate,
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const cal: CalendarConfig = { weekStartsOn: 0 };
     const start = '2020-01-01' as CivilDate;
@@ -363,7 +363,7 @@ describe('P15 — week-start independence', () => {
           rule,
           startsOn: '2020-01-01' as CivilDate,
           endsOn: null,
-          timeOfDay: null,
+          timesOfDay: [],
         };
         const sunday = expand(schedule, { weekStartsOn: 0 }, window);
         const monday = expand(schedule, { weekStartsOn: 1 }, window);
@@ -383,7 +383,7 @@ describe('P15 — week-start independence', () => {
           rule,
           startsOn: '2020-01-01' as CivilDate,
           endsOn: null,
-          timeOfDay: null,
+          timesOfDay: [],
         };
         for (const weekStartsOn of [0, 1] as const) {
           const byPeriod = new Map<string, number>();
@@ -445,7 +445,7 @@ describe('occurrence identity', () => {
             rule,
             startsOn: '2020-01-01' as CivilDate,
             endsOn: null,
-            timeOfDay: null,
+            timesOfDay: [],
           };
           for (const occ of expandOccurrences('abc-123', schedule, cal, window)) {
             expect(occ.occurrenceKey).toContain('abc-123');
@@ -468,7 +468,7 @@ describe('occurrence identity', () => {
             rule,
             startsOn: '2020-01-01' as CivilDate,
             endsOn: null,
-            timeOfDay: null,
+            timesOfDay: [],
           };
           for (const occ of expandOccurrences(CHORE, schedule, cal, window, 'member-7')) {
             expect(occ.subject).toBe('member-7');
@@ -484,7 +484,7 @@ describe('occurrence identity', () => {
       rule: { kind: 'daily', everyNDays: 1 },
       startsOn: '2026-01-01' as CivilDate,
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const cal: CalendarConfig = { weekStartsOn: 0 };
     const window = { start: '2026-01-01' as CivilDate, end: '2026-01-03' as CivilDate };

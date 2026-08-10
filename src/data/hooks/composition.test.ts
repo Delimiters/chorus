@@ -42,7 +42,7 @@ const dishes: ChoreInput = {
     rule: { kind: 'daily', everyNDays: 1 },
     startsOn: d('2026-07-20'),
     endsOn: null,
-    timeOfDay: null,
+    timesOfDay: [],
   },
   assignment: { kind: 'anyone' },
   archived: false,

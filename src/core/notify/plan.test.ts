@@ -40,7 +40,7 @@ const occ = (over: Partial<ProjectedOccurrence> = {}): ProjectedOccurrence =>
     occurrenceIndex: 0,
     status: 'due',
     assignee: { kind: 'member', memberId: ME, turn: 0 },
-    timeOfDay: null,
+    timesOfDay: [],
     completedOn: null,
     completedBy: null,
     daysLate: 0,
@@ -67,7 +67,7 @@ describe('what earns a reminder', () => {
   });
 
   it('uses the chore’s own time when it has one', () => {
-    const [reminder] = plan([occ({ timeOfDay: '18:30' as CivilTime })]);
+    const [reminder] = plan([occ({ timesOfDay: ['18:30' as CivilTime] })]);
     expect(reminder?.atTime).toBe('18:30');
   });
 
@@ -407,5 +407,74 @@ describe("someone else's chores", () => {
     const anyones = occ({ choreId: 'anyones', assignee: { kind: 'anyone' } });
     expect(plan([anyones], { includeOthers: true })).toEqual([]);
     expect(plan([anyones], { includeUnassigned: true })).toHaveLength(1);
+  });
+});
+
+describe('a chore with more than one reminder time', () => {
+  it('emits one reminder per time', () => {
+    const plan = planReminders({
+      occurrences: [occ({ timesOfDay: ['09:00', '19:00'] as CivilTime[] })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+    });
+    expect(plan.map((r) => r.atTime)).toEqual(['09:00', '19:00']);
+  });
+
+  it('gives them distinct ids, or the second would replace the first', () => {
+    // The transport schedules by identifier. Two reminders sharing the
+    // occurrence key would be one notification, and the chore would quietly
+    // get half of what it asked for.
+    const plan = planReminders({
+      occurrences: [occ({ timesOfDay: ['09:00', '19:00'] as CivilTime[] })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+    });
+    expect(new Set(plan.map((r) => r.id)).size).toBe(2);
+  });
+
+  it('keeps the bare occurrence key when there is only one time', () => {
+    // So an existing pending notification is matched and updated rather than
+    // cancelled and re-created under a new id on every replan.
+    const [single] = planReminders({
+      occurrences: [occ({ timesOfDay: ['09:00'] as CivilTime[] })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+    });
+    expect(single?.id).not.toContain('@');
+  });
+
+  it('falls back to the device default when the chore names no time', () => {
+    const plan = planReminders({
+      occurrences: [occ({ timesOfDay: [] })],
+      today: TODAY,
+      userId: ME,
+      policy: { ...DEFAULT_POLICY, defaultTime: '08:15' as CivilTime },
+    });
+    expect(plan.map((r) => r.atTime)).toEqual(['08:15']);
+  });
+
+  it('counts every time against the cap, not every chore', () => {
+    // Two times per chore halves how many chores fit. Getting this wrong would
+    // silently drop the far end of the queue rather than the near one.
+    const many = Array.from({ length: 40 }, (_, i) =>
+      occ({
+        choreId: `c${i}`,
+        dueOn: addDays(TODAY, i + 1),
+        occurrenceKey: `v1:c${i}:x:0:-`,
+        timesOfDay: ['09:00', '19:00'] as CivilTime[],
+      }),
+    );
+    const plan = planReminders({
+      occurrences: many,
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+    });
+    expect(plan.length).toBeLessThanOrEqual(MAX_PENDING);
+    // And what survives is the nearest, not an arbitrary slice.
+    expect(plan[0]?.onDate).toBe(addDays(TODAY, 1));
   });
 });

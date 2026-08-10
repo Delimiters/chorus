@@ -48,7 +48,7 @@ function dailyOccurrences(count: number): readonly Occurrence[] {
     rule: { kind: 'daily', everyNDays: 1 },
     startsOn: ANCHOR,
     endsOn: null,
-    timeOfDay: null,
+    timesOfDay: [],
   };
   return expandOccurrences('chore', schedule, CAL, {
     start: ANCHOR,
@@ -133,7 +133,7 @@ describe('P11 — rotation is completion-independent', () => {
               rule: { kind: 'daily' as const, everyNDays: 1 },
               startsOn: ANCHOR,
               endsOn: null,
-              timeOfDay: null,
+              timesOfDay: [],
             },
             assignment,
             archived: false,
@@ -202,7 +202,7 @@ describe('P11 — rotation is completion-independent', () => {
               rule: { kind: 'weekly' as const, everyNWeeks: 1, weekdays: [3 as const] },
               startsOn: ANCHOR,
               endsOn: null,
-              timeOfDay: null,
+              timesOfDay: [],
             },
             assignment,
             archived: false,
@@ -257,7 +257,7 @@ describe('P11 — rotation is completion-independent', () => {
       rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [1] },
       startsOn: ANCHOR,
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const occurrences = expandOccurrences('chore', schedule, CAL, {
       start: ANCHOR,
@@ -446,7 +446,7 @@ describe('non-rotating assignments', () => {
       rule: { kind: 'daily', everyNDays: 1 },
       startsOn: ANCHOR,
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const [occ] = expandOccurrences(
       'chore',
@@ -481,7 +481,7 @@ describe('cadence independence from the chore schedule', () => {
       rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [1, 3, 5] },
       startsOn: ANCHOR,
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const occurrences = expandOccurrences('chore', schedule, CAL, {
       start: ANCHOR,
@@ -500,7 +500,7 @@ describe('cadence independence from the chore schedule', () => {
       rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [1, 3, 5] },
       startsOn: ANCHOR,
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const occurrences = expandOccurrences('chore', schedule, CAL, {
       start: ANCHOR,
@@ -519,7 +519,7 @@ describe('cadence independence from the chore schedule', () => {
       rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [1] },
       startsOn: civilDate('2026-01-04'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const occurrences = expandOccurrences('chore', schedule, CAL, {
       start: civilDate('2026-01-04'),

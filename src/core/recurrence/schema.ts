@@ -104,13 +104,38 @@ export const recurrenceRuleSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
+/**
+ * Reads the single `timeOfDay` that schedules used to carry.
+ *
+ * Chores stored before reminders could have more than one time still hold
+ * `timeOfDay`, and rewriting them all would be a migration over jsonb for a
+ * field the parser can just as easily understand. A chore keeps working and
+ * gains a second time the next time somebody edits it.
+ */
+function withLegacyTime(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value;
+  const object = value as Record<string, unknown>;
+  if (Array.isArray(object['timesOfDay'])) return object;
+  const legacy = object['timeOfDay'];
+  return { ...object, timesOfDay: typeof legacy === 'string' ? [legacy] : [] };
+}
+
 export const scheduleSchema = z
-  .object({
-    rule: recurrenceRuleSchema,
-    startsOn: civilDateSchema,
-    endsOn: civilDateSchema.nullable().default(null),
-    timeOfDay: civilTimeSchema.nullable().default(null),
-  })
+  .preprocess(
+    withLegacyTime,
+    z.object({
+      rule: recurrenceRuleSchema,
+      startsOn: civilDateSchema,
+      endsOn: civilDateSchema.nullable().default(null),
+      timesOfDay: z
+        .array(civilTimeSchema)
+        .default([])
+        // Sorted and deduplicated so "9am and 7pm" and "7pm and 9am" are one
+        // schedule rather than two, and so the reminder ids derived from them
+        // are stable across an edit that only reorders.
+        .transform((times) => [...new Set(times)].sort()),
+    }),
+  )
   .refine((schedule) => schedule.endsOn === null || schedule.endsOn >= schedule.startsOn, {
     message: 'The end date must not precede the start date',
     path: ['endsOn'],

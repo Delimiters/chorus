@@ -37,14 +37,14 @@ const DAILY: Schedule = {
   rule: { kind: 'daily', everyNDays: 1 },
   startsOn: d('2026-01-04'),
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 };
 
 const ONCE: Schedule = {
   rule: { kind: 'once', dueOn: d('2026-02-14'), granularity: 'day' },
   startsOn: d('2026-02-14'),
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 };
 
 const ANYONE: Assignment = { kind: 'anyone' };

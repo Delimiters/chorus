@@ -209,7 +209,7 @@ describe('the builder cannot produce a rule the engine rejects', () => {
     rule,
     startsOn: TODAY as CivilDate,
     endsOn: null,
-    timeOfDay: null,
+    timesOfDay: [],
   });
 
   it('accepts every shape the tour above produces', async () => {

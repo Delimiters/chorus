@@ -22,7 +22,7 @@ const DAILY: Schedule = {
   rule: { kind: 'daily', everyNDays: 1 },
   startsOn: civilDate('2026-01-04'),
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 };
 
 const ANYONE: Assignment = { kind: 'anyone' };
@@ -125,7 +125,7 @@ describe('refusing to write something unreadable', () => {
       rule: { kind: 'once', dueOn: civilDate('2026-02-14'), granularity: 'day' },
       startsOn: civilDate('2026-01-01'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const row = choreRow(draft({ schedule: once }));
     expect(row.schedule).toMatchObject({ startsOn: '2026-02-14' });

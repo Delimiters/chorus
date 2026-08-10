@@ -18,7 +18,7 @@ const scheduleWith = (rule: RecurrenceRule): Schedule => ({
   rule,
   startsOn: civilDate('2026-01-01'),
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 });
 
 describe('exhaustiveness guards', () => {

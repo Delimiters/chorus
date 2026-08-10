@@ -157,14 +157,27 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
       if (seenGroups.has(group)) continue;
       seenGroups.add(group);
     }
-    planned.push({
-      id: occ.occurrenceKey,
-      choreId: occ.choreId,
-      title: occ.choreTitle,
-      body: bodyFor(occ),
-      onDate: occ.dueOn,
-      atTime: occ.timeOfDay ?? policy.defaultTime,
-    });
+    /**
+     * One reminder per time the chore asks for, or one at the device default
+     * when it asks for none.
+     *
+     * The id gains the time, because a chore with two reminders needs two
+     * distinct notification identifiers — reusing the occurrence key for both
+     * would have the second silently replace the first, since the transport
+     * schedules by id. The single-time case keeps the bare occurrence key so
+     * existing pending notifications are still matched rather than duplicated.
+     */
+    const times = occ.timesOfDay.length === 0 ? [policy.defaultTime] : occ.timesOfDay;
+    for (const atTime of times) {
+      planned.push({
+        id: times.length === 1 ? occ.occurrenceKey : `${occ.occurrenceKey}@${atTime}`,
+        choreId: occ.choreId,
+        title: occ.choreTitle,
+        body: bodyFor(occ),
+        onDate: occ.dueOn,
+        atTime,
+      });
+    }
   }
 
   /**

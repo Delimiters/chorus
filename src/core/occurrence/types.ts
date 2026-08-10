@@ -52,13 +52,13 @@ export type OccurrenceStatus = 'due' | 'upcoming' | 'overdue' | 'completed' | 's
 export interface ProjectedOccurrence extends Occurrence {
   readonly choreTitle: string;
   /**
-   * The chore's reminder time, if it has one.
+   * The chore's reminder times, if it has any.
    *
-   * Carried alongside the title for the same reason: it belongs to the chore,
+   * Carried alongside the title for the same reason: they belong to the chore,
    * not the occurrence, and every consumer that has an occurrence would
-   * otherwise need the chore too. Null means "use the household default".
+   * otherwise need the chore too. Empty means "use the device default".
    */
-  readonly timeOfDay: CivilTime | null;
+  readonly timesOfDay: readonly CivilTime[];
   readonly status: OccurrenceStatus;
   readonly assignee: AssigneeResolution;
   /** Set when the occurrence has been completed. */

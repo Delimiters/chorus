@@ -1,59 +1,38 @@
 /**
- * When a chore's reminder fires.
+ * When a chore's reminders fire.
  *
- * A real wheel, not a text box. Typing "6:45pm" works and nobody wants to do
- * it; the presets cover the common answers in one tap and the wheel covers
- * everything else, the way iOS has taught people to expect.
+ * A list, because one chore can deserve two nudges — a reminder in the morning
+ * and a nag in the evening — and the alternative, a second chore with the same
+ * name, would split the completion history that makes the stats meaningful.
  *
- * This is the project's first native module, and it costs something.
- * `@react-native-community/datetimepicker` cannot load in Expo Go, so that
- * path is gone. It was already vestigial — every build since local signing
- * started has gone straight to a phone — but it is a real trade rather than a
- * free upgrade, and docs/RELEASE.md says so.
+ * Empty means "follow the phone default", which is the common case. The
+ * shortcuts are two, not five: with more, the row needed a horizontal scroller
+ * and the wheel sat off the edge, so the control that does everything was the
+ * one you could not see.
  *
  * The picker deals in `Date` because the OS does. That never escapes this
- * file: the value arrives and leaves as a `CivilTime`, so nothing downstream
- * sees an instant. A reminder at 7pm is a fact about the clock on the wall
- * rather than a moment, and the conversion lives here precisely so the rest of
- * the app can keep believing that.
+ * file: values arrive and leave as `CivilTime`, converted at the boundary. A
+ * reminder at 7pm is a fact about the clock on the wall rather than a moment,
+ * and the conversion lives here so the rest of the app can keep believing it.
  */
 
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 
 import { formatCivilTime, parseCivilTime } from '@/core/civil/time';
 import type { CivilTime } from '@/core/civil/types';
 import { Txt } from '@/design/components';
-import { FieldGroup, SegmentedControl } from '@/design/controls';
+import { FieldGroup } from '@/design/controls';
 import { QUICK_TIMES } from '@/design/times';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 
-/** Null is "use whatever this phone's default is", not "never remind me". */
-const DEFAULT_VALUE = 'default';
-const PICK_VALUE = 'pick';
-
-const CHOICES: readonly { value: string; label: string }[] = [
-  { value: DEFAULT_VALUE, label: 'Default' },
-  ...QUICK_TIMES,
-  { value: PICK_VALUE, label: 'Pick…' },
-];
-
-/**
- * Whether the row can show this time as its own segment.
- *
- * Only the two quick times qualify. A chore set to 5pm — from an older build,
- * or from the wheel — has no segment of its own, so it opens on the wheel
- * rather than leaving the control sitting on nothing.
- */
-const isQuick = (time: CivilTime): boolean => QUICK_TIMES.some((p) => p.value === time);
-
 /**
  * A `Date` carrying the given wall time, on a day that does not matter.
  *
- * Only hours and minutes are ever read back. The date part is today so the
- * wheel opens somewhere sensible rather than in 1970.
+ * Only hours and minutes are read back. The date part is today so the wheel
+ * opens somewhere sensible rather than in 1970.
  */
 function toPickerDate(time: CivilTime): Date {
   const [hh, mm] = time.split(':').map(Number) as [number, number];
@@ -69,55 +48,30 @@ function fromPickerDate(date: Date): CivilTime {
   return parseCivilTime(`${hh}:${mm}`) ?? ('09:00' as CivilTime);
 }
 
+/** Sorted and deduplicated, matching what the schema stores. */
+function withTime(times: readonly CivilTime[], time: CivilTime): readonly CivilTime[] {
+  return [...new Set([...times, time])].sort() as readonly CivilTime[];
+}
+
 interface Props {
-  value: CivilTime | null;
-  onChange: (value: CivilTime | null) => void;
+  value: readonly CivilTime[];
+  onChange: (value: readonly CivilTime[]) => void;
   /** The device default, so the hint can name it rather than say "the default". */
   defaultTime: CivilTime;
-  /**
-   * Why this chore would never remind you, or null if it would.
-   *
-   * Shown here because this is where the silence was: a chore assigned to
-   * "anyone", with unassigned chores excluded by default, is never scheduled —
-   * so setting a time did nothing and said nothing.
-   */
+  /** Why this chore would never remind you, or null if it would. */
   silence?: string | null;
 }
 
 export function TimeField({ value, onChange, defaultTime, silence = null }: Props) {
   const { colors } = useTheme();
-
-  /**
-   * Whether the wheel is showing. Inferred on open for a chore whose time is
-   * not a preset, or the segmented control would sit on nothing and the time
-   * would look lost.
-   */
-  const [picking, setPicking] = useState(value !== null && !isQuick(value));
-
-  const selected = value === null ? DEFAULT_VALUE : picking ? PICK_VALUE : value;
-
-  const choose = (next: string) => {
-    if (next === DEFAULT_VALUE) {
-      setPicking(false);
-      onChange(null);
-      return;
-    }
-    if (next === PICK_VALUE) {
-      setPicking(true);
-      // Seed from the device default so the wheel opens on something real and
-      // the chore immediately has the time the wheel is showing.
-      if (value === null) onChange(defaultTime);
-      return;
-    }
-    setPicking(false);
-    onChange(next as CivilTime);
-  };
+  const [picking, setPicking] = useState(false);
+  const [draft, setDraft] = useState<CivilTime>(defaultTime);
 
   return (
     <FieldGroup
       label="Remind at"
       hint={
-        value === null
+        value.length === 0
           ? `Follows this phone's setting, currently ${formatCivilTime(defaultTime)}. Change it in Settings.`
           : 'Only this chore. Everything else follows the phone default.'
       }
@@ -129,12 +83,52 @@ export function TimeField({ value, onChange, defaultTime, silence = null }: Prop
           </Txt>
         )}
 
-        <SegmentedControl
-          segments={CHOICES}
-          value={selected}
-          onChange={choose}
-          label="Reminder time"
-        />
+        {/* The times already chosen. Tapping one removes it, which is also the
+            only way back to "follow the default" once any has been picked. */}
+        {value.length === 0 ? null : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
+            {value.map((time) => (
+              <Pressable
+                key={time}
+                onPress={() => onChange(value.filter((t) => t !== time))}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove the reminder at ${formatCivilTime(time)}`}
+                style={{
+                  minHeight: 40,
+                  justifyContent: 'center',
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.sm,
+                  backgroundColor: colors.text,
+                }}
+              >
+                <Txt variant="small" style={{ color: colors.surface, fontWeight: '700' }}>
+                  {`${formatCivilTime(time)}  ×`}
+                </Txt>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
+          {QUICK_TIMES.filter((preset) => !value.includes(preset.value as CivilTime)).map(
+            (preset) => (
+              <AddButton
+                key={preset.value}
+                label={`+ ${preset.label}`}
+                accessibilityLabel={`Add a reminder at ${preset.label}`}
+                onPress={() => onChange(withTime(value, preset.value as CivilTime))}
+              />
+            ),
+          )}
+          <AddButton
+            label={picking ? '× Close' : '+ Pick a time'}
+            accessibilityLabel={picking ? 'Close the time picker' : 'Pick a reminder time'}
+            onPress={() => {
+              setPicking((open) => !open);
+              setDraft(defaultTime);
+            }}
+          />
+        </View>
 
         {picking ? (
           <View
@@ -143,32 +137,69 @@ export function TimeField({ value, onChange, defaultTime, silence = null }: Prop
               backgroundColor: colors.sunken,
               paddingVertical: space.xs,
               alignItems: 'center',
+              gap: space.xs,
             }}
           >
             <DateTimePicker
-              value={toPickerDate(value ?? defaultTime)}
+              value={toPickerDate(draft)}
               mode="time"
-              // The wheel rather than the compact tap-to-expand field: this is
-              // already inside a disclosure, and nesting another would put the
-              // time two taps away for nothing.
               display={Platform.OS === 'ios' ? 'spinner' : 'default'}
               onChange={(_event, date) => {
-                if (date !== undefined) onChange(fromPickerDate(date));
-                // Android's dialog dismisses itself; leaving `picking` true
-                // there would reopen it on the next render.
-                if (Platform.OS !== 'ios') setPicking(false);
+                if (date === undefined) return;
+                const picked = fromPickerDate(date);
+                setDraft(picked);
+                // Android's dialog dismisses itself and reports once, so the
+                // choice has to be committed there rather than on a second tap.
+                if (Platform.OS !== 'ios') {
+                  onChange(withTime(value, picked));
+                  setPicking(false);
+                }
               }}
               accessibilityLabel="Pick a reminder time"
             />
+            {Platform.OS === 'ios' ? (
+              <AddButton
+                label={`Add ${formatCivilTime(draft)}`}
+                accessibilityLabel={`Add a reminder at ${formatCivilTime(draft)}`}
+                onPress={() => {
+                  onChange(withTime(value, draft));
+                  setPicking(false);
+                }}
+              />
+            ) : null}
           </View>
         ) : null}
-
-        {value === null ? null : (
-          <Txt variant="small" tone="muted">
-            {formatCivilTime(value)}
-          </Txt>
-        )}
       </View>
     </FieldGroup>
+  );
+}
+
+function AddButton({
+  label,
+  accessibilityLabel,
+  onPress,
+}: {
+  label: string;
+  accessibilityLabel: string;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={{
+        minHeight: 40,
+        justifyContent: 'center',
+        paddingHorizontal: space.md,
+        borderRadius: radius.sm,
+        backgroundColor: colors.sunken,
+      }}
+    >
+      <Txt variant="small" tone="muted">
+        {label}
+      </Txt>
+    </Pressable>
   );
 }

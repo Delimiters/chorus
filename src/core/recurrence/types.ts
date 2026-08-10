@@ -90,8 +90,17 @@ export interface Schedule {
   readonly startsOn: CivilDate;
   /** Inclusive last date the rule may produce an occurrence, or null for forever. */
   readonly endsOn: CivilDate | null;
-  /** Local reminder time; null means "use the household default". */
-  readonly timeOfDay: CivilTime | null;
+  /**
+   * Local reminder times. Empty means "use the device default".
+   *
+   * A list because one chore can deserve two nudges — a reminder in the
+   * morning and a nag in the evening — and because the alternative, a second
+   * chore with the same name, corrupts the completion history it shares.
+   *
+   * Sorted and deduplicated by the schema, so two spellings of "the same
+   * times" cannot produce two different stored schedules.
+   */
+  readonly timesOfDay: readonly CivilTime[];
 }
 
 /**
