@@ -54,6 +54,17 @@ create trigger chore_completions_snapshot_name
   for each row execute function private.snapshot_completed_by_name();
 
 -- ── Let the author be forgotten ────────────────────────────────────────────
+--
+-- These reference `public.profiles`, not `auth.users`, and that is not
+-- incidental: 20260730045436 re-pointed every user-referencing key at profiles
+-- because PostgREST cannot embed across the `auth` schema, and the member list
+-- came back empty with a 400 until it did. Re-pointing them here would have
+-- broken "completed by Sam" again — which an integration test caught, having
+-- been written for exactly that reason.
+--
+-- The cascade still works, one hop longer: profiles.id references
+-- auth.users(id) on delete cascade, so deleting the account deletes the
+-- profile, which nulls these.
 -- Completions are the load-bearing case: they are the append-only log the
 -- stats are built from, and they belong to the household as much as to the
 -- person who ticked the box.
@@ -61,7 +72,7 @@ alter table public.chore_completions
   drop constraint chore_completions_completed_by_fkey,
   alter column completed_by drop not null,
   add constraint chore_completions_completed_by_fkey
-    foreign key (completed_by) references auth.users (id) on delete set null;
+    foreign key (completed_by) references public.profiles (id) on delete set null;
 
 -- The rest are provenance rather than history anybody reads. Nulling them
 -- keeps the row and loses only "who first typed this in", which nothing in the
@@ -70,30 +81,30 @@ alter table public.households
   drop constraint households_created_by_fkey,
   alter column created_by drop not null,
   add constraint households_created_by_fkey
-    foreign key (created_by) references auth.users (id) on delete set null;
+    foreign key (created_by) references public.profiles (id) on delete set null;
 
 alter table public.chores
   drop constraint chores_created_by_fkey,
   alter column created_by drop not null,
   add constraint chores_created_by_fkey
-    foreign key (created_by) references auth.users (id) on delete set null;
+    foreign key (created_by) references public.profiles (id) on delete set null;
 
 alter table public.chore_exceptions
   drop constraint chore_exceptions_created_by_fkey,
   alter column created_by drop not null,
   add constraint chore_exceptions_created_by_fkey
-    foreign key (created_by) references auth.users (id) on delete set null;
+    foreign key (created_by) references public.profiles (id) on delete set null;
 
 alter table public.household_invites
   drop constraint household_invites_created_by_fkey,
   alter column created_by drop not null,
   add constraint household_invites_created_by_fkey
-    foreign key (created_by) references auth.users (id) on delete set null;
+    foreign key (created_by) references public.profiles (id) on delete set null;
 
 alter table public.household_invites
   drop constraint household_invites_redeemed_by_fkey,
   add constraint household_invites_redeemed_by_fkey
-    foreign key (redeemed_by) references auth.users (id) on delete set null;
+    foreign key (redeemed_by) references public.profiles (id) on delete set null;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- The RPC
