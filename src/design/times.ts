@@ -19,3 +19,15 @@ export const REMINDER_TIMES: readonly { value: string; label: string }[] = [
   { value: '17:00', label: '5pm' },
   { value: '19:00', label: '7pm' },
 ];
+
+/**
+ * The two offered inline on a chore, next to Default and the wheel.
+ *
+ * Two, not five. With five presets the row needed a horizontal scroller and
+ * "Pick…" sat off the edge — so the control that does everything was the one
+ * you could not see. Morning and evening are the poles worth a shortcut;
+ * anything else is a wheel away.
+ */
+export const QUICK_TIMES: readonly { value: string; label: string }[] = REMINDER_TIMES.filter(
+  (t) => t.value === '09:00' || t.value === '19:00',
+);

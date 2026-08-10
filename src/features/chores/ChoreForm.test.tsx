@@ -177,6 +177,32 @@ describe('the reminder time', () => {
     expect(submitted(onSubmit).schedule.timeOfDay).toBe('06:05');
   });
 
+  it('opens the wheel for a time that has no shortcut of its own', async () => {
+    // 5pm was a preset in an earlier build and is not one now. A chore still
+    // set to it must open on the wheel rather than leaving the row selected on
+    // nothing.
+    await renderForm({
+      chore: {
+        ...ROTATING_CHORE,
+        schedule: { ...ROTATING_CHORE.schedule, timeOfDay: '17:00' as CivilTime },
+      },
+    });
+    expect(screen.getByLabelText('Pick a reminder time')).toBeTruthy();
+  });
+
+  it('keeps the row short enough not to need scrolling', async () => {
+    // Four segments: Default, two shortcuts, and the wheel. With the five
+    // presets it had, the row scrolled and "Pick…" sat off the edge — so the
+    // control that does everything was the one you could not see.
+    await renderForm();
+    expect(screen.getByText('Default')).toBeTruthy();
+    expect(screen.getByText('9am')).toBeTruthy();
+    expect(screen.getByText('7pm')).toBeTruthy();
+    expect(screen.getByText('Pick…')).toBeTruthy();
+    expect(screen.queryByText('Noon')).toBeNull();
+    expect(screen.queryByText('5pm')).toBeNull();
+  });
+
   it('opens the wheel for a chore whose time is not a preset', async () => {
     // Otherwise the segmented control sits on nothing and the time looks lost.
     await renderForm({
