@@ -149,30 +149,35 @@ describe('the reminder time', () => {
     expect(screen.queryByText(/Nobody is assigned/)).toBeNull();
   });
 
-  it('accepts an exact time typed in', async () => {
+  it('takes any time from the wheel, not just the presets', async () => {
     // Presets are convenience, not the whole story: a chore that has to happen
     // at 6:45 is not an unusual chore.
     const { onSubmit } = await renderForm();
     await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
-    await fireEvent.press(screen.getByText('Exact…'));
-    await fireEvent.changeText(screen.getByLabelText('Exact time'), '6:45pm');
+    await fireEvent.press(screen.getByText('Pick…'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(2026, 0, 1, 18, 45).getTime() },
+    });
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
     expect(submitted(onSubmit).schedule.timeOfDay).toBe('18:45');
   });
 
-  it('holds the previous time while a half-typed one is on screen', async () => {
-    // Committing on every keystroke would store '01:00' the moment you typed
-    // the first character of '18:45'.
+  it('only reads hours and minutes off the wheel, never its date', async () => {
+    // The picker deals in Date because the OS does. If that leaked, a reminder
+    // would become an instant and the civil-time guarantee would be gone.
     const { onSubmit } = await renderForm();
     await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
-    await fireEvent.press(screen.getByText('7pm'));
-    await fireEvent.press(screen.getByText('Exact…'));
-    await fireEvent.changeText(screen.getByLabelText('Exact time'), 'not a time');
+    await fireEvent.press(screen.getByText('Pick…'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(1999, 11, 31, 6, 5).getTime() },
+    });
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
-    expect(submitted(onSubmit).schedule.timeOfDay).toBe('19:00');
+    expect(submitted(onSubmit).schedule.timeOfDay).toBe('06:05');
   });
 
-  it('opens in exact mode for a chore whose time is not a preset', async () => {
+  it('opens the wheel for a chore whose time is not a preset', async () => {
     // Otherwise the segmented control sits on nothing and the time looks lost.
     await renderForm({
       chore: {
@@ -180,7 +185,7 @@ describe('the reminder time', () => {
         schedule: { ...ROTATING_CHORE.schedule, timeOfDay: '18:45' as CivilTime },
       },
     });
-    expect(screen.getByLabelText('Exact time')).toBeTruthy();
+    expect(screen.getByLabelText('Pick a reminder time')).toBeTruthy();
   });
 
   it('keeps the time a chore already had when it is edited', async () => {
