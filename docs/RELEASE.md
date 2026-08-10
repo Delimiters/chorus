@@ -77,6 +77,25 @@ Each avoided dependency is one fewer reason to spend a build.
 **The free tier is 15 iOS builds a month.** Rebuild only when native
 dependencies change; a JavaScript change is delivered by the bundle at launch.
 
+## Expo Go no longer runs this app
+
+As of the native time picker (`@react-native-community/datetimepicker`), the
+app contains a native module that Expo Go cannot load. **`npx expo start` plus
+Expo Go is gone as a way to run Chorus.**
+
+This was a deliberate trade, not an accident. SDK 54 was chosen partly to keep
+Expo Go working, and that mattered when it was the only way to see the app at
+all. Once local signing worked, every build went straight to a phone and Expo
+Go went unused for days — so the cost was already theoretical, and a text box
+where a time wheel belongs is not.
+
+What replaces it: `npx expo start` still serves the bundle to a **development
+build** if one is ever made, and the Release build embeds its JS. Day-to-day
+iteration is now build-and-install, which takes a few minutes.
+
+Reverting is one `npm uninstall` and a rewrite of `src/features/chores/TimeField.tsx`
+back to text entry, if that trade ever looks wrong.
+
 ## Before anything else
 
 | What | Why | Cost |

@@ -1,45 +1,66 @@
 /**
  * When a chore's reminder fires.
  *
- * The engine has honoured `schedule.timeOfDay` since reminders were built and
- * the planner falls back to the device default when it is null — but nothing
- * ever *set* it. The column existed, the planner read it, the tests covered it,
- * and no screen wrote it.
+ * A real wheel, not a text box. Typing "6:45pm" works and nobody wants to do
+ * it; the presets cover the common answers in one tap and the wheel covers
+ * everything else, the way iOS has taught people to expect.
  *
- * Presets plus exact entry, rather than one or the other. The presets cover
- * what people actually pick and cost one tap; the field is there because
- * "7pm or nothing" is a strange thing for an app to insist on, and a chore
- * that has to happen at 6:45 is not an unusual chore.
+ * This is the project's first native module, and it costs something.
+ * `@react-native-community/datetimepicker` cannot load in Expo Go, so that
+ * path is gone. It was already vestigial — every build since local signing
+ * started has gone straight to a phone — but it is a real trade rather than a
+ * free upgrade, and docs/RELEASE.md says so.
  *
- * No native time picker. `@react-native-community/datetimepicker` returns a
- * `Date` — the one type this app refuses to let near a schedule — and, more
- * decisively, it is a native module, which would stop the app running in Expo
- * Go at all. SDK 54 was chosen specifically to keep that path open
- * (docs/RELEASE.md), so giving it up is a call worth making deliberately
- * rather than in passing to gain a wheel.
+ * The picker deals in `Date` because the OS does. That never escapes this
+ * file: the value arrives and leaves as a `CivilTime`, so nothing downstream
+ * sees an instant. A reminder at 7pm is a fact about the clock on the wall
+ * rather than a moment, and the conversion lives here precisely so the rest of
+ * the app can keep believing that.
  */
 
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 import { formatCivilTime, parseCivilTime } from '@/core/civil/time';
 import type { CivilTime } from '@/core/civil/types';
-import { Field, Txt } from '@/design/components';
+import { Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
 import { REMINDER_TIMES } from '@/design/times';
-import { space } from '@/design/tokens';
+import { useTheme } from '@/design/theme';
+import { radius, space } from '@/design/tokens';
 
 /** Null is "use whatever this phone's default is", not "never remind me". */
 const DEFAULT_VALUE = 'default';
-const EXACT_VALUE = 'exact';
+const PICK_VALUE = 'pick';
 
 const CHOICES: readonly { value: string; label: string }[] = [
   { value: DEFAULT_VALUE, label: 'Default' },
   ...REMINDER_TIMES,
-  { value: EXACT_VALUE, label: 'Exact…' },
+  { value: PICK_VALUE, label: 'Pick…' },
 ];
 
 const isPreset = (time: CivilTime): boolean => REMINDER_TIMES.some((p) => p.value === time);
+
+/**
+ * A `Date` carrying the given wall time, on a day that does not matter.
+ *
+ * Only hours and minutes are ever read back. The date part is today so the
+ * wheel opens somewhere sensible rather than in 1970.
+ */
+function toPickerDate(time: CivilTime): Date {
+  const [hh, mm] = time.split(':').map(Number) as [number, number];
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+}
+
+function fromPickerDate(date: Date): CivilTime {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  // Through the parser rather than trusting the format, so the app has exactly
+  // one definition of a valid CivilTime.
+  return parseCivilTime(`${hh}:${mm}`) ?? ('09:00' as CivilTime);
+}
 
 interface Props {
   value: CivilTime | null;
@@ -51,40 +72,37 @@ interface Props {
    *
    * Shown here because this is where the silence was: a chore assigned to
    * "anyone", with unassigned chores excluded by default, is never scheduled —
-   * so setting a time did nothing and said nothing, and the only feedback was
-   * a notification that failed to arrive.
+   * so setting a time did nothing and said nothing.
    */
   silence?: string | null;
 }
 
 export function TimeField({ value, onChange, defaultTime, silence = null }: Props) {
+  const { colors } = useTheme();
+
   /**
-   * Exact mode sticks once chosen, and is inferred on open for a chore whose
-   * time is not one of the presets — otherwise editing "6:45pm" would show the
-   * segmented control sitting on nothing, with no clue where the time went.
+   * Whether the wheel is showing. Inferred on open for a chore whose time is
+   * not a preset, or the segmented control would sit on nothing and the time
+   * would look lost.
    */
-  const [exact, setExact] = useState(value !== null && !isPreset(value));
-  const [typed, setTyped] = useState(value === null ? '' : formatCivilTime(value));
+  const [picking, setPicking] = useState(value !== null && !isPreset(value));
 
-  const selected = value === null ? DEFAULT_VALUE : exact ? EXACT_VALUE : value;
-
-  const parsed = parseCivilTime(typed);
-  const showError = typed.trim().length > 0 && parsed === null;
+  const selected = value === null ? DEFAULT_VALUE : picking ? PICK_VALUE : value;
 
   const choose = (next: string) => {
     if (next === DEFAULT_VALUE) {
-      setExact(false);
+      setPicking(false);
       onChange(null);
       return;
     }
-    if (next === EXACT_VALUE) {
-      setExact(true);
-      // Seed from whatever is already chosen, so switching to exact starts
-      // from the current time rather than from an empty box.
-      if (value !== null) setTyped(formatCivilTime(value));
+    if (next === PICK_VALUE) {
+      setPicking(true);
+      // Seed from the device default so the wheel opens on something real and
+      // the chore immediately has the time the wheel is showing.
+      if (value === null) onChange(defaultTime);
       return;
     }
-    setExact(false);
+    setPicking(false);
     onChange(next as CivilTime);
   };
 
@@ -112,29 +130,38 @@ export function TimeField({ value, onChange, defaultTime, silence = null }: Prop
           scrollable
         />
 
-        {exact ? (
-          <View style={{ gap: space.xs }}>
-            <Field
-              label="Exact time"
-              value={typed}
-              onChangeText={(next) => {
-                setTyped(next);
-                // Committed only when it reads as a time, so the chore keeps
-                // its previous value while a half-typed one is on screen.
-                const time = parseCivilTime(next);
-                if (time !== null) onChange(time);
+        {picking ? (
+          <View
+            style={{
+              borderRadius: radius.md,
+              backgroundColor: colors.sunken,
+              paddingVertical: space.xs,
+              alignItems: 'center',
+            }}
+          >
+            <DateTimePicker
+              value={toPickerDate(value ?? defaultTime)}
+              mode="time"
+              // The wheel rather than the compact tap-to-expand field: this is
+              // already inside a disclosure, and nesting another would put the
+              // time two taps away for nothing.
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              onChange={(_event, date) => {
+                if (date !== undefined) onChange(fromPickerDate(date));
+                // Android's dialog dismisses itself; leaving `picking` true
+                // there would reopen it on the next render.
+                if (Platform.OS !== 'ios') setPicking(false);
               }}
-              placeholder="6:45 pm"
-              autoCapitalize="none"
-              {...(showError ? { error: 'Try something like 6:45pm or 18:45.' } : {})}
+              accessibilityLabel="Pick a reminder time"
             />
-            {parsed === null ? null : (
-              <Txt variant="small" tone="faint">
-                {formatCivilTime(parsed)}
-              </Txt>
-            )}
           </View>
         ) : null}
+
+        {value === null ? null : (
+          <Txt variant="small" tone="muted">
+            {formatCivilTime(value)}
+          </Txt>
+        )}
       </View>
     </FieldGroup>
   );

@@ -138,6 +138,29 @@ export function SettingsScreen() {
                 />,
               )}
 
+              {/*
+                Outside the `enabled` branch on purpose. A diagnostic that
+                hides exactly when the thing it diagnoses is switched off is
+                backwards — and "reminders are off" is itself one of the
+                answers it exists to give.
+              */}
+              <View style={{ paddingTop: space.xs, gap: space.xs }}>
+                <Button
+                  label={testState === 'sent' ? 'Sent — watch for it' : 'Send a test reminder'}
+                  variant="ghost"
+                  onPress={() => {
+                    setTestState('sending');
+                    void sendTestNotification().then(setTestState);
+                  }}
+                  loading={testState === 'sending'}
+                />
+                <Txt variant="small" tone="faint">
+                  {testState === 'denied'
+                    ? 'iOS is blocking notifications for Chorus. Turn them on in the iOS Settings app, under Chorus.'
+                    : 'Arrives in about five seconds, whether or not reminders are on above. A real reminder shows no banner while the app is open — this one does, on purpose.'}
+                </Txt>
+              </View>
+
               {policy.enabled ? (
                 <>
                   <FieldGroup label="At" hint="Used when a chore has no time of its own.">
@@ -158,23 +181,6 @@ export function SettingsScreen() {
                       accessibilityLabel="Remind me about unassigned chores"
                     />,
                   )}
-
-                  <View style={{ paddingTop: space.xs, gap: space.xs }}>
-                    <Button
-                      label={testState === 'sent' ? 'Sent — watch for it' : 'Send a test reminder'}
-                      variant="ghost"
-                      onPress={() => {
-                        setTestState('sending');
-                        void sendTestNotification().then(setTestState);
-                      }}
-                      loading={testState === 'sending'}
-                    />
-                    <Txt variant="small" tone="faint">
-                      {testState === 'denied'
-                        ? 'iOS is blocking notifications for Chorus. Turn them on in the iOS Settings app, under Chorus.'
-                        : 'Arrives in about five seconds. A real reminder shows no banner while the app is open — this one does, on purpose.'}
-                    </Txt>
-                  </View>
 
                   {row(
                     "Also everyone else's chores",
