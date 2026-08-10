@@ -13,30 +13,30 @@ export type Database = {
         Row: {
           created_at: string
           household_id: string
+          icon: string | null
           id: string
           ink: string | null
           name: string
-          icon: string | null
           position: number
           updated_at: string
         }
         Insert: {
           created_at?: string
           household_id: string
+          icon?: string | null
           id?: string
           ink?: string | null
           name: string
-          icon?: string | null
           position?: number
           updated_at?: string
         }
         Update: {
           created_at?: string
           household_id?: string
+          icon?: string | null
           id?: string
           ink?: string | null
           name?: string
-          icon?: string | null
           position?: number
           updated_at?: string
         }
@@ -179,9 +179,9 @@ export type Database = {
           created_by: string
           ends_on: string | null
           household_id: string
+          icon: string | null
           id: string
           notes: string | null
-          icon: string | null
           priority: string
           schedule: Json
           schedule_kind: string | null
@@ -198,9 +198,9 @@ export type Database = {
           created_by: string
           ends_on?: string | null
           household_id: string
+          icon?: string | null
           id?: string
           notes?: string | null
-          icon?: string | null
           priority?: string
           schedule: Json
           schedule_kind?: string | null
@@ -217,9 +217,9 @@ export type Database = {
           created_by?: string
           ends_on?: string | null
           household_id?: string
+          icon?: string | null
           id?: string
           notes?: string | null
-          icon?: string | null
           priority?: string
           schedule?: Json
           schedule_kind?: string | null
