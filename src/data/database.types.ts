@@ -16,6 +16,7 @@ export type Database = {
           id: string
           ink: string | null
           name: string
+          icon: string | null
           position: number
           updated_at: string
         }
@@ -25,6 +26,7 @@ export type Database = {
           id?: string
           ink?: string | null
           name: string
+          icon?: string | null
           position?: number
           updated_at?: string
         }
@@ -34,6 +36,7 @@ export type Database = {
           id?: string
           ink?: string | null
           name?: string
+          icon?: string | null
           position?: number
           updated_at?: string
         }
@@ -178,6 +181,7 @@ export type Database = {
           household_id: string
           id: string
           notes: string | null
+          icon: string | null
           priority: string
           schedule: Json
           schedule_kind: string | null
@@ -196,6 +200,7 @@ export type Database = {
           household_id: string
           id?: string
           notes?: string | null
+          icon?: string | null
           priority?: string
           schedule: Json
           schedule_kind?: string | null
@@ -214,6 +219,7 @@ export type Database = {
           household_id?: string
           id?: string
           notes?: string | null
+          icon?: string | null
           priority?: string
           schedule?: Json
           schedule_kind?: string | null

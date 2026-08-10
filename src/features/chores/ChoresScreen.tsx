@@ -25,6 +25,8 @@ import { useCategoryList } from '@/data/hooks/useCategories';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
 import { ViewControls } from './ViewControls';
 import { inkColor } from '@/design/inks';
+import { toIconName } from '@/design/icons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 
@@ -149,12 +151,23 @@ export function ChoresScreen() {
           style={{ flex: 1 }}
         >
           <Stack gap={3}>
-            <Txt
-              variant="bodyStrong"
-              style={doneOn === null ? undefined : { textDecorationLine: 'line-through' }}
-            >
-              {chore.title}
-            </Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+              {toIconName(chore.icon) === null ? null : (
+                <View accessibilityElementsHidden importantForAccessibility="no">
+                  <MaterialCommunityIcons
+                    name={toIconName(chore.icon) as never}
+                    size={16}
+                    color={colors.textMuted}
+                  />
+                </View>
+              )}
+              <Txt
+                variant="bodyStrong"
+                style={doneOn === null ? undefined : { textDecorationLine: 'line-through' }}
+              >
+                {chore.title}
+              </Txt>
+            </View>
             <Txt variant="small" tone="faint">
               {doneOn === null
                 ? describeSchedule(chore.schedule)
