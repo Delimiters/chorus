@@ -460,6 +460,10 @@ export type Database = {
         Args: { household_name: string; tz?: string; week_start?: number }
         Returns: string
       }
+      delete_my_account: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       redeem_invite: { Args: { invite_code: string }; Returns: string }
     }
     Enums: {

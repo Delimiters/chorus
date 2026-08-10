@@ -135,3 +135,29 @@ export function useSignOut() {
     },
   });
 }
+
+/**
+ * Deletes the signed-in account, then signs out.
+ *
+ * The order matters and is not interchangeable: pending local notifications
+ * are cancelled first, because they live on the phone and would otherwise keep
+ * firing for chores belonging to a household this person is no longer in — and
+ * possibly to a household that no longer exists.
+ *
+ * What survives is decided in the database, not here. Completions outlive
+ * their author with a name snapshot; a household nobody is left in goes. See
+ * the account-deletion migration for why.
+ */
+export function useDeleteAccount() {
+  return useMutation({
+    mutationFn: async () => {
+      await localTransport.cancelAll();
+      const { error } = await supabase.rpc('delete_my_account');
+      if (error) throw new Error(describeError(error));
+      // Sign-out clears the session listener and the stores. A failure here
+      // leaves a signed-in session pointing at a deleted user, which the next
+      // request rejects anyway — so it is not worth failing the deletion over.
+      await supabase.auth.signOut();
+    },
+  });
+}
