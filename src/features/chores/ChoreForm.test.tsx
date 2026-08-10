@@ -47,7 +47,7 @@ const ROTATING_CHORE: Chore = {
     rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [1, 4] },
     startsOn: civilDate('2026-03-02'),
     endsOn: null,
-    timeOfDay: null,
+    timesOfDay: [],
   },
   assignment: {
     kind: 'rotate',
@@ -101,43 +101,90 @@ describe('getting out of the form', () => {
   });
 });
 
-describe('the reminder time', () => {
-  // This UI did not exist until it was asked for. The engine had honoured
-  // schedule.timeOfDay since reminders were built, the planner fell back to
-  // the device default when it was null, tests covered both — and no screen
-  // ever set it. Settings even advertised the gap: "used when a chore has no
-  // time of its own", under the control for the fallback.
+describe('the reminder times', () => {
+  // This UI did not exist until it was asked for. The engine had honoured the
+  // schedule's reminder time since reminders were built, the planner fell back
+  // to the device default, tests covered both — and no screen ever set it.
   it('defaults to following the phone, not to a fixed hour', async () => {
     const { onSubmit } = await renderForm();
     await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
-    expect(submitted(onSubmit).schedule.timeOfDay).toBeNull();
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual([]);
   });
 
-  it('saves a per-chore time when one is chosen', async () => {
+  it('adds a shortcut time', async () => {
     const { onSubmit } = await renderForm();
     await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
-    await fireEvent.press(screen.getByText('7pm'));
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 7pm'));
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
-    expect(submitted(onSubmit).schedule.timeOfDay).toBe('19:00');
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['19:00']);
   });
 
-  it('goes back to following the phone when Default is chosen again', async () => {
-    // Null and "some time" are different states, and the control has to be able
-    // to return to null or a mistaken choice is permanent.
+  it('keeps more than one, in order', async () => {
+    // The whole point of the change: a chore can deserve a morning reminder
+    // and an evening one, and the alternative — a duplicate chore — would
+    // split the completion history the stats are built from.
     const { onSubmit } = await renderForm();
     await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
-    await fireEvent.press(screen.getByText('7pm'));
-    await fireEvent.press(screen.getByText('Default'));
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 7pm'));
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 9am'));
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
-    expect(submitted(onSubmit).schedule.timeOfDay).toBeNull();
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['09:00', '19:00']);
+  });
+
+  it('removes one by tapping it', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 7pm'));
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 9am'));
+    await fireEvent.press(screen.getByLabelText('Remove the reminder at 7 pm'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['09:00']);
+  });
+
+  it('goes back to following the phone when the last one is removed', async () => {
+    // Empty and "some times" are different states, and there has to be a way
+    // back or a mistaken choice is permanent.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 9am'));
+    await fireEvent.press(screen.getByLabelText('Remove the reminder at 9 am'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual([]);
+  });
+
+  it('takes any time from the wheel, not just the shortcuts', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(2026, 0, 1, 18, 45).getTime() },
+    });
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 6:45 pm'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['18:45']);
+  });
+
+  it('only reads hours and minutes off the wheel, never its date', async () => {
+    // The picker deals in Date because the OS does. If that leaked, a reminder
+    // would become an instant and the civil-time guarantee would be gone.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(1999, 11, 31, 6, 5).getTime() },
+    });
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 6:05 am'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['06:05']);
   });
 
   it('warns that a default chore will never remind you', async () => {
-    // The defect this exists for: a new chore is assigned to "Anyone", the
-    // default policy excludes unassigned chores, and so nothing is scheduled.
-    // Setting a time did nothing and said nothing — the only feedback was a
-    // notification that never arrived.
+    // A new chore is assigned to "Anyone", the default policy excludes
+    // unassigned chores, and so nothing is scheduled. Setting a time did
+    // nothing and said nothing.
     await renderForm();
     expect(screen.getByText(/Nobody is assigned/)).toBeTruthy();
   });
@@ -149,82 +196,18 @@ describe('the reminder time', () => {
     expect(screen.queryByText(/Nobody is assigned/)).toBeNull();
   });
 
-  it('takes any time from the wheel, not just the presets', async () => {
-    // Presets are convenience, not the whole story: a chore that has to happen
-    // at 6:45 is not an unusual chore.
-    const { onSubmit } = await renderForm();
-    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
-    await fireEvent.press(screen.getByText('Pick…'));
-    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
-      type: 'set',
-      nativeEvent: { timestamp: new Date(2026, 0, 1, 18, 45).getTime() },
-    });
-    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
-    expect(submitted(onSubmit).schedule.timeOfDay).toBe('18:45');
-  });
-
-  it('only reads hours and minutes off the wheel, never its date', async () => {
-    // The picker deals in Date because the OS does. If that leaked, a reminder
-    // would become an instant and the civil-time guarantee would be gone.
-    const { onSubmit } = await renderForm();
-    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
-    await fireEvent.press(screen.getByText('Pick…'));
-    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
-      type: 'set',
-      nativeEvent: { timestamp: new Date(1999, 11, 31, 6, 5).getTime() },
-    });
-    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
-    expect(submitted(onSubmit).schedule.timeOfDay).toBe('06:05');
-  });
-
-  it('opens the wheel for a time that has no shortcut of its own', async () => {
-    // 5pm was a preset in an earlier build and is not one now. A chore still
-    // set to it must open on the wheel rather than leaving the row selected on
-    // nothing.
-    await renderForm({
-      chore: {
-        ...ROTATING_CHORE,
-        schedule: { ...ROTATING_CHORE.schedule, timeOfDay: '17:00' as CivilTime },
-      },
-    });
-    expect(screen.getByLabelText('Pick a reminder time')).toBeTruthy();
-  });
-
-  it('keeps the row short enough not to need scrolling', async () => {
-    // Four segments: Default, two shortcuts, and the wheel. With the five
-    // presets it had, the row scrolled and "Pick…" sat off the edge — so the
-    // control that does everything was the one you could not see.
-    await renderForm();
-    expect(screen.getByText('Default')).toBeTruthy();
-    expect(screen.getByText('9am')).toBeTruthy();
-    expect(screen.getByText('7pm')).toBeTruthy();
-    expect(screen.getByText('Pick…')).toBeTruthy();
-    expect(screen.queryByText('Noon')).toBeNull();
-    expect(screen.queryByText('5pm')).toBeNull();
-  });
-
-  it('opens the wheel for a chore whose time is not a preset', async () => {
-    // Otherwise the segmented control sits on nothing and the time looks lost.
-    await renderForm({
-      chore: {
-        ...ROTATING_CHORE,
-        schedule: { ...ROTATING_CHORE.schedule, timeOfDay: '18:45' as CivilTime },
-      },
-    });
-    expect(screen.getByLabelText('Pick a reminder time')).toBeTruthy();
-  });
-
-  it('keeps the time a chore already had when it is edited', async () => {
-    // The form previously *preserved* timeOfDay while offering no way to set
-    // it. Preserving it must survive the field existing.
+  it('keeps the times a chore already had when it is edited', async () => {
     const { onSubmit } = await renderForm({
       chore: {
         ...ROTATING_CHORE,
-        schedule: { ...ROTATING_CHORE.schedule, timeOfDay: '09:00' as CivilTime },
+        schedule: {
+          ...ROTATING_CHORE.schedule,
+          timesOfDay: ['09:00' as CivilTime, '19:00' as CivilTime],
+        },
       },
     });
     await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
-    expect(submitted(onSubmit).schedule.timeOfDay).toBe('09:00');
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['09:00', '19:00']);
   });
 });
 
@@ -502,7 +485,7 @@ describe('the schedule preview', () => {
           rule: { kind: 'monthlyByDay', everyNMonths: 1, dayOfMonth: 31, overflow: 'clamp' },
           startsOn: civilDate('2026-01-31'),
           endsOn: null,
-          timeOfDay: null,
+          timesOfDay: [],
         },
       },
     });

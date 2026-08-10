@@ -32,7 +32,7 @@ const mockChores: ChoreInput[] = [
       rule: { kind: 'daily', everyNDays: 1 },
       startsOn: d('2026-07-27'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     },
     assignment: { kind: 'anyone' },
     archived: false,
@@ -44,7 +44,7 @@ const mockChores: ChoreInput[] = [
       rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [4] },
       startsOn: d('2026-07-02'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     },
     // Rotating: whoever's turn it is on 30 July owns it.
     assignment: {
@@ -61,7 +61,7 @@ const mockChores: ChoreInput[] = [
       rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 3 },
       startsOn: d('2026-07-26'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     },
     assignment: { kind: 'fixed', memberId: ME },
     archived: false,

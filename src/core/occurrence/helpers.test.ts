@@ -10,7 +10,7 @@ const ANCHOR = civilDate('2026-01-04');
 const occurrence = (): Occurrence =>
   expandOccurrences(
     'chore-9',
-    { rule: { kind: 'daily', everyNDays: 1 }, startsOn: ANCHOR, endsOn: null, timeOfDay: null },
+    { rule: { kind: 'daily', everyNDays: 1 }, startsOn: ANCHOR, endsOn: null, timesOfDay: [] },
     CAL,
     { start: ANCHOR, end: ANCHOR },
   )[0] as Occurrence;

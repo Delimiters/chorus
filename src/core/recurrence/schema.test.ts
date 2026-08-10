@@ -13,7 +13,7 @@ const validSchedule = (rule: unknown) => ({
   rule,
   startsOn: '2026-01-01',
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 });
 
 describe('rule validation', () => {
@@ -104,21 +104,21 @@ describe('schedule validation', () => {
       startsOn: '2026-01-01',
     });
     expect(parsed.endsOn).toBeNull();
-    expect(parsed.timeOfDay).toBeNull();
+    expect(parsed.timesOfDay).toEqual([]);
   });
 
   it('accepts a valid reminder time', () => {
     const parsed = parseSchedule({
       ...validSchedule({ kind: 'daily', everyNDays: 1 }),
-      timeOfDay: '07:30',
+      timesOfDay: ['07:30'],
     });
-    expect(parsed.timeOfDay).toBe('07:30');
+    expect(parsed.timesOfDay).toEqual(['07:30']);
   });
 
-  it.each(['7:30', '25:00', '07:60', '0730', 'morning'])('rejects bad time %s', (timeOfDay) => {
+  it.each(['7:30', '25:00', '07:60', '0730', 'morning'])('rejects bad time %s', (bad) => {
     const result = safeParseSchedule({
       ...validSchedule({ kind: 'daily', everyNDays: 1 }),
-      timeOfDay,
+      timesOfDay: [bad],
     });
     expect(result.success).toBe(false);
   });
@@ -128,7 +128,7 @@ describe('schedule validation', () => {
       rule: { kind: 'daily', everyNDays: 1 },
       startsOn: '2026-06-01',
       endsOn: '2026-01-01',
-      timeOfDay: null,
+      timesOfDay: [],
     });
     expect(result.success).toBe(false);
   });
@@ -138,7 +138,7 @@ describe('schedule validation', () => {
       rule: { kind: 'daily', everyNDays: 1 },
       startsOn: '2026-06-01',
       endsOn: '2026-06-01',
-      timeOfDay: null,
+      timesOfDay: [],
     });
     expect(result.success).toBe(true);
   });
@@ -187,5 +187,47 @@ describe('willClamp', () => {
       ),
     ).toBe(false);
     expect(willClamp({ kind: 'daily', everyNDays: 1 }, 2026, 2)).toBe(false);
+  });
+});
+
+describe('schedules stored before reminders could have more than one time', () => {
+  // Chores written by an earlier build hold `timeOfDay`, a single value. They
+  // must keep working without a migration over jsonb — the parser understands
+  // both, and a chore gains the list the next time somebody edits it.
+  it('reads a legacy single time as a one-item list', () => {
+    const parsed = parseSchedule({
+      rule: { kind: 'daily', everyNDays: 1 },
+      startsOn: '2026-01-01',
+      timeOfDay: '19:00',
+    });
+    expect(parsed.timesOfDay).toEqual(['19:00']);
+  });
+
+  it('reads a legacy null as no times at all', () => {
+    const parsed = parseSchedule({
+      rule: { kind: 'daily', everyNDays: 1 },
+      startsOn: '2026-01-01',
+      timeOfDay: null,
+    });
+    expect(parsed.timesOfDay).toEqual([]);
+  });
+
+  it('prefers the list when a row somehow carries both', () => {
+    const parsed = parseSchedule({
+      rule: { kind: 'daily', everyNDays: 1 },
+      startsOn: '2026-01-01',
+      timeOfDay: '19:00',
+      timesOfDay: ['07:00'],
+    });
+    expect(parsed.timesOfDay).toEqual(['07:00']);
+  });
+
+  it('sorts and deduplicates, so one set of times has one spelling', () => {
+    const parsed = parseSchedule({
+      rule: { kind: 'daily', everyNDays: 1 },
+      startsOn: '2026-01-01',
+      timesOfDay: ['19:00', '09:00', '19:00'],
+    });
+    expect(parsed.timesOfDay).toEqual(['09:00', '19:00']);
   });
 });

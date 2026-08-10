@@ -14,7 +14,7 @@ const schedule: Schedule = {
   rule: { kind: 'daily', everyNDays: 1 },
   startsOn: ANCHOR,
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 };
 
 const anOccurrence = (): Occurrence =>

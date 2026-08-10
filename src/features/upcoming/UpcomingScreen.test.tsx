@@ -31,7 +31,7 @@ const mockChores: ChoreInput[] = [
       rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [5] }, // Fridays
       startsOn: d('2026-07-03'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     },
     // Alternating every occurrence, so the hand-over is visible week to week.
     assignment: {
@@ -48,7 +48,7 @@ const mockChores: ChoreInput[] = [
       rule: { kind: 'monthlyByDay', everyNMonths: 1, dayOfMonth: 15, overflow: 'clamp' },
       startsOn: d('2026-07-15'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     },
     assignment: { kind: 'fixed', memberId: THEM },
     archived: false,

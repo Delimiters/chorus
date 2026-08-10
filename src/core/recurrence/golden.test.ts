@@ -307,7 +307,7 @@ describe('golden fixtures', () => {
       rule: testCase.rule,
       startsOn: civilDate(testCase.startsOn),
       endsOn: testCase.endsOn ? civilDate(testCase.endsOn) : null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const occurrences = expandOccurrences('chore', schedule, testCase.cal ?? SUNDAY_WEEKS, {
       start: civilDate(testCase.window[0]),
@@ -339,7 +339,7 @@ describe('the February regression, stated plainly', () => {
       rule: { kind: 'monthlyByDay', everyNMonths: 1, dayOfMonth: 31, overflow: 'clamp' },
       startsOn: civilDate('2026-01-01'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     // Twenty years. The prototype produced exactly one occurrence and stopped.
     let total = 0;
@@ -359,7 +359,7 @@ describe('the February regression, stated plainly', () => {
       rule: { kind: 'monthlyByDay', everyNMonths: 1, dayOfMonth: 31, overflow: 'clamp' },
       startsOn: civilDate('2026-01-01'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const dates = expandOccurrences('chore', schedule, SUNDAY_WEEKS, {
       start: civilDate('2028-01-01'),

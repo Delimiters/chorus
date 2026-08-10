@@ -108,7 +108,16 @@ export function ChoreForm({
    *
    * The engine has read this since reminders were built; nothing ever wrote it.
    */
-  const [timeOfDay, setTimeOfDay] = useState<CivilTime | null>(chore?.schedule.timeOfDay ?? null);
+  /**
+   * When this chore's reminders fire. Empty follows the phone default.
+   *
+   * A list because one chore can deserve two nudges, and the alternative — a
+   * duplicate chore with the same name — would split the completion history
+   * that makes the stats meaningful.
+   */
+  const [timesOfDay, setTimesOfDay] = useState<readonly CivilTime[]>(
+    chore?.schedule.timesOfDay ?? [],
+  );
 
   const schedule: Schedule = useMemo(
     () => ({
@@ -117,9 +126,9 @@ export function ChoreForm({
       // to match, so sending today's date here would be quietly overwritten.
       startsOn: recurrence.rule.kind === 'once' ? recurrence.rule.dueOn : startsOn,
       endsOn: chore?.schedule.endsOn ?? null,
-      timeOfDay,
+      timesOfDay,
     }),
-    [recurrence.rule, startsOn, timeOfDay, chore],
+    [recurrence.rule, startsOn, timesOfDay, chore],
   );
 
   const trimmed = title.trim();
@@ -216,8 +225,8 @@ export function ChoreForm({
             remind about and a time control would do nothing. */}
         {recurrence.rule.kind === 'unscheduled' ? null : (
           <TimeField
-            value={timeOfDay}
-            onChange={setTimeOfDay}
+            value={timesOfDay}
+            onChange={setTimesOfDay}
             defaultTime={reminderDefaultTime}
             silence={reminderSilence === null ? null : describeSilence(reminderSilence)}
           />

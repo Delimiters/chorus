@@ -135,7 +135,7 @@ export const arbSchedule = (options: ScheduleOptions = {}): fc.Arbitrary<Schedul
         // rejects, so the generator would again be producing an unreachable
         // state.
         endsOn: endOffset === null ? null : (fromEpochDay(start + endOffset) as CivilDate),
-        timeOfDay: null,
+        timesOfDay: [],
       };
     });
 
@@ -198,5 +198,5 @@ export const arbUnboundedSchedule = (rule?: fc.Arbitrary<RecurrenceRule>): fc.Ar
     // Same normalisation as `arbSchedule` — see the note there.
     startsOn: r.kind === 'once' ? r.dueOn : fromEpochDay(start),
     endsOn: null,
-    timeOfDay: null,
+    timesOfDay: [],
   }));

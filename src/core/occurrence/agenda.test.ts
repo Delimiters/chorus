@@ -53,14 +53,14 @@ const daily = (startsOn: string): Schedule => ({
   rule: { kind: 'daily', everyNDays: 1 },
   startsOn: d(startsOn),
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 });
 
 const weeklyOn = (startsOn: string, weekday: 0 | 1 | 2 | 3 | 4 | 5 | 6): Schedule => ({
   rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [weekday] },
   startsOn: d(startsOn),
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 });
 
 describe('collapsing superseded misses', () => {
@@ -131,7 +131,7 @@ describe('collapsing superseded misses', () => {
       rule: { kind: 'once', dueOn: d('2026-01-05'), granularity: 'day' },
       startsOn: d('2026-01-01'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const items = collapseSupersededMisses(
       project([chore({ schedule })], today, { start: d('2026-01-01'), end: d('2026-06-01') }),
@@ -375,7 +375,7 @@ describe('collapsing superseded misses', () => {
       rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 3 },
       startsOn: d('2026-01-04'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const items = collapseSupersededMisses(
       project([chore({ schedule })], today, { start: d('2026-01-04'), end: d('2026-01-10') }),
@@ -390,7 +390,7 @@ describe('floating groups', () => {
     rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 3 },
     startsOn: d('2026-01-04'),
     endsOn: null,
-    timeOfDay: null,
+    timesOfDay: [],
   };
 
   const build = (completions: CompletionInput[] = []) => {
@@ -559,7 +559,7 @@ describe('the Today view', () => {
           rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 3 },
           startsOn: d('2026-01-04'),
           endsOn: null,
-          timeOfDay: null,
+          timesOfDay: [],
         },
         assignment: { kind: 'anyone' },
         archived: false,
@@ -593,7 +593,7 @@ describe('the Today view', () => {
       rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 3 },
       startsOn: d('2026-01-04'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     },
     assignment: { kind: 'anyone' },
     archived: false,
@@ -727,7 +727,7 @@ describe('several floating chores at once', () => {
           rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: times },
           startsOn: d('2026-01-04'),
           endsOn: null,
-          timeOfDay: null,
+          timesOfDay: [],
         },
       });
 
@@ -815,7 +815,7 @@ describe('overdue days', () => {
       rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 1 },
       startsOn: d('2026-01-04'),
       endsOn: null,
-      timeOfDay: null,
+      timesOfDay: [],
     };
     const items = collapseSupersededMisses(
       project([chore({ schedule })], today, { start: d('2026-01-04'), end: d('2026-01-14') }),

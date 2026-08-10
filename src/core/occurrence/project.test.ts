@@ -19,7 +19,7 @@ const daily = (startsOn = '2026-01-05'): Schedule => ({
   rule: { kind: 'daily', everyNDays: 1 },
   startsOn: civilDate(startsOn),
   endsOn: null,
-  timeOfDay: null,
+  timesOfDay: [],
 });
 
 const chore = (over: Partial<ChoreInput> = {}): ChoreInput => ({
@@ -432,7 +432,7 @@ describe('the agenda, rendered as text', () => {
               rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [1, 3, 5] },
               startsOn: d('2026-01-04'),
               endsOn: null,
-              timeOfDay: null,
+              timesOfDay: [],
             },
             assignment: trash,
             archived: false,

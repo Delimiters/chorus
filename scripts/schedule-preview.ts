@@ -82,7 +82,7 @@ function render(
   cal: CalendarConfig,
   limit: number,
 ) {
-  const schedule: Schedule = { rule, startsOn: from, endsOn: null, timeOfDay: null };
+  const schedule: Schedule = { rule, startsOn: from, endsOn: null, timesOfDay: [] };
   const occurrences = expandOccurrences('preview', schedule, cal, {
     start: from,
     end: addDays(from, days - 1),
