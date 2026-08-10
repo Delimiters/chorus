@@ -13,6 +13,7 @@ export type Database = {
         Row: {
           created_at: string
           household_id: string
+          icon: string | null
           id: string
           ink: string | null
           name: string
@@ -22,6 +23,7 @@ export type Database = {
         Insert: {
           created_at?: string
           household_id: string
+          icon?: string | null
           id?: string
           ink?: string | null
           name: string
@@ -31,6 +33,7 @@ export type Database = {
         Update: {
           created_at?: string
           household_id?: string
+          icon?: string | null
           id?: string
           ink?: string | null
           name?: string
@@ -176,6 +179,7 @@ export type Database = {
           created_by: string
           ends_on: string | null
           household_id: string
+          icon: string | null
           id: string
           notes: string | null
           priority: string
@@ -194,6 +198,7 @@ export type Database = {
           created_by: string
           ends_on?: string | null
           household_id: string
+          icon?: string | null
           id?: string
           notes?: string | null
           priority?: string
@@ -212,6 +217,7 @@ export type Database = {
           created_by?: string
           ends_on?: string | null
           household_id?: string
+          icon?: string | null
           id?: string
           notes?: string | null
           priority?: string

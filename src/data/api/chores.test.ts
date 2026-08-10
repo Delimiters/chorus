@@ -34,6 +34,7 @@ const draft = (over: Partial<ChoreDraft> = {}): ChoreDraft => ({
   assignment: ANYONE,
   categoryId: null,
   priority: 'normal',
+  icon: null,
   ...over,
 });
 
@@ -44,11 +45,18 @@ describe('building the row', () => {
     expect(Object.keys(choreRow(draft())).sort()).toEqual([
       'assignment',
       'category_id',
+      'icon',
       'notes',
       'priority',
       'schedule',
       'title',
     ]);
+  });
+
+  it('writes a null icon as null rather than dropping the key', () => {
+    // Omitting it would leave an edited chore wearing whatever icon it had,
+    // with no way to take one off.
+    expect(choreRow(draft({ icon: null }))).toHaveProperty('icon', null);
   });
 
   it('normalises a priority it does not recognise', () => {

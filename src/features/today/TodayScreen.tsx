@@ -25,6 +25,7 @@ import {
 import { ChoreRow, FloatingRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
 import { groupItems } from '@/core/occurrence/grouping';
 import { useCategoryList } from '@/data/hooks/useCategories';
+import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
 import { ViewControls } from '../chores/ViewControls';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
@@ -55,6 +56,10 @@ export function TodayScreen() {
     [chores],
   );
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  const choreIcons = useMemo(
+    () => new Map(chores.map((c) => [c.id, toIconName(c.icon)])),
+    [chores],
+  );
   const toggle = useToggleCompletion();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -115,6 +120,7 @@ export function TodayScreen() {
         scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={meta?.priority ?? 'normal'}
+        icon={choreIcons.get(item.choreId) ?? null}
         onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
         onOpen={() => setOpen(item)}
       />

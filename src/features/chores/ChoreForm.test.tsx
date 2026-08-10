@@ -58,6 +58,7 @@ const ROTATING_CHORE: Chore = {
   archivedAt: null,
   categoryId: null,
   priority: 'normal',
+  icon: null,
 };
 
 /** `async` because RNTL v14's `render` is; see docs/TESTING.md. */
@@ -98,6 +99,47 @@ describe('getting out of the form', () => {
     expect(exits.length).toBeGreaterThan(1);
     fireEvent.press(exits[0]!);
     expect(onCancel).toHaveBeenCalled();
+  });
+});
+
+describe('the icon', () => {
+  it('starts with none, because most chores do not want one', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).icon).toBeNull();
+  });
+
+  it('saves the one you pick', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose an icon' }));
+    await fireEvent.press(screen.getByRole('radio', { name: 'trash can outline' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).icon).toBe('trash-can-outline');
+  });
+
+  it('can be taken off again', async () => {
+    // Null and "some icon" are different states, and without a way back a
+    // mistaken pick would be permanent.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose an icon' }));
+    await fireEvent.press(screen.getByRole('radio', { name: 'trash can outline' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Remove the icon' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).icon).toBeNull();
+  });
+
+  it('ignores a name the app no longer offers', async () => {
+    // Icons are stored as plain text with no CHECK, so a row can name a glyph
+    // that has since been dropped from the picker. That must degrade to no
+    // icon rather than rendering a blank square or crashing the list.
+    const { onSubmit } = await renderForm({
+      chore: { ...ROTATING_CHORE, icon: 'nonsense-that-was-never-offered' },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+    expect(submitted(onSubmit).icon).toBeNull();
   });
 });
 

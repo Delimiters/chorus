@@ -33,6 +33,8 @@ export interface Chore extends ChoreInput {
    */
   readonly categoryId: string | null;
   readonly priority: Priority;
+  /** A glyph name from the allowlist, or null. See src/design/icons.ts. */
+  readonly icon: string | null;
 }
 
 /**
@@ -52,6 +54,7 @@ function toChore(row: {
   archived_at: string | null;
   category_id: string | null;
   priority: unknown;
+  icon: string | null;
 }): { chore: Chore } | { error: string } {
   const schedule = safeParseSchedule(row.schedule);
   if (!schedule.success) {
@@ -72,6 +75,7 @@ function toChore(row: {
       archivedAt: row.archived_at,
       categoryId: row.category_id,
       priority: toPriority(row.priority),
+      icon: row.icon,
     },
   };
 }
@@ -88,7 +92,7 @@ export async function listChores(
 ): Promise<ChoreListResult> {
   let query = supabase
     .from('chores')
-    .select('id, title, notes, schedule, assignment, archived_at, category_id, priority')
+    .select('id, title, notes, schedule, assignment, archived_at, category_id, priority, icon')
     .eq('household_id', householdId)
     .order('title');
 
@@ -217,7 +221,7 @@ export async function listExceptionsForChores(
 export async function listOneTimeChores(householdId: string): Promise<ChoreListResult> {
   const { data, error } = await supabase
     .from('chores')
-    .select('id, title, notes, schedule, assignment, archived_at, category_id, priority')
+    .select('id, title, notes, schedule, assignment, archived_at, category_id, priority, icon')
     .eq('household_id', householdId)
     .eq('schedule_kind', 'once')
     .is('archived_at', null)
@@ -277,6 +281,8 @@ export interface ChoreDraft {
   /** Null means the "Other" group. See the categories migration. */
   readonly categoryId: string | null;
   readonly priority: Priority;
+  /** A glyph name from the allowlist, or null. See src/design/icons.ts. */
+  readonly icon: string | null;
 }
 
 /**
@@ -307,6 +313,7 @@ export function choreRow(draft: ChoreDraft): {
   assignment: Json;
   category_id: string | null;
   priority: Priority;
+  icon: string | null;
 } {
   const title = draft.title.trim();
   if (title.length === 0) throw new Error('A chore needs a name.');
@@ -327,6 +334,7 @@ export function choreRow(draft: ChoreDraft): {
     schedule: schedule.data as unknown as Json,
     assignment: assignment.data as unknown as Json,
     category_id: draft.categoryId,
+    icon: draft.icon,
     // Normalised on the way out as well as in. The column has a CHECK, so an
     // invalid value would be a 23514 at the database rather than a clear
     // message here, and this is the one function both writers share.

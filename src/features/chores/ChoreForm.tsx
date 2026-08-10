@@ -30,6 +30,8 @@ import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
 import { DateField } from './DateField';
 import { CategoryAndPriorityPicker } from './CategoryPicker';
+import { IconPicker } from './IconPicker';
+import { toIconName, type IconName } from '@/design/icons';
 import { TimeField } from './TimeField';
 import { RecurrencePicker, draftFromRule, type RecurrenceDraft } from './RecurrencePicker';
 import { SchedulePreview } from './SchedulePreview';
@@ -71,6 +73,7 @@ export function ChoreForm({
   const [assignment, setAssignment] = useState<Assignment>(chore?.assignment ?? { kind: 'anyone' });
   const [categoryId, setCategoryId] = useState<string | null>(chore?.categoryId ?? null);
   const [priority, setPriority] = useState<Priority>(chore?.priority ?? DEFAULT_PRIORITY);
+  const [icon, setIcon] = useState<IconName | null>(toIconName(chore?.icon));
   const categories = useCategoryList();
   // The device default, so the field can name it rather than say "the default".
   const reminderPolicy = useReminderPolicy();
@@ -143,6 +146,7 @@ export function ChoreForm({
       assignment,
       categoryId,
       priority,
+      icon,
     });
   };
 
@@ -178,6 +182,8 @@ export function ChoreForm({
           multiline
           maxLength={2000}
         />
+
+        <IconPicker value={icon} onChange={setIcon} />
 
         <CategoryAndPriorityPicker
           categories={categories}

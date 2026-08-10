@@ -19,6 +19,7 @@ import { MIN_TARGET, radius, space } from './tokens';
 import { Txt } from './components';
 import { formatLateness } from './format';
 import type { Priority } from '@/core/chore/priority';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 // ── Checkbox ────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,11 @@ interface ChoreRowProps {
    * on everything stops being a signal.
    */
   priority?: Priority;
+  /**
+   * A glyph name, or null. Decorative: the chore's title says what it is, so
+   * the icon is hidden from screen readers rather than read out twice.
+   */
+  icon?: string | null;
   onToggle: () => void;
   onOpen: () => void;
   style?: StyleProp<ViewStyle>;
@@ -190,6 +196,7 @@ export function ChoreRow({
   scheduleLabel,
   category = null,
   priority = 'normal',
+  icon = null,
   onToggle,
   onOpen,
   style,
@@ -233,12 +240,19 @@ export function ChoreRow({
         accessibilityLabel={`${item.choreTitle}, ${turnLabel ?? 'anyone can do it'}. Open options.`}
         style={{ flex: 1, gap: 4 }}
       >
-        <Txt
-          variant="bodyStrong"
-          style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
-        >
-          {item.choreTitle}
-        </Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+          {icon === null ? null : (
+            <View accessibilityElementsHidden importantForAccessibility="no">
+              <MaterialCommunityIcons name={icon as never} size={16} color={colors.textMuted} />
+            </View>
+          )}
+          <Txt
+            variant="bodyStrong"
+            style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
+          >
+            {item.choreTitle}
+          </Txt>
+        </View>
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
           {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
