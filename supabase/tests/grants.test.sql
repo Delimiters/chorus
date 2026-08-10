@@ -10,7 +10,7 @@ create extension if not exists pgtap with schema extensions;
 -- table in public.
 
 begin;
-select plan(6);
+select plan(7);
 
 -- ── anon must hold nothing ─────────────────────────────────────────────────
 select is_empty(
@@ -50,13 +50,38 @@ select is_empty(
 );
 
 -- ── SECURITY DEFINER functions must be outside the exposed schema ─────────
--- Except the two RPCs that are deliberately client-callable.
+-- Except the RPCs that are deliberately client-callable. Each earns its place
+-- by doing something no table policy can express:
+--
+--   redeem_invite      — a non-member must redeem a code without being able to
+--                        read the invites table.
+--   create_household   — the creator's own membership row must exist before
+--                        any membership policy would let them write it.
+--   delete_my_account  — removing a row from auth.users is not a privilege
+--                        `authenticated` has, or should ever be given.
+--
+-- The list is deliberately short and this test is deliberately annoying: a new
+-- entry should be a decision somebody made on purpose, not a line that slipped
+-- in with a feature.
 select is_empty(
   $$ select p.proname
      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.prosecdef
-       and p.proname not in ('redeem_invite', 'create_household') $$,
+       and p.proname not in ('redeem_invite', 'create_household', 'delete_my_account') $$,
   'no incidental SECURITY DEFINER functions in the API-exposed schema'
+);
+
+-- ── A client-callable SECURITY DEFINER function must take no user id ───────
+-- `delete_my_account()` deletes exactly auth.uid(). Giving it an argument
+-- would turn "delete my account" into "delete an account", which is the whole
+-- difference between a feature and a vulnerability.
+select is(
+  (select count(*)::int from pg_proc p
+   join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'delete_my_account'
+     and p.pronargs = 0),
+  1,
+  'delete_my_account takes no arguments, so there is no id to tamper with'
 );
 
 -- ── SECURITY DEFINER functions must pin search_path ───────────────────────
