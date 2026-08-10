@@ -59,6 +59,10 @@ export function HouseScreen() {
   const split = useMemo(() => {
     const counts = new Map<string, number>();
     for (const completion of completions.data ?? []) {
+      // A completion whose author deleted their account still happened, and
+      // still counts toward the household's total — it just has nobody left to
+      // attribute it to, so it is not in anybody's column.
+      if (completion.completedBy === null) continue;
       counts.set(completion.completedBy, (counts.get(completion.completedBy) ?? 0) + 1);
     }
     const total = [...counts.values()].reduce((a, b) => a + b, 0);

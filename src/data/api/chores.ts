@@ -115,7 +115,7 @@ function toCompletion(row: {
   chore_id: string;
   occurrence_key: string;
   completed_on: string;
-  completed_by: string;
+  completed_by: string | null;
 }): CompletionInput {
   return {
     choreId: row.chore_id,

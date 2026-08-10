@@ -54,7 +54,8 @@ export type Database = {
         Row: {
           chore_id: string
           completed_at: string
-          completed_by: string
+          completed_by: string | null
+          completed_by_name: string | null
           completed_on: string
           due_on: string
           household_id: string
@@ -65,7 +66,8 @@ export type Database = {
         Insert: {
           chore_id: string
           completed_at?: string
-          completed_by: string
+          completed_by?: string | null
+          completed_by_name?: string | null
           completed_on: string
           due_on: string
           household_id: string
@@ -76,7 +78,8 @@ export type Database = {
         Update: {
           chore_id?: string
           completed_at?: string
-          completed_by?: string
+          completed_by?: string | null
+          completed_by_name?: string | null
           completed_on?: string
           due_on?: string
           household_id?: string
@@ -112,7 +115,7 @@ export type Database = {
         Row: {
           chore_id: string
           created_at: string
-          created_by: string
+          created_by: string | null
           due_on: string
           household_id: string
           id: string
@@ -124,7 +127,7 @@ export type Database = {
         Insert: {
           chore_id: string
           created_at?: string
-          created_by: string
+          created_by?: string | null
           due_on: string
           household_id: string
           id?: string
@@ -136,7 +139,7 @@ export type Database = {
         Update: {
           chore_id?: string
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           due_on?: string
           household_id?: string
           id?: string
@@ -176,7 +179,7 @@ export type Database = {
           assignment_kind: string | null
           category_id: string | null
           created_at: string
-          created_by: string
+          created_by: string | null
           ends_on: string | null
           household_id: string
           icon: string | null
@@ -195,7 +198,7 @@ export type Database = {
           assignment_kind?: string | null
           category_id?: string | null
           created_at?: string
-          created_by: string
+          created_by?: string | null
           ends_on?: string | null
           household_id: string
           icon?: string | null
@@ -214,7 +217,7 @@ export type Database = {
           assignment_kind?: string | null
           category_id?: string | null
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           ends_on?: string | null
           household_id?: string
           icon?: string | null
@@ -255,7 +258,7 @@ export type Database = {
         Row: {
           code: string
           created_at: string
-          created_by: string
+          created_by: string | null
           expires_at: string
           household_id: string
           id: string
@@ -265,7 +268,7 @@ export type Database = {
         Insert: {
           code: string
           created_at?: string
-          created_by: string
+          created_by?: string | null
           expires_at?: string
           household_id: string
           id?: string
@@ -275,7 +278,7 @@ export type Database = {
         Update: {
           code?: string
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           expires_at?: string
           household_id?: string
           id?: string
@@ -354,7 +357,7 @@ export type Database = {
       households: {
         Row: {
           created_at: string
-          created_by: string
+          created_by: string | null
           default_reminder_time: string | null
           id: string
           name: string
@@ -364,7 +367,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          created_by: string
+          created_by?: string | null
           default_reminder_time?: string | null
           id?: string
           name: string
@@ -374,7 +377,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           default_reminder_time?: string | null
           id?: string
           name?: string
