@@ -26,7 +26,7 @@ import { formatCivilTime, parseCivilTime } from '@/core/civil/time';
 import type { CivilTime } from '@/core/civil/types';
 import { Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
-import { REMINDER_TIMES } from '@/design/times';
+import { QUICK_TIMES } from '@/design/times';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 
@@ -36,11 +36,18 @@ const PICK_VALUE = 'pick';
 
 const CHOICES: readonly { value: string; label: string }[] = [
   { value: DEFAULT_VALUE, label: 'Default' },
-  ...REMINDER_TIMES,
+  ...QUICK_TIMES,
   { value: PICK_VALUE, label: 'Pick…' },
 ];
 
-const isPreset = (time: CivilTime): boolean => REMINDER_TIMES.some((p) => p.value === time);
+/**
+ * Whether the row can show this time as its own segment.
+ *
+ * Only the two quick times qualify. A chore set to 5pm — from an older build,
+ * or from the wheel — has no segment of its own, so it opens on the wheel
+ * rather than leaving the control sitting on nothing.
+ */
+const isQuick = (time: CivilTime): boolean => QUICK_TIMES.some((p) => p.value === time);
 
 /**
  * A `Date` carrying the given wall time, on a day that does not matter.
@@ -85,7 +92,7 @@ export function TimeField({ value, onChange, defaultTime, silence = null }: Prop
    * not a preset, or the segmented control would sit on nothing and the time
    * would look lost.
    */
-  const [picking, setPicking] = useState(value !== null && !isPreset(value));
+  const [picking, setPicking] = useState(value !== null && !isQuick(value));
 
   const selected = value === null ? DEFAULT_VALUE : picking ? PICK_VALUE : value;
 
@@ -127,7 +134,6 @@ export function TimeField({ value, onChange, defaultTime, silence = null }: Prop
           value={selected}
           onChange={choose}
           label="Reminder time"
-          scrollable
         />
 
         {picking ? (
