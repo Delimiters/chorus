@@ -280,6 +280,104 @@ describe('writing chores', () => {
  *
  * These drive the same `on_conflict` shape the app does, as a real member.
  */
+describe('a category default icon reaching existing chores', () => {
+  let userId: string;
+  let householdId: string;
+  let token: string;
+
+  beforeAll(async () => {
+    const user = await createUser(uniqueEmail('icons'), 'Icon Tester');
+    userId = user.userId;
+    const created = await user.client.rpc('create_household', { household_name: 'Icon House' });
+    if (created.error) throw new Error(created.error.message);
+    householdId = created.data as string;
+    const session = await user.client.auth.getSession();
+    token = session.data.session?.access_token as string;
+  });
+
+  afterAll(async () => {
+    await deleteUsers([userId]);
+  });
+
+  const asUser = () => {
+    const stack = localStack();
+    return createClient<Database>(stack.apiUrl, stack.publishableKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  };
+
+  const DAILY: Schedule = {
+    rule: { kind: 'daily', everyNDays: 1 },
+    startsOn: civilDate('2026-01-01'),
+    endsOn: null,
+    timesOfDay: [],
+  };
+
+  it('fills in chores with no icon and leaves chosen ones alone', async () => {
+    const client = asUser();
+
+    const category = await client
+      .from('chore_categories')
+      .insert({ household_id: householdId, name: 'Kitchen', position: 0 })
+      .select('id')
+      .single();
+    expect(category.error).toBeNull();
+    const categoryId = category.data?.id as string;
+
+    const chores = await client
+      .from('chores')
+      .insert([
+        {
+          household_id: householdId,
+          title: 'Unset',
+          schedule: DAILY as never,
+          created_by: userId,
+          category_id: categoryId,
+        },
+        {
+          household_id: householdId,
+          title: 'Chosen',
+          schedule: DAILY as never,
+          created_by: userId,
+          category_id: categoryId,
+          icon: 'dog',
+        },
+        {
+          household_id: householdId,
+          title: 'Elsewhere',
+          schedule: DAILY as never,
+          created_by: userId,
+        },
+      ])
+      .select('id, title');
+    expect(chores.error).toBeNull();
+
+    // The write the app makes when a category gains a default icon.
+    await client
+      .from('chore_categories')
+      .update({ icon: 'silverware-fork-knife' })
+      .eq('id', categoryId);
+    const backfill = await client
+      .from('chores')
+      .update({ icon: 'silverware-fork-knife' })
+      .eq('category_id', categoryId)
+      .is('icon', null);
+    expect(backfill.error).toBeNull();
+
+    const after = await client.from('chores').select('title, icon').eq('household_id', householdId);
+    expect(after.error).toBeNull();
+    const byTitle = new Map((after.data ?? []).map((c) => [c.title, c.icon]));
+
+    expect(byTitle.get('Unset')).toBe('silverware-fork-knife');
+    // The one that matters: a deliberately chosen icon is never rewritten.
+    expect(byTitle.get('Chosen')).toBe('dog');
+    // And a chore in no category is untouched, rather than swept up by a
+    // filter that forgot to scope itself.
+    expect(byTitle.get('Elsewhere')).toBeNull();
+  });
+});
+
 describe('rescheduling an occurrence', () => {
   let userId: string;
   let householdId: string;
