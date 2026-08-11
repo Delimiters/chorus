@@ -100,6 +100,27 @@ export async function updateCategory(
     if (error.code === '23505') throw new Error('There is already a category with that name.');
     fail(error);
   }
+
+  /**
+   * Give the new default to chores in this category that have no icon.
+   *
+   * `is('icon', null)` is the whole rule, and it is deliberately narrow: a
+   * chore wearing any icon is left alone, whether it was chosen deliberately
+   * or adopted from an earlier default. The alternative — working out which
+   * icons were "only" inherited — means guessing at intent, and guessing wrong
+   * silently rewrites something somebody chose.
+   *
+   * Best effort. A category that saved but failed to backfill is a category
+   * with the right icon and some chores that did not pick it up, which the
+   * next edit fixes. Failing the save over it would be worse.
+   */
+  if (input.icon !== null) {
+    await supabase
+      .from('chores')
+      .update({ icon: input.icon })
+      .eq('category_id', categoryId)
+      .is('icon', null);
+  }
 }
 
 /**
