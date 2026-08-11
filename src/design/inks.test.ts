@@ -8,6 +8,7 @@
  * on trust.
  */
 
+import { contrast, luminance } from './contrast';
 import {
   CVD_FRIENDLY_SET,
   INKS,
@@ -24,6 +25,15 @@ import { palette } from './tokens';
 
 type RGB = readonly [number, number, number];
 
+/** The simulation works in RGB; the shared contrast maths speaks hex. */
+function rgbToHex([r, g, b]: RGB): string {
+  const part = (v: number): string =>
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${part(r)}${part(g)}${part(b)}`;
+}
+
 function hexToRgb(hex: string): RGB {
   const h = hex.replace('#', '');
   return [
@@ -31,23 +41,6 @@ function hexToRgb(hex: string): RGB {
     parseInt(h.slice(2, 4), 16),
     parseInt(h.slice(4, 6), 16),
   ] as const;
-}
-
-/** WCAG relative luminance. */
-function luminance([r, g, b]: RGB): number {
-  const channel = (v: number): number => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-/** WCAG contrast ratio, 1–21. */
-function contrast(a: string, b: string): number {
-  const la = luminance(hexToRgb(a));
-  const lb = luminance(hexToRgb(b));
-  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
-  return (hi + 0.05) / (lo + 0.05);
 }
 
 /**
@@ -205,7 +198,7 @@ describe('colour vision deficiency', () => {
     // matters is that they stay apart AFTER the deficiency is applied — which
     // is what the ΔE tests above measure, and this asserts directly.
     for (const kind of ['protanopia', 'deuteranopia'] as const) {
-      const simulated = safe.map((ink) => luminance(simulate(ink.light, kind)));
+      const simulated = safe.map((ink) => luminance(rgbToHex(simulate(ink.light, kind))));
       const spread = Math.max(...simulated) - Math.min(...simulated);
       // Surviving lightness difference, on the same scale as the inks themselves.
       expect(spread).toBeGreaterThan(0.02);

@@ -14,7 +14,7 @@ import { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AddChoreButton } from '@/design/AddButton';
+import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 
 import type { AgendaItem, FloatingGroup } from '@/core/occurrence/agenda';
 import { describeRule } from '@/core/recurrence/describe';
@@ -43,6 +43,9 @@ export function TodayScreen() {
   const router = useRouter();
   const userId = useUserId();
   const members = useMembers();
+
+  /** Your own accent, so the add button wears your colour rather than a generic one. */
+  const myInk = members.data?.find((m) => m.userId === userId)?.accent ?? null;
   const household = useHousehold();
   const { skip, reschedule, clear } = useOccurrenceActions();
   const [open, setOpen] = useState<AgendaItem | null>(null);
@@ -212,7 +215,11 @@ export function TodayScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <ScrollView
-        contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl, gap: 2 }}
+        contentContainerStyle={{
+          padding: space.lg,
+          paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
+          gap: 2,
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -325,7 +332,7 @@ export function TodayScreen() {
         ) : null}
       </ScrollView>
 
-      <AddChoreButton onPress={() => router.push('/chore/new')} />
+      <AddChoreButton onPress={() => router.push('/chore/new')} ink={myInk} />
 
       <OccurrenceSheet
         item={open}
