@@ -32,6 +32,8 @@ import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { ReorderableList } from './ReorderableList';
+import { IconPicker } from '@/features/chores/IconPicker';
+import { toIconName, type IconName } from '@/design/icons';
 
 export function CategoriesScreen() {
   const { colors, isDark } = useTheme();
@@ -44,6 +46,7 @@ export function CategoriesScreen() {
 
   const [name, setName] = useState('');
   const [ink, setInk] = useState<string | null>(null);
+  const [icon, setIcon] = useState<IconName | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   /**
    * The ScrollView must stop scrolling while a row is held.
@@ -59,21 +62,23 @@ export function CategoriesScreen() {
     setEditingId(category.id);
     setName(category.name);
     setInk(category.ink);
+    setIcon(toIconName(category.icon));
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setName('');
     setInk(null);
+    setIcon(null);
   };
 
   const save = () => {
     const trimmed = name.trim();
     if (trimmed.length === 0) return;
     if (editingId === null) {
-      create.mutate({ name: trimmed, ink }, { onSuccess: cancelEdit });
+      create.mutate({ name: trimmed, ink, icon }, { onSuccess: cancelEdit });
     } else {
-      update.mutate({ categoryId: editingId, name: trimmed, ink }, { onSuccess: cancelEdit });
+      update.mutate({ categoryId: editingId, name: trimmed, ink, icon }, { onSuccess: cancelEdit });
     }
   };
 
@@ -224,6 +229,8 @@ export function CategoriesScreen() {
               })}
             </View>
           </FieldGroup>
+
+          <IconPicker value={icon} onChange={setIcon} />
 
           <Button
             label={editingId === null ? 'Add category' : 'Save changes'}

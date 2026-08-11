@@ -46,6 +46,8 @@ export interface CategoryMeta {
    * value; the renderer resolves it per theme. See src/design/inks.ts.
    */
   readonly ink: string | null;
+  /** Glyph name, or null. Presentation only; the engine never reads it. */
+  readonly icon: string | null;
   /** Ascending. Ties broken by name, so the order is always total. */
   readonly position: number;
 }

@@ -14,6 +14,8 @@ import { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AddChoreButton } from '@/design/AddButton';
+
 import type { AgendaItem, FloatingGroup } from '@/core/occurrence/agenda';
 import { describeRule } from '@/core/recurrence/describe';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
@@ -322,6 +324,8 @@ export function TodayScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      <AddChoreButton onPress={() => router.push('/chore/new')} />
 
       <OccurrenceSheet
         item={open}

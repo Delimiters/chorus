@@ -207,3 +207,18 @@ describe('Upcoming', () => {
     expect(mockToggle.mock.calls[0]?.[0].complete).toBe(true);
   });
 });
+
+describe('adding a chore from Upcoming', () => {
+  it('offers a button that does not depend on where you have scrolled', async () => {
+    // Floating rather than in the header or at the end of the list: adding a
+    // chore is the one thing you might want from anywhere in a long list.
+    renderScreen();
+    expect(screen.getByRole('button', { name: 'Add a chore' })).toBeTruthy();
+  });
+
+  it('opens the new chore form', async () => {
+    renderScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Add a chore' }));
+    expect(mockPush).toHaveBeenCalledWith('/chore/new');
+  });
+});

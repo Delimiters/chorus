@@ -12,6 +12,8 @@ import { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AddChoreButton } from '@/design/AddButton';
+
 import { addDays, compareCivil, endOfMonth, startOfMonth, startOfWeek } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
 import { groupFloating, type AgendaItem } from '@/core/occurrence/agenda';
@@ -234,6 +236,8 @@ export function UpcomingScreen() {
           </View>
         ))}
       </ScrollView>
+
+      <AddChoreButton onPress={() => router.push('/chore/new')} />
 
       <OccurrenceSheet
         item={open}
