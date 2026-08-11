@@ -5,8 +5,8 @@ import { ThemeProvider } from '@/design/theme';
 import { CategoryAndPriorityPicker } from './CategoryPicker';
 
 const CATEGORIES: readonly Category[] = [
-  { id: 'c-kitchen', name: 'Kitchen', ink: 'teal', position: 0 },
-  { id: 'c-laundry', name: 'Laundry', ink: null, position: 1 },
+  { id: 'c-kitchen', name: 'Kitchen', ink: 'teal', icon: 'silverware-fork-knife', position: 0 },
+  { id: 'c-laundry', name: 'Laundry', ink: null, icon: null, position: 1 },
 ];
 
 async function renderPicker(
@@ -83,7 +83,7 @@ describe('CategoryAndPriorityPicker', () => {
       await userEvent.type(screen.getByLabelText('New category'), 'Garage');
       await userEvent.press(screen.getByLabelText('Colour: Teal'));
       await userEvent.press(screen.getByText('Add category'));
-      expect(onCreateCategory).toHaveBeenCalledWith({ name: 'Garage', ink: 'teal' });
+      expect(onCreateCategory).toHaveBeenCalledWith({ name: 'Garage', ink: 'teal', icon: null });
     });
 
     it('selects the new category, so it does not have to be found and tapped', async () => {
@@ -100,7 +100,7 @@ describe('CategoryAndPriorityPicker', () => {
       await userEvent.press(screen.getByLabelText('Add a category'));
       await userEvent.type(screen.getByLabelText('New category'), 'Garage');
       await userEvent.press(screen.getByText('Add category'));
-      expect(onCreateCategory).toHaveBeenCalledWith({ name: 'Garage', ink: null });
+      expect(onCreateCategory).toHaveBeenCalledWith({ name: 'Garage', ink: null, icon: null });
     });
 
     it('shows a creation error rather than swallowing it', async () => {
@@ -108,6 +108,16 @@ describe('CategoryAndPriorityPicker', () => {
       await userEvent.press(screen.getByLabelText('Add a category'));
       expect(screen.getByText('There is already a category with that name.')).toBeTruthy();
     });
+  });
+
+  it('can give a new category a default icon without leaving the form', async () => {
+    const { onCreateCategory } = await renderPicker();
+    await userEvent.press(screen.getByLabelText('Add a category'));
+    await userEvent.type(screen.getByLabelText('New category'), 'Garage');
+    await userEvent.press(screen.getByRole('button', { name: 'Choose an icon' }));
+    await userEvent.press(screen.getByRole('radio', { name: 'car' }));
+    await userEvent.press(screen.getByText('Add category'));
+    expect(onCreateCategory).toHaveBeenCalledWith({ name: 'Garage', ink: null, icon: 'car' });
   });
 
   it('still offers Other when the household has no categories at all', async () => {

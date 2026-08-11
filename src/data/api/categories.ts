@@ -20,13 +20,20 @@ export interface Category extends CategoryMeta {
   readonly id: string;
   readonly name: string;
   readonly ink: string | null;
+  /**
+   * The icon a chore gets when it is filed here, unless it has its own.
+   *
+   * A default rather than a rule: most kitchen chores want the same glyph, and
+   * picking one per chore is a tax on the common case.
+   */
+  readonly icon: string | null;
   readonly position: number;
 }
 
 export async function listCategories(householdId: string): Promise<readonly Category[]> {
   const { data, error } = await supabase
     .from('chore_categories')
-    .select('id, name, ink, position')
+    .select('id, name, ink, icon, position')
     .eq('household_id', householdId)
     // Name as the tiebreak, matching the comparator in core/occurrence/grouping
     // so the order is identical whether it came from here or was re-sorted
@@ -56,7 +63,7 @@ function cleanName(name: string): string {
  */
 export async function createCategory(
   householdId: string,
-  input: { name: string; ink: string | null },
+  input: { name: string; ink: string | null; icon: string | null },
 ): Promise<string> {
   const existing = await listCategories(householdId);
   const position = existing.reduce((max, c) => Math.max(max, c.position), -1) + 1;
@@ -67,6 +74,7 @@ export async function createCategory(
       household_id: householdId,
       name: cleanName(input.name),
       ink: input.ink,
+      icon: input.icon,
       position,
     })
     .select('id')
@@ -82,11 +90,11 @@ export async function createCategory(
 
 export async function updateCategory(
   categoryId: string,
-  input: { name: string; ink: string | null },
+  input: { name: string; ink: string | null; icon: string | null },
 ): Promise<void> {
   const { error } = await supabase
     .from('chore_categories')
-    .update({ name: cleanName(input.name), ink: input.ink })
+    .update({ name: cleanName(input.name), ink: input.ink, icon: input.icon })
     .eq('id', categoryId);
   if (error) {
     if (error.code === '23505') throw new Error('There is already a category with that name.');

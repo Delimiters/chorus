@@ -22,6 +22,8 @@ import { describePriority, PRIORITIES, type Priority } from '@/core/chore/priori
 import { OTHER_TITLE } from '@/core/occurrence/grouping';
 import type { Category } from '@/data/api/categories';
 import { Button, Field, Txt } from '@/design/components';
+import { IconPicker } from './IconPicker';
+import type { IconName } from '@/design/icons';
 import { FieldGroup } from '@/design/controls';
 import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
@@ -39,7 +41,11 @@ interface Props {
    * A callback rather than the mutation itself, so this component stays
    * presentational and testable without standing up a QueryClient.
    */
-  onCreateCategory: (input: { name: string; ink: string | null }) => Promise<string>;
+  onCreateCategory: (input: {
+    name: string;
+    ink: string | null;
+    icon: string | null;
+  }) => Promise<string>;
   /** True while a creation is in flight. */
   creating?: boolean;
   /** Surfaced under the inline form — a duplicate name is the common one. */
@@ -60,11 +66,12 @@ export function CategoryAndPriorityPicker({
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newInk, setNewInk] = useState<string | null>(null);
+  const [newIcon, setNewIcon] = useState<IconName | null>(null);
 
   const submitNew = () => {
     const name = newName.trim();
     if (name.length === 0) return;
-    void onCreateCategory({ name, ink: newInk }).then((id) => {
+    void onCreateCategory({ name, ink: newInk, icon: newIcon }).then((id) => {
       // Selecting it is the point. Creating a category mid-form and then
       // having to find and tap it would be a worse version of the trip to
       // settings this exists to avoid.
@@ -72,6 +79,7 @@ export function CategoryAndPriorityPicker({
       setAdding(false);
       setNewName('');
       setNewInk(null);
+      setNewIcon(null);
     });
   };
 
@@ -172,6 +180,8 @@ export function CategoryAndPriorityPicker({
                 );
               })}
             </View>
+
+            <IconPicker value={newIcon} onChange={setNewIcon} />
 
             <Button
               label="Add category"

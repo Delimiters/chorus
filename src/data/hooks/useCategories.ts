@@ -56,7 +56,7 @@ export function useCreateCategory() {
   const invalidate = useInvalidateHousehold();
 
   return useMutation({
-    mutationFn: (input: { name: string; ink: string | null }) => {
+    mutationFn: (input: { name: string; ink: string | null; icon: string | null }) => {
       if (householdId === null) throw new Error('Please sign in again.');
       return createCategory(householdId, input);
     },
@@ -75,6 +75,7 @@ export function useUpdateCategory() {
       categoryId: string;
       name: string;
       ink: string | null;
+      icon: string | null;
     }) => updateCategory(categoryId, input),
     onSuccess: invalidate,
   });

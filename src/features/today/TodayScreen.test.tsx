@@ -271,3 +271,18 @@ describe('grouping by category', () => {
     expect(screen.getByRole('header', { name: 'Yours' })).toBeTruthy();
   });
 });
+
+describe('adding a chore from Today', () => {
+  it('offers a button that does not depend on where you have scrolled', async () => {
+    // Floating rather than in the header or at the end of the list: adding a
+    // chore is the one thing you might want from anywhere in a long list.
+    renderScreen();
+    expect(screen.getByRole('button', { name: 'Add a chore' })).toBeTruthy();
+  });
+
+  it('opens the new chore form', async () => {
+    renderScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Add a chore' }));
+    expect(mockPush).toHaveBeenCalledWith('/chore/new');
+  });
+});

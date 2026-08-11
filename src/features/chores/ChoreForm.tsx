@@ -74,6 +74,23 @@ export function ChoreForm({
   const [categoryId, setCategoryId] = useState<string | null>(chore?.categoryId ?? null);
   const [priority, setPriority] = useState<Priority>(chore?.priority ?? DEFAULT_PRIORITY);
   const [icon, setIcon] = useState<IconName | null>(toIconName(chore?.icon));
+
+  /**
+   * Filing a chore under a category adopts that category's icon.
+   *
+   * Only when the chore has none of its own, or is still wearing the previous
+   * category's default — so switching from Kitchen to Laundry updates an icon
+   * that was chosen for you, and never overwrites one you picked deliberately.
+   * Getting that backwards would silently undo a choice, which is worse than
+   * not helping at all.
+   */
+  const chooseCategory = (nextId: string | null) => {
+    const previous = categories.find((c) => c.id === categoryId) ?? null;
+    const next = categories.find((c) => c.id === nextId) ?? null;
+    const wasAuto = icon !== null && previous !== null && icon === toIconName(previous.icon);
+    if (icon === null || wasAuto) setIcon(toIconName(next?.icon ?? null));
+    setCategoryId(nextId);
+  };
   const categories = useCategoryList();
   // The device default, so the field can name it rather than say "the default".
   const reminderPolicy = useReminderPolicy();
@@ -188,7 +205,7 @@ export function ChoreForm({
         <CategoryAndPriorityPicker
           categories={categories}
           categoryId={categoryId}
-          onChangeCategory={setCategoryId}
+          onChangeCategory={chooseCategory}
           priority={priority}
           onChangePriority={setPriority}
           onCreateCategory={(input) => createCategory.mutateAsync(input)}

@@ -36,6 +36,7 @@ const cat = (
   name,
   position,
   ink,
+  icon: null,
 });
 
 const metaOf = (entries: Record<string, ChoreMeta>): ReadonlyMap<string, ChoreMeta> =>

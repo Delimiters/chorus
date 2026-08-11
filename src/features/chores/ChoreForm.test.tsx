@@ -23,8 +23,14 @@ import { ChoreForm } from './ChoreForm';
 // Categories are fetched, and these suites render without a QueryClientProvider
 // on purpose — they mock the data layer rather than standing one up. An empty
 // list keeps the rows unbadged, which is what every assertion below expects.
+const mockCategories = [
+  { id: 'c-kitchen', name: 'Kitchen', ink: 'teal', icon: 'silverware-fork-knife', position: 0 },
+  { id: 'c-bins', name: 'Bins', ink: null, icon: 'trash-can-outline', position: 1 },
+  { id: 'c-plain', name: 'Plain', ink: null, icon: null, position: 2 },
+];
+
 jest.mock('@/data/hooks/useCategories', () => ({
-  useCategoryList: () => [],
+  useCategoryList: () => mockCategories,
   useCategories: () => ({ data: [], isPending: false, isError: false }),
   useCreateCategory: () => ({ mutateAsync: jest.fn(), isPending: false, error: null }),
 }));
@@ -99,6 +105,56 @@ describe('getting out of the form', () => {
     expect(exits.length).toBeGreaterThan(1);
     fireEvent.press(exits[0]!);
     expect(onCancel).toHaveBeenCalled();
+  });
+});
+
+describe('a category with a default icon', () => {
+  it('gives its icon to a chore that has none', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Dishes');
+    await fireEvent.press(screen.getByLabelText('Category: Kitchen'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).icon).toBe('silverware-fork-knife');
+  });
+
+  it('updates the icon when the category changes, if it was chosen for you', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Dishes');
+    await fireEvent.press(screen.getByLabelText('Category: Kitchen'));
+    await fireEvent.press(screen.getByLabelText('Category: Bins'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).icon).toBe('trash-can-outline');
+  });
+
+  it('never overwrites an icon you picked deliberately', async () => {
+    // The decision worth getting right. Silently undoing a choice is worse
+    // than not helping at all.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Dishes');
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose an icon' }));
+    await fireEvent.press(screen.getByRole('radio', { name: 'dog' }));
+    await fireEvent.press(screen.getByLabelText('Category: Kitchen'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).icon).toBe('dog');
+  });
+
+  it('clears an adopted icon when the new category has none', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Dishes');
+    await fireEvent.press(screen.getByLabelText('Category: Kitchen'));
+    await fireEvent.press(screen.getByLabelText('Category: Plain'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).icon).toBeNull();
+  });
+
+  it('leaves the icon alone when moving to Other', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Dishes');
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose an icon' }));
+    await fireEvent.press(screen.getByRole('radio', { name: 'dog' }));
+    await fireEvent.press(screen.getByLabelText('Category: Other'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).icon).toBe('dog');
   });
 });
 
