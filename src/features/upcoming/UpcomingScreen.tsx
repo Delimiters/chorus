@@ -12,7 +12,7 @@ import { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AddChoreButton } from '@/design/AddButton';
+import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 
 import { addDays, compareCivil, endOfMonth, startOfMonth, startOfWeek } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
@@ -39,6 +39,9 @@ export function UpcomingScreen() {
   const userId = useUserId();
   const household = useHousehold();
   const members = useMembers();
+
+  /** Your own accent, so the add button wears your colour rather than a generic one. */
+  const myInk = members.data?.find((m) => m.userId === userId)?.accent ?? null;
   const toggle = useToggleCompletion();
   const router = useRouter();
   const { skip, reschedule, clear } = useOccurrenceActions();
@@ -154,7 +157,12 @@ export function UpcomingScreen() {
         />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl }}>
+      <ScrollView
+        contentContainerStyle={{
+          padding: space.lg,
+          paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
+        }}
+      >
         {agenda.floating.length > 0 ? (
           <>
             <SectionHeader title={formatFlexibleWindow.sectionTitle} />
@@ -237,7 +245,7 @@ export function UpcomingScreen() {
         ))}
       </ScrollView>
 
-      <AddChoreButton onPress={() => router.push('/chore/new')} />
+      <AddChoreButton onPress={() => router.push('/chore/new')} ink={myInk} />
 
       <OccurrenceSheet
         item={open}
