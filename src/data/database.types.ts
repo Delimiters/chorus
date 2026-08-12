@@ -316,6 +316,7 @@ export type Database = {
           id: string
           joined_at: string
           role: Database["public"]["Enums"]["member_role"]
+          share_routine: boolean
           sort_order: number
           user_id: string
         }
@@ -325,6 +326,7 @@ export type Database = {
           id?: string
           joined_at?: string
           role?: Database["public"]["Enums"]["member_role"]
+          share_routine?: boolean
           sort_order?: number
           user_id: string
         }
@@ -334,6 +336,7 @@ export type Database = {
           id?: string
           joined_at?: string
           role?: Database["public"]["Enums"]["member_role"]
+          share_routine?: boolean
           sort_order?: number
           user_id?: string
         }
@@ -447,6 +450,146 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "push_tokens_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      routine_completions: {
+        Row: {
+          completed_at: string
+          completed_on: string
+          due_on: string
+          household_id: string
+          id: string
+          occurrence_key: string
+          routine_item_id: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string
+          completed_on: string
+          due_on: string
+          household_id: string
+          id?: string
+          occurrence_key: string
+          routine_item_id: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string
+          completed_on?: string
+          due_on?: string
+          household_id?: string
+          id?: string
+          occurrence_key?: string
+          routine_item_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "routine_completions_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "routine_completions_routine_item_id_fkey"
+            columns: ["routine_item_id"]
+            isOneToOne: false
+            referencedRelation: "routine_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "routine_completions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      routine_items: {
+        Row: {
+          archived_at: string | null
+          bucket: string | null
+          bucket_choice: string | null
+          created_at: string
+          ends_on: string | null
+          household_id: string
+          icon: string | null
+          id: string
+          linked_chore_id: string | null
+          notes: string | null
+          remind: boolean
+          schedule: Json
+          schedule_kind: string | null
+          starts_on: string | null
+          time_of_day: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          bucket?: string | null
+          bucket_choice?: string | null
+          created_at?: string
+          ends_on?: string | null
+          household_id: string
+          icon?: string | null
+          id?: string
+          linked_chore_id?: string | null
+          notes?: string | null
+          remind?: boolean
+          schedule: Json
+          schedule_kind?: string | null
+          starts_on?: string | null
+          time_of_day?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          archived_at?: string | null
+          bucket?: string | null
+          bucket_choice?: string | null
+          created_at?: string
+          ends_on?: string | null
+          household_id?: string
+          icon?: string | null
+          id?: string
+          linked_chore_id?: string | null
+          notes?: string | null
+          remind?: boolean
+          schedule?: Json
+          schedule_kind?: string | null
+          starts_on?: string | null
+          time_of_day?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "routine_items_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "routine_items_linked_chore_fkey"
+            columns: ["linked_chore_id", "household_id"]
+            isOneToOne: false
+            referencedRelation: "chores"
+            referencedColumns: ["id", "household_id"]
+          },
+          {
+            foreignKeyName: "routine_items_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
