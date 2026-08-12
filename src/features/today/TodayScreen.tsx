@@ -15,6 +15,8 @@ import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
+import { ModeSwitch } from '@/features/common/ModeSwitch';
+import { useRoutineStore } from '@/stores/routineStore';
 
 import type { AgendaItem, FloatingGroup } from '@/core/occurrence/agenda';
 import { describeRule } from '@/core/recurrence/describe';
@@ -54,6 +56,7 @@ export function TodayScreen() {
   const viewPref = useViewPreference();
   const setGroupBy = useViewStore((s) => s.setGroupBy);
   const setSortBy = useViewStore((s) => s.setSortBy);
+  const setTodayMode = useRoutineStore((s) => s.setTodayMode);
 
   /** The two grouping axes per chore, and the categories by id, for the rows. */
   const choreMeta = useMemo(
@@ -228,6 +231,8 @@ export function TodayScreen() {
           />
         }
       >
+        <ModeSwitch mode="chores" onChange={setTodayMode} />
+
         <Stack gap={2} style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
           <Txt variant="display" accessibilityRole="header">
             Today
