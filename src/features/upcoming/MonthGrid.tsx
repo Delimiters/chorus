@@ -26,7 +26,7 @@ import { inkColor } from '@/design/inks';
 import { Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
-import { dayOfMonth, monthName, weekdayShort } from '../today/format';
+import { dayOfMonth, monthName, weekdayShort } from '@/features/common/format';
 
 /** One dot per chore on a day, in the owner's ink. */
 export interface DayMark {

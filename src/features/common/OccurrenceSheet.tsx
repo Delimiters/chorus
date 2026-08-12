@@ -26,8 +26,8 @@ import { Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { Sheet, SheetAction } from '@/design/Sheet';
 import { space } from '@/design/tokens';
-import { DateField } from '../chores/DateField';
-import { formatDayShort } from './format';
+import { DateField } from '@/features/common/DateField';
+import { formatDayShort } from '@/features/common/format';
 
 interface Props {
   item: AgendaItem | null;

@@ -30,9 +30,14 @@ import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { useToday } from '@/data/today';
-import { OccurrenceSheet } from '../today/OccurrenceSheet';
+import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
 import { MonthGrid, type DayMark } from './MonthGrid';
-import { dayOfMonth, formatDayCaption, formatFlexibleWindow, weekdayShort } from '../today/format';
+import {
+  dayOfMonth,
+  formatDayCaption,
+  formatFlexibleWindow,
+  weekdayShort,
+} from '@/features/common/format';
 
 export function UpcomingScreen() {
   const { colors } = useTheme();

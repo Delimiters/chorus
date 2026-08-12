@@ -17,7 +17,7 @@ import { civilDate } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ThemeProvider } from '@/design/theme';
-import { OccurrenceSheet } from './OccurrenceSheet';
+import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
 
 const TODAY = civilDate('2026-07-30');
 

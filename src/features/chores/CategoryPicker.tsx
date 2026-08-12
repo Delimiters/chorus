@@ -22,7 +22,7 @@ import { describePriority, PRIORITIES, type Priority } from '@/core/chore/priori
 import { OTHER_TITLE } from '@/core/occurrence/grouping';
 import type { Category } from '@/data/api/categories';
 import { Button, Field, Txt } from '@/design/components';
-import { IconPicker } from './IconPicker';
+import { IconPicker } from '@/features/common/IconPicker';
 import type { IconName } from '@/design/icons';
 import { FieldGroup } from '@/design/controls';
 import { INKS, inkColor, inkSoft } from '@/design/inks';

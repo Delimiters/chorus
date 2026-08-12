@@ -21,7 +21,7 @@ import type { Schedule } from '@/core/recurrence/types';
 import { Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
-import { formatDayShort, formatRelativeDay } from '../today/format';
+import { formatDayShort, formatRelativeDay } from '@/features/common/format';
 
 const HOW_MANY = 5;
 /** Wide enough to catch a quarterly rule, inside the engine's 400-day cap. */

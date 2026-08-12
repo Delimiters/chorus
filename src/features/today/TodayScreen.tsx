@@ -29,14 +29,14 @@ import { groupItems } from '@/core/occurrence/grouping';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
-import { ViewControls } from '../chores/ViewControls';
+import { ViewControls } from '@/features/common/ViewControls';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
-import { OccurrenceSheet } from './OccurrenceSheet';
-import { formatDayLong, formatFlexibleWindow } from './format';
+import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
+import { formatDayLong, formatFlexibleWindow } from '@/features/common/format';
 
 export function TodayScreen() {
   const { colors } = useTheme();
