@@ -90,6 +90,13 @@ export interface RoutineListResult {
   readonly items: readonly RoutineItem[];
   /** Rows the engine could not read. Surfaced rather than silently dropped. */
   readonly unreadable: readonly string[];
+  /**
+   * Whether *you* are sharing, read from the membership row this query already
+   * fetches. Deriving it from your own items instead would report "not shared"
+   * to anybody whose routine is empty — including the moment just after they
+   * switched it on, which is the one moment the switch must be believed.
+   */
+  readonly sharedByMe: boolean;
 }
 
 /**
@@ -122,6 +129,8 @@ export async function listRoutineItems(
   if (membersError) fail(membersError);
 
   const sharesRoutine = new Map((members ?? []).map((m) => [m.user_id, m.share_routine]));
+  const { data: session } = await supabase.auth.getUser();
+  const myId = session.user?.id ?? null;
 
   const items: RoutineItem[] = [];
   const unreadable: string[] = [];
@@ -130,7 +139,11 @@ export async function listRoutineItems(
     if ('item' in parsed) items.push(parsed.item);
     else unreadable.push(parsed.error);
   }
-  return { items, unreadable };
+  return {
+    items,
+    unreadable,
+    sharedByMe: myId === null ? false : (sharesRoutine.get(myId) ?? false),
+  };
 }
 
 /** Completions for a window, for everything you can see. */

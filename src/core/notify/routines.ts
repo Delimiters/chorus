@@ -11,7 +11,12 @@
 import { addDays, compareCivil, toEpochDay } from '../civil/date';
 import type { CivilDate } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
-import { bucketStart, describeBucket, type TimeBucket } from '../routines/buckets';
+import {
+  bucketStart,
+  describeBucket,
+  fallsOnNextCalendarDay,
+  type TimeBucket,
+} from '../routines/buckets';
 import type { RoutineOccurrence } from '../routines/project';
 import {
   capReminders,
@@ -99,7 +104,11 @@ export function planRoutineReminders(input: {
         choreId: occ.itemId,
         title: occ.title,
         body: 'In your routine today',
-        onDate: occ.dueOn,
+        // The routine day starts at 05:00, so a 00:30 item sits in tonight's
+        // Night section and happens on tomorrow's date. Scheduling it against
+        // `dueOn` would fire it a day early — or, for today, at an instant
+        // already past, which the transport skips silently.
+        onDate: fallsOnNextCalendarDay(occ.timeOfDay) ? addDays(occ.dueOn, 1) : occ.dueOn,
         atTime: occ.timeOfDay,
       });
       continue;

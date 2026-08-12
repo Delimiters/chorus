@@ -64,10 +64,12 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
    * The same query the Routines screen uses, so this costs no extra fetch.
    *
    * Its window is a quantised week — always at least the three days the routine
-   * horizon plans for, and usually more, which the planner then trims. Others'
-   * routines are excluded here rather than filtered later: a local notification
-   * fires on the phone that scheduled it, so somebody else's routine could only
-   * ever buzz the wrong person.
+   * horizon plans for, and usually more, which the planner then trims.
+   *
+   * `showOthers: false` only narrows the day summary, which this does not use —
+   * the planner does the filtering that matters, dropping anything whose owner
+   * is not you. A local notification fires on the phone that scheduled it, so
+   * planning somebody else's routine could only ever buzz the wrong person.
    */
   const { occurrences: routines } = useRoutineDay(today, { showOthers: false });
 

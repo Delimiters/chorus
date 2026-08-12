@@ -24,6 +24,8 @@ import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilDate } from '@/core/civil/types';
 import { collapseSupersededMisses, toAgendaItems } from '@/core/occurrence/agenda';
 import { projectOccurrences } from '@/core/occurrence/project';
+import { bucketSections } from '@/core/routines/agenda';
+import { projectRoutineOccurrences, type RoutineItemInput } from '@/core/routines/project';
 import type { ChoreInput, ExceptionInput } from '@/core/occurrence/types';
 import { quantiseWindow } from './useOccurrences';
 
@@ -151,5 +153,58 @@ describe('the two outputs disagree, and are supposed to', () => {
     // Eleven days of a daily chore in the window versus one outstanding row.
     expect(calendar.length).toBeGreaterThan(agenda.length);
     expect(agenda.filter((i) => i.status === 'due' || i.status === 'overdue')).toHaveLength(1);
+  });
+});
+
+/**
+ * The same shape of failure, in the routine screen.
+ *
+ * `projectRoutineOccurrences` takes `today` to decide what is *missed* rather
+ * than merely not yet done, and `bucketSections` takes the day being *viewed*
+ * to decide what to show. `useRoutineDay` passed the viewed day to both — so
+ * every row it could render was `due` or `completed`, `missed` was
+ * unreachable, and the Missed chip in `RoutineRow` was dead code.
+ *
+ * Both functions' own tests passed, because both were called directly with the
+ * arguments the hook failed to give them.
+ */
+describe('a routine day in the past', () => {
+  const YESTERDAY = d('2026-07-30');
+  const stretch: RoutineItemInput = {
+    id: 'stretch',
+    title: 'Stretch',
+    ownerId: ME,
+    schedule: {
+      rule: { kind: 'daily', everyNDays: 1 },
+      startsOn: d('2026-07-20'),
+      endsOn: null,
+      timesOfDay: [],
+    },
+    timeOfDay: null,
+    bucket: 'morning',
+    linkedChoreId: null,
+    icon: null,
+    remind: false,
+    shared: false,
+  } as unknown as RoutineItemInput;
+
+  /** Exactly the chain `useRoutineDay` runs, with the arguments it now passes. */
+  const sectionsFor = (viewing: CivilDate) => {
+    const occurrences = projectRoutineOccurrences(
+      { items: [stretch], completions: [], today: TODAY },
+      CAL,
+      quantiseWindow(viewing, 0, 0, 1),
+    );
+    return bucketSections(occurrences, ME, { showOthers: false, on: viewing });
+  };
+
+  it('shows what was missed, not what is merely outstanding', () => {
+    const morning = sectionsFor(YESTERDAY).sections.find((s) => s.bucket === 'morning');
+    expect(morning?.mine[0]?.status).toBe('missed');
+  });
+
+  it('and today is still due, so the fixture is not simply marking everything', () => {
+    const morning = sectionsFor(TODAY).sections.find((s) => s.bucket === 'morning');
+    expect(morning?.mine[0]?.status).toBe('due');
   });
 });

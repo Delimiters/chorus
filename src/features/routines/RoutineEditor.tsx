@@ -19,7 +19,8 @@ import {
   useUpdateRoutineItem,
 } from '@/data/hooks/useRoutines';
 import { useToday } from '@/data/today';
-import { LoadingState } from '@/design/components';
+import { useUserId } from '@/stores/sessionStore';
+import { ErrorState, LoadingState } from '@/design/components';
 import { RoutineForm } from './RoutineForm';
 
 export function RoutineEditor({
@@ -40,7 +41,8 @@ export function RoutineEditor({
     weekStartsOn: (household.data?.weekStartsOn ?? 0) as CalendarConfig['weekStartsOn'],
   };
 
-  const item = useRoutineItem(itemId);
+  const { item, isPending } = useRoutineItem(itemId);
+  const userId = useUserId();
   const chores = useChoreList();
   const create = useCreateRoutineItem();
   const update = useUpdateRoutineItem();
@@ -48,12 +50,35 @@ export function RoutineEditor({
 
   // Editing something that has not arrived yet: wait rather than opening the
   // form empty, which would look like a new item and save as a duplicate.
-  if (itemId !== null && item === undefined) return <LoadingState />;
-
   const close = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/');
   };
+
+  if (itemId !== null && isPending) return <LoadingState />;
+
+  // Loaded, and still nothing: archived, deleted, or never yours. Said plainly
+  // rather than spinning forever.
+  if (itemId !== null && item === undefined) {
+    return <ErrorState message="That routine item is not here any more." onRetry={close} />;
+  }
+
+  /*
+   * A housemate's shared item is readable, and that is all.
+   *
+   * `useRoutineItem` searches everything you can see, which includes their
+   * routine once they have shared it. Without this, opening one gave a fully
+   * editable form whose save RLS filtered to nothing — no error, no change,
+   * and the screen closing exactly as though it had worked.
+   */
+  if (item !== undefined && item.ownerId !== userId) {
+    return (
+      <ErrorState
+        message="This is somebody else’s routine. You can look, but not change it."
+        onRetry={close}
+      />
+    );
+  }
 
   const submit = (draft: RoutineDraft) => {
     if (item) update.mutate({ itemId: item.id, draft }, { onSuccess: close });

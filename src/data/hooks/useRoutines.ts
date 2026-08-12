@@ -36,6 +36,7 @@ import {
 import { qk } from '../queryKeys';
 import { useHousehold } from './useHousehold';
 import { quantiseWindow } from './useOccurrences';
+import { useToday } from '../today';
 
 const EMPTY: readonly RoutineItem[] = [];
 
@@ -50,11 +51,21 @@ export function useRoutineItems(options: { includeArchived?: boolean } = {}) {
   });
 }
 
-/** One routine item, read from whichever list already has it. */
-export function useRoutineItem(itemId: string | null): RoutineItem | undefined {
+/**
+ * One routine item, read from whichever list already has it.
+ *
+ * `isPending` is returned rather than inferred from `item === undefined`,
+ * because the two states differ: an item that has not loaded deserves a
+ * spinner, and one that has loaded and is absent — deleted, archived, or never
+ * yours — deserves to be said out loud instead of spinning for ever.
+ */
+export function useRoutineItem(itemId: string | null): {
+  item: RoutineItem | undefined;
+  isPending: boolean;
+} {
   const list = useRoutineItems({ includeArchived: true });
-  if (itemId === null) return undefined;
-  return list.data?.items.find((i) => i.id === itemId);
+  if (itemId === null) return { item: undefined, isPending: false };
+  return { item: list.data?.items.find((i) => i.id === itemId), isPending: list.isPending };
 }
 
 function useInvalidateHousehold() {
@@ -88,6 +99,9 @@ export function useRoutineDay(on: CivilDate, options: { showOthers: boolean }): 
   const userId = useUserId();
   const household = useHousehold();
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  // The household's today, from its own time zone — the same one the chore
+  // screens use, so a routine and a chore never disagree about what day it is.
+  const today = useToday(household.data?.timeZone ?? 'UTC');
 
   const window: DateWindow = useMemo(
     () => quantiseWindow(on, weekStartsOn, 0, 1),
@@ -109,12 +123,15 @@ export function useRoutineDay(on: CivilDate, options: { showOthers: boolean }): 
         {
           items: items.data?.items ?? [],
           completions: completions.data ?? [],
-          today: on,
+          // The real today, not `on`. Status is what makes a past day worth
+          // looking at: with the viewed day here, yesterday's un-done items
+          // read as still-due and nothing is ever missed.
+          today,
         },
         { weekStartsOn },
         window,
       ),
-    [items.data, completions.data, on, weekStartsOn, window],
+    [items.data, completions.data, today, weekStartsOn, window],
   );
 
   // From `occurrences`, not from anything already derived from it.

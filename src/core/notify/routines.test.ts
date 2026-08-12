@@ -246,12 +246,21 @@ describe('planAllReminders', () => {
   });
 
   it('does not let a long chore list silence the routine', () => {
+    // The routines are deliberately the *furthest out* thing here. With them
+    // on today, nearest-first ordering saves them whatever the quota does, and
+    // the assertion holds with the quota deleted — which it did, until the
+    // retrospective ran the experiment.
     const merged = planAllReminders({
       chores: Array.from({ length: 200 }, (_, i) =>
-        chore({ occurrenceKey: `c${i}`, dueOn: addDays(TODAY, (i % 25) + 1) }),
+        chore({ occurrenceKey: `c${i}`, dueOn: addDays(TODAY, (i % 2) + 1) }),
       ),
       routines: Array.from({ length: 10 }, (_, i) =>
-        routine({ itemId: `r${i}`, occurrenceKey: `r${i}`, timeOfDay: '07:00' as CivilTime }),
+        routine({
+          itemId: `r${i}`,
+          occurrenceKey: `r${i}`,
+          dueOn: addDays(TODAY, ROUTINE_HORIZON_DAYS),
+          timeOfDay: '07:00' as CivilTime,
+        }),
       ),
       today: TODAY,
       userId: ME,
@@ -259,6 +268,20 @@ describe('planAllReminders', () => {
     });
 
     expect(merged.filter(isRoutineReminder)).toHaveLength(10);
+  });
+
+  it('reminds about a pre-dawn item on the day it actually happens', () => {
+    // 00:30 sits in *tonight's* Night section — the routine day starts at
+    // 05:00 — so the instant is tomorrow's date. Scheduled against `dueOn` it
+    // would fire a day early, and for an item due today it would land in the
+    // past and be dropped without a word.
+    const [reminder] = plan([routine({ timeOfDay: '00:30' as CivilTime })]);
+    expect(reminder).toMatchObject({ onDate: addDays(TODAY, 1), atTime: '00:30' });
+  });
+
+  it('leaves an after-dawn item on its own day', () => {
+    const [reminder] = plan([routine({ timeOfDay: '05:00' as CivilTime })]);
+    expect(reminder?.onDate).toBe(TODAY);
   });
 
   it('keeps the nearest of everything, not the nearest of one kind', () => {
