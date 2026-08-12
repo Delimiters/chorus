@@ -69,6 +69,7 @@ module.exports = {
     'src/core/rotation/': coverageThreshold,
     'src/core/occurrence/': coverageThreshold,
     'src/core/lib/': coverageThreshold,
+    'src/core/routines/': coverageThreshold,
   },
   coverageReporters: ['text-summary', 'lcov', 'json-summary'],
 };
