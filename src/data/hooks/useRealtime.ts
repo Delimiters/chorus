@@ -30,7 +30,17 @@ import { supabase } from '../supabase';
 const DEBOUNCE_MS = 250;
 
 /** Tables worth listening to. Each is something the agenda derives from. */
-const TABLES = ['chores', 'chore_completions', 'chore_exceptions', 'household_members'] as const;
+const TABLES = [
+  'chores',
+  'chore_completions',
+  'chore_exceptions',
+  'household_members',
+  // Routine rows are mostly private, but a shared routine's state is exactly
+  // what the other phone is rendering — a tick has to reach it. RLS decides
+  // which rows actually arrive.
+  'routine_items',
+  'routine_completions',
+] as const;
 
 export function useRealtimeHousehold(): void {
   const householdId = useActiveHouseholdId();

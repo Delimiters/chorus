@@ -27,6 +27,20 @@ export const qk = {
 
   members: (householdId: string) => [...qk.household(householdId), 'members'] as const,
   categories: (householdId: string) => [...qk.household(householdId), 'categories'] as const,
+
+  /**
+   * Routines nest under the household key like everything else, so the realtime
+   * handler's broad invalidation picks them up with no extra wiring — even
+   * though most rows in them are private to one person.
+   */
+  routines: (householdId: string) => [...qk.household(householdId), 'routines'] as const,
+  routineList: (householdId: string, filters: Record<string, unknown>) =>
+    [...qk.routines(householdId), 'list', filters] as const,
+  routineCompletionsAll: (householdId: string) =>
+    [...qk.routines(householdId), 'completions'] as const,
+  /** Windows are quantised to whole weeks, so paging a day does not refetch. */
+  routineCompletions: (householdId: string, from: CivilDate, to: CivilDate) =>
+    [...qk.routineCompletionsAll(householdId), from, to] as const,
   invites: (householdId: string) => [...qk.household(householdId), 'invites'] as const,
   chores: (householdId: string) => [...qk.household(householdId), 'chores'] as const,
   chore: (householdId: string, choreId: string) => [...qk.chores(householdId), choreId] as const,
