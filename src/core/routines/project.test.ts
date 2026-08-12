@@ -179,6 +179,27 @@ describe('bucketSections', () => {
     expect(result.sections).toEqual([]);
   });
 
+  it('groups each housemate together, in a stable order', () => {
+    // Two people, two items each, one bucket. Without this the grouping loop
+    // only ever ran with a single item per person, and the owner ordering was
+    // never exercised at all.
+    const OTHER = 'aaa-earlier-than-them';
+    const result = sections([
+      item({ id: 'mine', timeOfDay: '07:00' as CivilTime }),
+      item({ id: 't1', ownerId: THEM, title: 'Run', timeOfDay: '06:00' as CivilTime }),
+      item({ id: 't2', ownerId: THEM, title: 'Shower', timeOfDay: '06:30' as CivilTime }),
+      item({ id: 'o1', ownerId: OTHER, title: 'Coffee', timeOfDay: '08:00' as CivilTime }),
+      item({ id: 'o2', ownerId: OTHER, title: 'Email', timeOfDay: '09:00' as CivilTime }),
+    ]);
+    const morning = result.sections[0];
+
+    expect(morning?.theirs.map((p) => p.ownerId)).toEqual([OTHER, THEM]);
+    expect(morning?.theirs[0]?.items.map((o) => o.title)).toEqual(['Coffee', 'Email']);
+    expect(morning?.theirs[1]?.items.map((o) => o.title)).toEqual(['Run', 'Shower']);
+    // And none of it counts toward your own total.
+    expect(morning?.totalCount).toBe(1);
+  });
+
   it('orders within a bucket by time, then by title', () => {
     const result = sections([
       item({ id: 'c', title: 'Zed', timeOfDay: '09:00' as CivilTime }),
