@@ -60,6 +60,14 @@ export interface ReminderPolicy {
    * says so.
    */
   readonly includeOthers: boolean;
+  /**
+   * Whether routine items produce reminders at all.
+   *
+   * On by default, but per-item `remind` is off by default — so this is the
+   * switch for "stop all of it" rather than the thing that makes routines
+   * noisy. See core/notify/routines.ts for how the queue is shared.
+   */
+  readonly includeRoutines: boolean;
   /** How many days ahead to plan. Bounded so the queue cannot run away. */
   readonly horizonDays: number;
 }
@@ -69,6 +77,7 @@ export const DEFAULT_POLICY: ReminderPolicy = {
   defaultTime: DEFAULT_REMINDER_TIME,
   includeUnassigned: false,
   includeOthers: false,
+  includeRoutines: true,
   horizonDays: 30,
 };
 
@@ -180,20 +189,33 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
     }
   }
 
-  /**
-   * Sorted by when it fires, then truncated — so the cap keeps the *nearest*
-   * reminders rather than an arbitrary subset. Getting this backwards would
-   * silently drop tomorrow's reminder in favour of one three weeks out, and
-   * nothing on screen would show it.
-   */
-  return [...planned]
-    .sort(
-      (a, b) =>
-        toEpochDay(a.onDate) - toEpochDay(b.onDate) ||
-        a.atTime.localeCompare(b.atTime) ||
-        a.id.localeCompare(b.id),
-    )
-    .slice(0, MAX_PENDING);
+  return capReminders(planned);
+}
+
+/**
+ * Sorted by when it fires, then truncated.
+ *
+ * The cap keeps the *nearest* reminders rather than an arbitrary subset.
+ * Getting this backwards would silently drop tomorrow's reminder in favour of
+ * one three weeks out, and nothing on screen would show it.
+ *
+ * Extracted so a merged plan can be ordered and capped exactly once. Applying
+ * it per source and then again over the union is safe — anything in the global
+ * nearest sixty is also in its own list's nearest sixty — but the union is
+ * where the cap has to be enforced, because the operating system counts them
+ * all together.
+ */
+export function orderReminders(reminders: readonly PlannedReminder[]): readonly PlannedReminder[] {
+  return [...reminders].sort(
+    (a, b) =>
+      toEpochDay(a.onDate) - toEpochDay(b.onDate) ||
+      a.atTime.localeCompare(b.atTime) ||
+      a.id.localeCompare(b.id),
+  );
+}
+
+export function capReminders(reminders: readonly PlannedReminder[]): readonly PlannedReminder[] {
+  return orderReminders(reminders).slice(0, MAX_PENDING);
 }
 
 /**

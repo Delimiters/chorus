@@ -70,6 +70,7 @@ module.exports = {
     'src/core/occurrence/': coverageThreshold,
     'src/core/lib/': coverageThreshold,
     'src/core/routines/': coverageThreshold,
+    'src/core/notify/': coverageThreshold,
   },
   coverageReporters: ['text-summary', 'lcov', 'json-summary'],
 };
