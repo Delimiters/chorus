@@ -28,13 +28,17 @@ import { useCategoryList, useCreateCategory } from '@/data/hooks/useCategories';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
-import { DateField } from './DateField';
+import { DateField } from '@/features/common/DateField';
 import { CategoryAndPriorityPicker } from './CategoryPicker';
-import { IconPicker } from './IconPicker';
+import { IconPicker } from '@/features/common/IconPicker';
 import { toIconName, type IconName } from '@/design/icons';
-import { TimeField } from './TimeField';
-import { RecurrencePicker, draftFromRule, type RecurrenceDraft } from './RecurrencePicker';
-import { SchedulePreview } from './SchedulePreview';
+import { TimeField } from '@/features/common/TimeField';
+import {
+  RecurrencePicker,
+  draftFromRule,
+  type RecurrenceDraft,
+} from '@/features/common/RecurrencePicker';
+import { SchedulePreview } from '@/features/common/SchedulePreview';
 
 interface Props {
   /** Absent when creating. */

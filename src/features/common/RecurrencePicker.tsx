@@ -22,7 +22,7 @@ import type { MonthOverflow, RecurrenceRule } from '@/core/recurrence/types';
 import { Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl, Stepper, ToggleChips } from '@/design/controls';
 import { space } from '@/design/tokens';
-import { DateField } from './DateField';
+import { DateField } from '@/features/common/DateField';
 
 /** The top-level choice, in the words a person would use. */
 export type Frequency = 'once' | 'daily' | 'weekly' | 'monthly' | 'someday';

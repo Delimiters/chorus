@@ -32,7 +32,7 @@ import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { ReorderableList } from './ReorderableList';
-import { IconPicker } from '@/features/chores/IconPicker';
+import { IconPicker } from '@/features/common/IconPicker';
 import { toIconName, type IconName } from '@/design/icons';
 
 export function CategoriesScreen() {

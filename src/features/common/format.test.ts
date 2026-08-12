@@ -16,7 +16,7 @@ import {
   formatRelativeDay,
   monthName,
   weekdayShort,
-} from './format';
+} from '@/features/common/format';
 
 const d = (s: string) => s as CivilDate;
 

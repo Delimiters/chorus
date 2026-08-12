@@ -20,7 +20,11 @@ import { describeRule } from '@/core/recurrence/describe';
 import { safeParseSchedule } from '@/core/recurrence/schema';
 import type { RecurrenceRule } from '@/core/recurrence/types';
 import { ThemeProvider } from '@/design/theme';
-import { RecurrencePicker, draftFromRule, type RecurrenceDraft } from './RecurrencePicker';
+import {
+  RecurrencePicker,
+  draftFromRule,
+  type RecurrenceDraft,
+} from '@/features/common/RecurrencePicker';
 
 const TODAY = civilDate('2026-07-30'); // a Thursday
 

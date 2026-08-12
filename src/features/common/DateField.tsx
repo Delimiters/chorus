@@ -21,7 +21,7 @@ import { Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { MonthGrid } from '../upcoming/MonthGrid';
-import { formatDayShort, formatRelativeDay } from '../today/format';
+import { formatDayShort, formatRelativeDay } from '@/features/common/format';
 
 interface Props {
   value: CivilDate;

@@ -63,6 +63,37 @@ module.exports = defineConfig([
     ],
   },
 
+  /**
+   * ── One feature may not reach into another ────────────────────────────────
+   *
+   * Anything two features both need lives in `src/features/common/`. Without
+   * this, "shared" is decided by whoever imports first: the date picker,
+   * recurrence picker and occurrence sheet all ended up in `features/chores/`
+   * and were then imported by Today, Upcoming and House — so `chores` was
+   * quietly a library that also happened to be a screen.
+   *
+   * `common` itself is exempt: that is what it is for.
+   */
+  {
+    files: ['src/features/**/*.ts', 'src/features/**/*.tsx'],
+    ignores: ['src/features/common/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@/features/*/*', '!@/features/common/*', '../*/*', '!../common/*'],
+              message:
+                'Features must not import from each other. Move anything shared into ' +
+                'src/features/common/ — see the note in eslint.config.js.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // ── The purity boundary ────────────────────────────────────────────────────
   {
     files: ['src/core/**/*.ts'],
