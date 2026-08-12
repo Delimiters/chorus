@@ -608,6 +608,27 @@ export type Database = {
       }
       delete_my_account: { Args: never; Returns: undefined }
       redeem_invite: { Args: { invite_code: string }; Returns: string }
+      tick_routine: {
+        Args: {
+          p_chore?: string
+          p_chore_due_on?: string
+          p_chore_occ?: string
+          p_completed_on: string
+          p_due_on: string
+          p_item: string
+          p_occurrence: string
+        }
+        Returns: undefined
+      }
+      untick_routine: {
+        Args: {
+          p_chore?: string
+          p_chore_occ?: string
+          p_item: string
+          p_occurrence: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       exception_kind: "skip" | "reschedule"

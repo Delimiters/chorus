@@ -133,6 +133,12 @@ jest.mock('@/stores/sessionStore', () => ({
 // back to Yours / Everyone else rather than putting everything under "Other".
 let mockCategories: { id: string; name: string; ink: string | null; position: number }[] = [];
 
+// The sheet can offer "add to my routine", which reads your routine items.
+// This suite mocks the data layer rather than standing up a QueryClient.
+jest.mock('@/data/hooks/useRoutines', () => ({
+  useMyRoutineItems: () => [],
+}));
+
 jest.mock('@/data/hooks/useCategories', () => ({
   useCategoryList: () => mockCategories,
   useCategories: () => ({ data: mockCategories, isPending: false, isError: false }),

@@ -29,6 +29,7 @@ import {
   setShareRoutine,
   uncompleteRoutine,
   updateRoutineItem,
+  type LinkedChoreTick,
   type RoutineDraft,
   type RoutineItem,
 } from '../api/routines';
@@ -196,12 +197,17 @@ export function useSetShareRoutine() {
 }
 
 /**
- * Ticking a routine item on or off.
+ * Ticking a routine item on or off, and the linked chore with it.
  *
- * Not optimistic yet, and deliberately: the linked-chore path lands in a later
- * change and will make this one call an RPC that writes two rows. Adding an
- * optimistic patch now would mean writing it twice, and the second version
- * would have to patch two caches rather than one.
+ * The caller supplies the linked chore's occurrence, because it is the caller
+ * that knows what is due today — the RPC is a two-row transaction and
+ * deliberately does not expand recurrence, which would be a second
+ * implementation of the engine.
+ *
+ * When nothing of that chore is due today, `chore` is null and the tick is a
+ * routine tick alone. That is the right answer rather than a missing feature: a
+ * completion invented for a day the chore was never due would distort the
+ * expected-versus-actual figure the stats screen is built on.
  */
 export function useToggleRoutine() {
   const householdId = useActiveHouseholdId();
@@ -213,23 +219,28 @@ export function useToggleRoutine() {
       occurrence,
       complete,
       on,
+      chore,
     }: {
       occurrence: RoutineOccurrence;
       complete: boolean;
       on: CivilDate;
+      chore?: LinkedChoreTick | null;
     }) => {
       if (householdId === null || userId === null) throw new Error('Please sign in again.');
       if (complete) {
         await completeRoutine({
-          householdId,
           routineItemId: occurrence.itemId,
-          userId,
           occurrenceKey: occurrence.occurrenceKey,
           dueOn: occurrence.dueOn,
           completedOn: on,
+          chore: chore ?? null,
         });
       } else {
-        await uncompleteRoutine(occurrence.itemId, occurrence.occurrenceKey);
+        await uncompleteRoutine({
+          routineItemId: occurrence.itemId,
+          occurrenceKey: occurrence.occurrenceKey,
+          chore: chore ?? null,
+        });
       }
     },
     onSuccess: invalidate,

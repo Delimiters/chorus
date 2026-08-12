@@ -32,6 +32,15 @@ import { formatDayShort } from '@/features/common/format';
 interface Props {
   item: AgendaItem | null;
   /**
+   * Opens the routine form with this chore pre-linked.
+   *
+   * Absent when there is nowhere to go — the sheet is shared, and Upcoming does
+   * not need to grow a routine entry point to keep working.
+   */
+  onAddToRoutine?: ((item: AgendaItem) => void) | undefined;
+  /** True when this chore is already in the signed-in person's routine. */
+  inRoutine?: boolean;
+  /**
    * The last failure from one of the actions below, if any.
    *
    * Worth threading through rather than swallowing. Rescheduling was rejected
@@ -61,6 +70,8 @@ export function OccurrenceSheet({
   onReschedule,
   onClearException,
   onEditChore,
+  onAddToRoutine,
+  inRoutine = false,
 }: Props) {
   const [moving, setMoving] = useState(false);
   const [movedTo, setMovedTo] = useState<CivilDate>(today);
@@ -132,6 +143,24 @@ export function OccurrenceSheet({
               close();
             }}
           />
+
+          {/* Turning a chore into something you actually do at a time of day.
+              Already-linked reads differently rather than offering a second
+              link, which the partial unique index would refuse anyway. */}
+          {onAddToRoutine === undefined ? null : (
+            <SheetAction
+              label={inRoutine === true ? 'In your routine' : 'Add to my routine'}
+              hint={
+                inRoutine === true
+                  ? 'Open it to change when in the day it sits.'
+                  : 'Ticking it there will also tick this chore.'
+              }
+              onPress={() => {
+                onAddToRoutine(item);
+                close();
+              }}
+            />
+          )}
 
           {skipped || item.rescheduled ? (
             <SheetAction

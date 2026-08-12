@@ -56,6 +56,17 @@ jest.mock('@/data/hooks/useRoutines', () => ({
   useToggleRoutine: () => ({ mutate: mockToggle, error: null }),
 }));
 
+// The linked-chore lookup reads today's chore occurrences. Mocked so the view
+// tests stay about the routine screen; `mockChoreOccurrences` is what a linked
+// item would find due today.
+let mockChoreOccurrences: { choreId: string; occurrenceKey: string; dueOn: string }[] = [];
+
+jest.mock('@/data/hooks/useOccurrences', () => ({
+  useToday_View: () => ({
+    view: { mine: mockChoreOccurrences, theirs: [] },
+  }),
+}));
+
 jest.mock('@/data/hooks/useHousehold', () => ({
   useMembers: () => ({
     data: [
@@ -81,6 +92,7 @@ function renderView() {
 
 beforeEach(() => {
   mockOccurrences = [];
+  mockChoreOccurrences = [];
   mockDay = TODAY;
   mockToggle.mockClear();
 });

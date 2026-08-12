@@ -14,7 +14,7 @@ create extension if not exists pgtap with schema extensions;
 -- that the row is unchanged — and the check runs as somebody who can see it.
 
 begin;
-select plan(16);
+select plan(22);
 
 -- ── Fixture: one household, two members ───────────────────────────────────
 insert into auth.users (id, email, raw_user_meta_data)
@@ -229,6 +229,89 @@ select is_empty(
   $$ select id from public.routine_items
      where household_id = 'ca000000-0000-0000-0000-000000000001' $$,
   'somebody in another household sees nothing, shared or not'
+);
+
+-- ═══ The linked tick ══════════════════════════════════════════════════════
+
+select pg_temp.become('c1111111-1111-1111-1111-111111111111');
+
+select lives_ok(
+  $$ select public.tick_routine(
+       'cb000000-0000-0000-0000-000000000001',
+       'v1:stretch:2026-04-01:0:-', '2026-04-01', '2026-04-01',
+       'cc000000-0000-0000-0000-000000000001',
+       'v1:dishes:2026-04-01:0:-', '2026-04-01') $$,
+  'ticking a linked item completes both in one call'
+);
+
+select is(
+  (select count(*)::int from public.chore_completions
+   where occurrence_key = 'v1:dishes:2026-04-01:0:-'),
+  1,
+  'the chore is completed too'
+);
+
+select lives_ok(
+  $$ select public.tick_routine(
+       'cb000000-0000-0000-0000-000000000001',
+       'v1:stretch:2026-04-01:0:-', '2026-04-01', '2026-04-01',
+       'cc000000-0000-0000-0000-000000000001',
+       'v1:dishes:2026-04-01:0:-', '2026-04-01') $$,
+  'and ticking twice is success, not a duplicate-key error'
+);
+
+select public.untick_routine(
+  'cb000000-0000-0000-0000-000000000001', 'v1:stretch:2026-04-01:0:-',
+  'cc000000-0000-0000-0000-000000000001', 'v1:dishes:2026-04-01:0:-');
+
+select is(
+  (select count(*)::int from public.chore_completions
+   where occurrence_key = 'v1:dishes:2026-04-01:0:-'),
+  0,
+  'un-ticking takes back the chore completion you made'
+);
+
+-- ── But not somebody else's ───────────────────────────────────────────────
+-- The narrowing that matters. Bob ticks the chore from Today; Alice un-ticks
+-- her own private routine item. His work must survive, because nothing on her
+-- screen would show that she had reversed it.
+
+select pg_temp.become('c2222222-2222-2222-2222-222222222222');
+
+insert into public.chore_completions
+  (household_id, chore_id, occurrence_key, due_on, completed_on, completed_by)
+values ('ca000000-0000-0000-0000-000000000001', 'cc000000-0000-0000-0000-000000000001',
+        'v1:dishes:2026-04-02:0:-', '2026-04-02', '2026-04-02',
+        'c2222222-2222-2222-2222-222222222222');
+
+select pg_temp.become('c1111111-1111-1111-1111-111111111111');
+
+select public.tick_routine(
+  'cb000000-0000-0000-0000-000000000001',
+  'v1:stretch:2026-04-02:0:-', '2026-04-02', '2026-04-02',
+  'cc000000-0000-0000-0000-000000000001', 'v1:dishes:2026-04-02:0:-', '2026-04-02');
+
+select public.untick_routine(
+  'cb000000-0000-0000-0000-000000000001', 'v1:stretch:2026-04-02:0:-',
+  'cc000000-0000-0000-0000-000000000001', 'v1:dishes:2026-04-02:0:-');
+
+select is(
+  (select completed_by from public.chore_completions
+   where occurrence_key = 'v1:dishes:2026-04-02:0:-'),
+  'c2222222-2222-2222-2222-222222222222'::uuid,
+  'un-ticking your routine never undoes your housemate''s completion'
+);
+
+-- ── And nobody can tick an item that is not theirs ────────────────────────
+
+select pg_temp.become('c2222222-2222-2222-2222-222222222222');
+
+select throws_ok(
+  $$ select public.tick_routine(
+       'cb000000-0000-0000-0000-000000000001',
+       'v1:forged:2026-04-03:0:-', '2026-04-03', '2026-04-03') $$,
+  '42501', null,
+  'a housemate cannot tick a shared item through the RPC either'
 );
 
 select * from finish();

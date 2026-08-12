@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
 import { useRoutineStore } from '@/stores/routineStore';
+import { useMyRoutineItems } from '@/data/hooks/useRoutines';
 
 import type { AgendaItem, FloatingGroup } from '@/core/occurrence/agenda';
 import { describeRule } from '@/core/recurrence/describe';
@@ -57,6 +58,16 @@ export function TodayScreen() {
   const setGroupBy = useViewStore((s) => s.setGroupBy);
   const setSortBy = useViewStore((s) => s.setSortBy);
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
+
+  /**
+   * Which of your routine items already points at a chore.
+   *
+   * A second link would be refused by the partial unique index, and a rejected
+   * insert is a worse answer than taking somebody to the one they already have.
+   */
+  const myRoutineItems = useMyRoutineItems();
+  const linkedRoutineFor = (choreId: string): string | null =>
+    myRoutineItems.find((i) => i.linkedChoreId === choreId)?.id ?? null;
 
   /** The two grouping axes per chore, and the categories by id, for the rows. */
   const choreMeta = useMemo(
@@ -353,6 +364,15 @@ export function TodayScreen() {
         onReschedule={(item, movedTo) => reschedule.mutate({ item, movedTo })}
         onClearException={(item) => clear.mutate(item)}
         onEditChore={(choreId) => router.push(`/chore/${choreId}`)}
+        onAddToRoutine={(item) => {
+          const existing = linkedRoutineFor(item.choreId);
+          router.push(
+            existing === null
+              ? `/routine/new?choreId=${item.choreId}&title=${encodeURIComponent(item.choreTitle)}`
+              : `/routine/${existing}`,
+          );
+        }}
+        inRoutine={open !== null && linkedRoutineFor(open.choreId) !== null}
       />
     </SafeAreaView>
   );
