@@ -18,6 +18,7 @@ import { LoadingState } from '@/design/components';
 import { useColors } from '@/design/theme';
 import { useActiveHouseholdId, useAuthStatus } from '@/stores/sessionStore';
 import { useViewStore } from '@/stores/viewStore';
+import { useRoutineStore } from '@/stores/routineStore';
 
 export default function AppLayout() {
   const status = useAuthStatus();
@@ -41,6 +42,12 @@ export default function AppLayout() {
   useEffect(() => {
     void hydrateView();
   }, [hydrateView]);
+
+  // Which half of the Today tab you were last on, and how routines are shown.
+  const hydrateRoutines = useRoutineStore((s) => s.hydrate);
+  useEffect(() => {
+    void hydrateRoutines();
+  }, [hydrateRoutines]);
 
   const reminderPolicy = useReminderPolicy();
   useRealtimeHousehold();
