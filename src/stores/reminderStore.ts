@@ -27,6 +27,7 @@ interface ReminderState {
   readonly setDefaultTime: (time: CivilTime) => void;
   readonly setIncludeUnassigned: (include: boolean) => void;
   readonly setIncludeOthers: (include: boolean) => void;
+  readonly setIncludeRoutines: (include: boolean) => void;
   readonly hydrate: () => Promise<void>;
 }
 
@@ -36,6 +37,7 @@ interface Stored {
   defaultTime?: string;
   includeUnassigned?: boolean;
   includeOthers?: boolean;
+  includeRoutines?: boolean;
 }
 
 function persist(policy: ReminderPolicy): void {
@@ -44,6 +46,7 @@ function persist(policy: ReminderPolicy): void {
     defaultTime: policy.defaultTime,
     includeUnassigned: policy.includeUnassigned,
     includeOthers: policy.includeOthers,
+    includeRoutines: policy.includeRoutines,
   };
   // Fire and forget: a failed write costs a preference, not correctness, and
   // blocking a toggle on disk would make the switch feel broken.
@@ -78,6 +81,12 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
     persist(policy);
   },
 
+  setIncludeRoutines: (includeRoutines) => {
+    const policy = { ...get().policy, includeRoutines };
+    set({ policy });
+    persist(policy);
+  },
+
   hydrate: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -98,6 +107,9 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
               : {}),
             ...(typeof stored.includeOthers === 'boolean'
               ? { includeOthers: stored.includeOthers }
+              : {}),
+            ...(typeof stored.includeRoutines === 'boolean'
+              ? { includeRoutines: stored.includeRoutines }
               : {}),
           },
         });

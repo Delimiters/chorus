@@ -17,17 +17,14 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 
-import {
-  keepAliveFor,
-  planReminders,
-  type PlannedReminder,
-  type ReminderPolicy,
-} from '@/core/notify/plan';
+import type { PlannedReminder, ReminderPolicy } from '@/core/notify/plan';
+import { planAllReminders } from '@/core/notify/routines';
 import { useUserId } from '@/stores/sessionStore';
 import { localTransport, notificationsAvailable } from '../notifications';
 import { useToday } from '../today';
 import { useHousehold } from './useHousehold';
 import { quantiseWindow, useOccurrences } from './useOccurrences';
+import { useRoutineDay } from './useRoutines';
 
 /** How long to wait for the dust to settle before touching the OS queue. */
 const SETTLE_MS = 750;
@@ -63,15 +60,30 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
   // to be reminded about.
   const { items } = useOccurrences(window);
 
+  /**
+   * The same query the Routines screen uses, so this costs no extra fetch.
+   *
+   * Its window is a quantised week — always at least the three days the routine
+   * horizon plans for, and usually more, which the planner then trims. Others'
+   * routines are excluded here rather than filtered later: a local notification
+   * fires on the phone that scheduled it, so somebody else's routine could only
+   * ever buzz the wrong person.
+   */
+  const { occurrences: routines } = useRoutineDay(today, { showOthers: false });
+
   const plan = useMemo<readonly PlannedReminder[]>(() => {
     if (!enabled || userId === null) return [];
-    const reminders = planReminders({ occurrences: items, today, userId, policy });
-    // The keep-alive rides along with the rest so it is cancelled and rewritten
-    // by the same reconcile — a queue-topping reminder that outlives the queue
-    // it was meant to top up would be its own small joke.
-    const keepAlive = keepAliveFor(reminders, policy);
-    return keepAlive === null ? reminders : [...reminders, keepAlive];
-  }, [enabled, items, today, userId, policy]);
+    /**
+     * One plan, one cap, one reconcile.
+     *
+     * Two planners would each produce up to sixty against an operating system
+     * limit of sixty-four — and worse, `reconcile` begins by cancelling
+     * everything, so whichever ran second would erase the first's queue
+     * entirely. The keep-alive is appended inside, from the merged list, so it
+     * lands after whatever actually fires last.
+     */
+    return planAllReminders({ chores: items, routines, today, userId, policy });
+  }, [enabled, items, routines, today, userId, policy]);
 
   /** The last plan actually written to the OS, so an identical one is skipped. */
   const written = useRef<string>('');

@@ -58,6 +58,7 @@ export function SettingsScreen() {
   const setDefaultTime = useReminderStore((s) => s.setDefaultTime);
   const setIncludeUnassigned = useReminderStore((s) => s.setIncludeUnassigned);
   const setIncludeOthers = useReminderStore((s) => s.setIncludeOthers);
+  const setIncludeRoutines = useReminderStore((s) => s.setIncludeRoutines);
 
   const weekStartsOn = String(household.data?.weekStartsOn ?? 0);
   const timeZone = household.data?.timeZone ?? 'UTC';
@@ -200,6 +201,16 @@ export function SettingsScreen() {
                       value={policy.includeOthers}
                       onValueChange={setIncludeOthers}
                       accessibilityLabel="Remind me about other people's chores"
+                    />,
+                  )}
+
+                  {row(
+                    'My routine',
+                    'One notification per bucket, plus one for anything you gave a specific time. Three days ahead, not thirty.',
+                    <Switch
+                      value={policy.includeRoutines}
+                      onValueChange={setIncludeRoutines}
+                      accessibilityLabel="Remind me about my routine"
                     />,
                   )}
 
