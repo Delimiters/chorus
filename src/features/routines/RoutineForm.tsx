@@ -31,6 +31,8 @@ import {
   type RecurrenceDraft,
 } from '@/features/common/RecurrencePicker';
 import { SchedulePreview } from '@/features/common/SchedulePreview';
+import type { Chore } from '@/data/api/chores';
+import { ChoreLinkPicker } from './ChoreLinkPicker';
 
 /** "No particular time" is a real answer, so it needs a real option. */
 const NO_TIME = 'none';
@@ -46,6 +48,11 @@ const TIME_CHOICES: readonly { value: string; label: string }[] = [
 
 interface Props {
   item?: RoutineItem | undefined;
+  /** Live chores, for the link picker. */
+  chores: readonly Chore[];
+  /** Pre-selected when arriving from a chore's sheet. */
+  initialLinkedChoreId?: string | null;
+  initialTitle?: string | undefined;
   today: CivilDate;
   calendar: CalendarConfig;
   onSubmit: (draft: RoutineDraft) => void;
@@ -57,6 +64,9 @@ interface Props {
 
 export function RoutineForm({
   item,
+  chores,
+  initialLinkedChoreId = null,
+  initialTitle,
   today,
   calendar,
   onSubmit,
@@ -67,10 +77,13 @@ export function RoutineForm({
 }: Props) {
   const editing = item !== undefined;
 
-  const [title, setTitle] = useState(item?.title ?? '');
+  const [title, setTitle] = useState(item?.title ?? initialTitle ?? '');
   const [notes, setNotes] = useState(item?.notes ?? '');
   const [icon, setIcon] = useState<IconName | null>(toIconName(item?.icon));
   const [remind, setRemind] = useState(item?.remind ?? false);
+  const [linkedChoreId, setLinkedChoreId] = useState<string | null>(
+    item?.linkedChoreId ?? initialLinkedChoreId,
+  );
 
   // Default to daily. The full eight rules are free because the engine is
   // shared, but a monthly-by-weekday routine on a daily screen is close to
@@ -114,7 +127,7 @@ export function RoutineForm({
       bucketChoice: timeOfDay === null ? bucket : null,
       icon,
       remind,
-      linkedChoreId: item?.linkedChoreId ?? null,
+      linkedChoreId,
     });
   };
 
@@ -182,6 +195,8 @@ export function RoutineForm({
             />
           </FieldGroup>
         ) : null}
+
+        <ChoreLinkPicker chores={chores} value={linkedChoreId} onChange={setLinkedChoreId} />
 
         <RecurrencePicker
           draft={recurrence}

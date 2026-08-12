@@ -19,6 +19,8 @@ import type { CivilDate } from '@/core/civil/types';
 import type { RoutineOccurrence } from '@/core/routines/project';
 import { useMembers } from '@/data/hooks/useHousehold';
 import { useRoutineDay, useToggleRoutine } from '@/data/hooks/useRoutines';
+import { useToday_View } from '@/data/hooks/useOccurrences';
+import type { LinkedChoreTick } from '@/data/api/routines';
 import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
 import { SectionHeader, SubHeader } from '@/design/ChoreRow';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
@@ -50,6 +52,30 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
     showOthers: preference.showOthers,
   });
   const toggle = useToggleRoutine();
+
+  /**
+   * The chore occurrence a linked item would tick, if one is due today.
+   *
+   * Looked up here rather than in SQL: the projected occurrence is already on
+   * screen, and re-deriving its key server-side would be a second recurrence
+   * engine that could drift from this one. When nothing of that chore is due,
+   * the answer is null and the tick is a routine tick alone — inventing a
+   * completion for a day the chore was never due would distort the
+   * expected-versus-actual figure the stats screen reports.
+   */
+  const choreToday = useToday_View();
+  const linkedChoreFor = (linkedChoreId: string | null): LinkedChoreTick | null => {
+    if (linkedChoreId === null || !isToday) return null;
+    const outstanding = [...choreToday.view.mine, ...choreToday.view.theirs].find(
+      (occ) => occ.choreId === linkedChoreId,
+    );
+    if (outstanding === undefined) return null;
+    return {
+      choreId: outstanding.choreId,
+      occurrenceKey: outstanding.occurrenceKey,
+      dueOn: outstanding.dueOn,
+    };
+  };
 
   const byMember = useMemo(() => {
     const map = new Map<string, { name: string; ink: string }>();
@@ -131,6 +157,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
                         occurrence: item,
                         complete: item.status !== 'completed',
                         on: day,
+                        chore: linkedChoreFor(item.linkedChoreId),
                       })
                     }
                     onOpen={() => onOpen(item)}

@@ -11,6 +11,7 @@ import { useRouter } from 'expo-router';
 import type { CalendarConfig } from '@/core/civil/types';
 import type { RoutineDraft } from '@/data/api/routines';
 import { useHousehold } from '@/data/hooks/useHousehold';
+import { useChoreList } from '@/data/hooks/useChores';
 import {
   useCreateRoutineItem,
   useDeleteRoutineItem,
@@ -21,7 +22,16 @@ import { useToday } from '@/data/today';
 import { LoadingState } from '@/design/components';
 import { RoutineForm } from './RoutineForm';
 
-export function RoutineEditor({ itemId }: { itemId: string | null }) {
+export function RoutineEditor({
+  itemId,
+  initialLinkedChoreId = null,
+  initialTitle,
+}: {
+  itemId: string | null;
+  /** Set when arriving from a chore's sheet. */
+  initialLinkedChoreId?: string | null;
+  initialTitle?: string | undefined;
+}) {
   const router = useRouter();
   const household = useHousehold();
   const today = useToday(household.data?.timeZone ?? 'UTC');
@@ -31,6 +41,7 @@ export function RoutineEditor({ itemId }: { itemId: string | null }) {
   };
 
   const item = useRoutineItem(itemId);
+  const chores = useChoreList();
   const create = useCreateRoutineItem();
   const update = useUpdateRoutineItem();
   const remove = useDeleteRoutineItem();
@@ -55,6 +66,9 @@ export function RoutineEditor({ itemId }: { itemId: string | null }) {
   return (
     <RoutineForm
       item={item}
+      chores={chores.data?.chores ?? []}
+      initialLinkedChoreId={initialLinkedChoreId}
+      {...(initialTitle === undefined ? {} : { initialTitle })}
       today={today}
       calendar={calendar}
       onSubmit={submit}

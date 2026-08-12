@@ -267,37 +267,59 @@ export async function setShareRoutine(
 }
 
 /**
- * Ticking an item off. Idempotent, like completing a chore: a double tap or a
- * retry after a timeout raises 23505, which is success rather than an error.
+ * Ticking an item off, and the linked chore with it.
+ *
+ * One RPC rather than two writes, so there is no half-state to recover from.
+ * The chore arguments are passed only when the caller actually found an
+ * occurrence of the linked chore due that day — the server does not expand
+ * recurrence, because a second implementation of that would drift from the
+ * engine.
+ *
+ * Idempotent in both directions: the RPC uses `on conflict do nothing`, so a
+ * double tap or a retry after a timeout is success.
  */
+export interface LinkedChoreTick {
+  readonly choreId: string;
+  readonly occurrenceKey: string;
+  readonly dueOn: CivilDate;
+}
+
 export async function completeRoutine(input: {
-  householdId: string;
   routineItemId: string;
-  userId: string;
   occurrenceKey: string;
   dueOn: CivilDate;
   completedOn: CivilDate;
+  chore: LinkedChoreTick | null;
 }): Promise<void> {
-  const { error } = await supabase.from('routine_completions').insert({
-    household_id: input.householdId,
-    routine_item_id: input.routineItemId,
-    user_id: input.userId,
-    occurrence_key: input.occurrenceKey,
-    due_on: input.dueOn,
-    completed_on: input.completedOn,
+  const { error } = await supabase.rpc('tick_routine', {
+    p_item: input.routineItemId,
+    p_occurrence: input.occurrenceKey,
+    p_due_on: input.dueOn,
+    p_completed_on: input.completedOn,
+    // Spread rather than `?? undefined`: under exactOptionalPropertyTypes an
+    // explicitly-undefined optional is not the same as an absent one.
+    ...(input.chore === null
+      ? {}
+      : {
+          p_chore: input.chore.choreId,
+          p_chore_occ: input.chore.occurrenceKey,
+          p_chore_due_on: input.chore.dueOn,
+        }),
   });
-  if (error && !isDuplicate(error)) fail(error);
+  if (error) fail(error);
 }
 
-/** Also idempotent — deleting nothing is not an error. */
-export async function uncompleteRoutine(
-  routineItemId: string,
-  occurrenceKey: string,
-): Promise<void> {
-  const { error } = await supabase
-    .from('routine_completions')
-    .delete()
-    .eq('routine_item_id', routineItemId)
-    .eq('occurrence_key', occurrenceKey);
+export async function uncompleteRoutine(input: {
+  routineItemId: string;
+  occurrenceKey: string;
+  chore: Pick<LinkedChoreTick, 'choreId' | 'occurrenceKey'> | null;
+}): Promise<void> {
+  const { error } = await supabase.rpc('untick_routine', {
+    p_item: input.routineItemId,
+    p_occurrence: input.occurrenceKey,
+    ...(input.chore === null
+      ? {}
+      : { p_chore: input.chore.choreId, p_chore_occ: input.chore.occurrenceKey }),
+  });
   if (error) fail(error);
 }

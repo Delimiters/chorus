@@ -35,7 +35,14 @@ async function renderForm(over: Partial<React.ComponentProps<typeof RoutineForm>
   const onCancel = jest.fn();
   await render(
     <ThemeProvider>
-      <RoutineForm today={TODAY} calendar={CAL} onSubmit={onSubmit} onCancel={onCancel} {...over} />
+      <RoutineForm
+        chores={[]}
+        today={TODAY}
+        calendar={CAL}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+        {...over}
+      />
     </ThemeProvider>,
   );
   return { onSubmit, onCancel };
