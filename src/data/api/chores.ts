@@ -213,10 +213,13 @@ export async function listExceptionsForChores(
  * drop the very chores this query exists to find. `schedule_kind` is a generated
  * column, so the narrowing is still an index lookup rather than a jsonb scan.
  *
- * Completed ones come back too and are filtered out by projection. If a
- * household ever accumulates enough finished one-time chores for that to matter,
- * the fix is archiving them on completion — not truncating this query, which
- * would silently lose work.
+ * Completed ones come back too and are filtered out by projection. Do not
+ * "fix" that by archiving them on completion, which an earlier version of this
+ * comment suggested: archiving takes a chore out of `listChores`, which is what
+ * the projection reads, so the completion would disappear from Today's Done
+ * band the moment it was ticked and out of the stats the completion log exists
+ * to feed. The clutter is a list-screen problem and is solved there, by moving
+ * finished one-time chores into their own Done section.
  */
 export async function listOneTimeChores(householdId: string): Promise<ChoreListResult> {
   const { data, error } = await supabase

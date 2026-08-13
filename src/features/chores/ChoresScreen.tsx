@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { describeSchedule } from '@/core/recurrence/describe';
 import { type Chore } from '@/data/api/chores';
 import type { CivilDate } from '@/core/civil/types';
-import { useChoreList, useSomedayCompletions, useToggleSomeday } from '@/data/hooks/useChores';
+import { useChoreList, useOneOffCompletions, useToggleSomeday } from '@/data/hooks/useChores';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useToday } from '@/data/today';
 import { Checkbox, SectionHeader } from '@/design/ChoreRow';
@@ -37,7 +37,7 @@ export function ChoresScreen() {
   const [showArchived, setShowArchived] = useState(false);
 
   const query = useChoreList({ includeArchived: showArchived });
-  const somedayDone = useSomedayCompletions();
+  const oneOffDone = useOneOffCompletions();
   const toggleSomeday = useToggleSomeday();
   const household = useHousehold();
   const today = useToday(household.data?.timeZone ?? 'UTC');
@@ -46,12 +46,12 @@ export function ChoresScreen() {
   const setGroupBy = useViewStore((s) => s.setGroupBy);
   const setSortBy = useViewStore((s) => s.setSortBy);
 
-  /** When each Someday chore was ticked off, if it was. */
+  /** When each one-off chore was ticked off, if it was. */
   const doneByChore = useMemo(() => {
     const map = new Map<string, CivilDate>();
-    for (const c of somedayDone.data ?? []) map.set(c.choreId, c.completedOn);
+    for (const c of oneOffDone.data ?? []) map.set(c.choreId, c.completedOn);
     return map;
-  }, [somedayDone.data]);
+  }, [oneOffDone.data]);
 
   const inkFor = (chore: Chore): string | null => {
     // Only a fixed assignment has a single owner. Rotating and fan-out chores
@@ -61,14 +61,33 @@ export function ChoresScreen() {
     return members.data?.find((m) => m.userId === assignment.memberId)?.accent ?? null;
   };
 
-  const { active, someday, archived } = useMemo(() => {
+  /*
+   * A finished one-time chore is done, not active.
+   *
+   * It used to sit in the active list at full opacity, indistinguishable from
+   * something still outstanding, for ever — nothing ever took it out, because
+   * completion lives in another table and this screen only asked about
+   * Someday. A household that uses one-time chores accumulates them until the
+   * list is mostly things that already happened.
+   *
+   * Moved rather than archived, and deliberately. Archiving would take the
+   * chore out of `listChores`, which is what the occurrence projection reads —
+   * so the completion would vanish from Today's Done band the instant it was
+   * ticked, and out of the stats the completion log exists to feed. Keeping
+   * the row live and moving it down the screen costs nothing and loses
+   * nothing; archiving it is still one tap away for anyone who wants it gone.
+   */
+  const { active, someday, finished, archived } = useMemo(() => {
     const all = query.data?.chores ?? [];
+    const live = all.filter((c) => !c.archived);
+    const isDoneOneTime = (c: Chore) => c.schedule.rule.kind === 'once' && doneByChore.has(c.id);
     return {
-      active: all.filter((c) => !c.archived && c.schedule.rule.kind !== 'unscheduled'),
-      someday: all.filter((c) => !c.archived && c.schedule.rule.kind === 'unscheduled'),
+      active: live.filter((c) => c.schedule.rule.kind !== 'unscheduled' && !isDoneOneTime(c)),
+      someday: live.filter((c) => c.schedule.rule.kind === 'unscheduled'),
+      finished: live.filter(isDoneOneTime),
       archived: all.filter((c) => c.archived),
     };
-  }, [query.data]);
+  }, [query.data, doneByChore]);
 
   /**
    * The active chores, arranged by the device's grouping preference.
@@ -99,7 +118,7 @@ export function ChoresScreen() {
   const row = (chore: Chore, dashed = false) => {
     const ink = inkFor(chore);
     const somedayRow = chore.schedule.rule.kind === 'unscheduled';
-    const doneOn = somedayRow ? (doneByChore.get(chore.id) ?? null) : null;
+    const doneOn = doneByChore.get(chore.id) ?? null;
     return (
       <View
         key={chore.id}
@@ -225,6 +244,18 @@ export function ChoresScreen() {
           <>
             <SectionHeader title="Someday · no date" />
             <Stack gap={space.xs}>{someday.map((c) => row(c, true))}</Stack>
+          </>
+        ) : null}
+
+        {finished.length > 0 ? (
+          <>
+            {/*
+              Below Someday and above Archived, because that is the order of
+              how much attention each deserves. Counted, so the section is
+              worth collapsing later if it grows.
+            */}
+            <SectionHeader title="Done" count={finished.length} />
+            <Stack gap={space.xs}>{finished.map((c) => row(c))}</Stack>
           </>
         ) : null}
 
