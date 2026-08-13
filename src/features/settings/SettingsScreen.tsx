@@ -11,6 +11,7 @@
  * somebody's 7am alarm changes.
  */
 
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Platform, ScrollView, Switch, View } from 'react-native';
@@ -38,6 +39,13 @@ const WEEK_STARTS: readonly { value: string; label: string }[] = [
   { value: '1', label: 'Monday' },
   { value: '6', label: 'Saturday' },
 ];
+
+/** From the manifest, so a version bump needs no code change. */
+const appVersion = Constants.expoConfig?.version ?? '—';
+const buildNumber =
+  Platform.OS === 'ios'
+    ? (Constants.expoConfig?.ios?.buildNumber ?? '—')
+    : String(Constants.expoConfig?.android?.versionCode ?? '—');
 
 export function SettingsScreen() {
   const router = useRouter();
@@ -315,6 +323,23 @@ export function SettingsScreen() {
             </Txt>
           ) : null}
         </Stack>
+
+        {/*
+          Which build am I looking at.
+          
+          Both phones reported 1.0.0 (1) for every build ever made, so "did the
+          install take" could only be answered by remembering what was last
+          run. Read from the manifest rather than hardcoded, so bumping
+          app.json is the only step.
+        */}
+        <Txt
+          variant="small"
+          tone="faint"
+          selectable
+          style={{ paddingTop: space.xl, textAlign: 'center' }}
+        >
+          {`Chorus ${appVersion} (${buildNumber})`}
+        </Txt>
       </ScrollView>
     </SafeAreaView>
   );

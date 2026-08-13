@@ -52,6 +52,14 @@ jest.mock('@/data/hooks/useRoutines', () => ({
 
 jest.mock('@/stores/sessionStore', () => ({ useUserId: () => 'me' }));
 
+// jest-expo does not populate the manifest, so the values are supplied here.
+// The point of the assertion is that the screen reads them from the manifest
+// rather than hardcoding a number that then goes stale.
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: { expoConfig: { version: '9.9.9', ios: { buildNumber: '42' } } },
+}));
+
 jest.mock('@/data/notifications', () => ({
   get notificationsAvailable() {
     return mockAvailable;
@@ -228,5 +236,14 @@ describe('routine sharing', () => {
   it('describes showing others as a display setting, not a privacy one', async () => {
     await renderScreen();
     expect(screen.getByText(/display setting, not a privacy one/)).toBeTruthy();
+  });
+});
+
+describe('which build am I looking at', () => {
+  it('shows the version and build number from the manifest', async () => {
+    // Every build so far reported 1.0.0 (1) on both phones, so "did that
+    // install actually take" could only be answered from outside the app.
+    await renderScreen();
+    expect(screen.getByText('Chorus 9.9.9 (42)')).toBeTruthy();
   });
 });
