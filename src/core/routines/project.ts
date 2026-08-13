@@ -14,10 +14,12 @@
  * recurrence rules, the period keys and the occurrence keys are all the ones
  * already covered by property tests.
  *
- * The one thing this does differently, and deliberately: **status is computed
- * against the day being viewed, not against today.** Scrolling back to
- * Wednesday should show what was outstanding on Wednesday, not what is
- * outstanding now.
+ * Status is computed against **the real today**, not against the day being
+ * viewed, and the difference is the whole value of the day history: scrolling
+ * back to Wednesday should show that you missed your stretches, not that they
+ * are merely outstanding. Passing the viewed day here instead makes `missed`
+ * unreachable — every row the screen can show would be `due` or `completed` —
+ * and it did, until the day navigation was used in anger.
  */
 
 import { compareCivil } from '../civil/date';

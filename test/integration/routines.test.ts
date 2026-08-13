@@ -140,11 +140,18 @@ describe('routines', () => {
     });
 
     it('and reads them once she shares', async () => {
-      await clientFor(alice.token)
+      // Checked, not assumed. Before the self-update policy and its trigger
+      // existed this matched zero rows and reported no error, so the previous
+      // version of this test proved only that Alice happened to be the owner.
+      const { data: updated, error: updateError } = await clientFor(alice.token)
         .from('household_members')
         .update({ share_routine: true })
         .eq('household_id', householdId)
-        .eq('user_id', alice.userId);
+        .eq('user_id', alice.userId)
+        .select('user_id, share_routine');
+
+      expect(updateError).toBeNull();
+      expect(updated).toEqual([{ user_id: alice.userId, share_routine: true }]);
 
       const { data, error } = await clientFor(bob.token)
         .from('routine_items')
@@ -153,6 +160,47 @@ describe('routines', () => {
 
       expect(error).toBeNull();
       expect((data ?? []).length).toBeGreaterThan(0);
+    });
+
+    it('lets a plain member share their own routine', async () => {
+      // Bob joined by invite, so he is a `member`. The only update policy on
+      // `household_members` was admin-only, which meant the switch protecting
+      // him was one he could not reach.
+      const { data, error } = await clientFor(bob.token)
+        .from('household_members')
+        .update({ share_routine: true })
+        .eq('household_id', householdId)
+        .eq('user_id', bob.userId)
+        .select('share_routine');
+
+      expect(error).toBeNull();
+      expect(data).toEqual([{ share_routine: true }]);
+    });
+
+    it('and stops the household owner switching it on for him', async () => {
+      // The hole. Alice is the owner, so `is_household_admin` lets her update
+      // Bob's row; one request would otherwise have exposed his private
+      // routine to her.
+      await clientFor(bob.token)
+        .from('household_members')
+        .update({ share_routine: false })
+        .eq('household_id', householdId)
+        .eq('user_id', bob.userId);
+
+      const { error } = await clientFor(alice.token)
+        .from('household_members')
+        .update({ share_routine: true })
+        .eq('household_id', householdId)
+        .eq('user_id', bob.userId);
+
+      expect(error?.code).toBe('42501');
+
+      // And it stayed off, read back as the only person who can see it.
+      const { data } = await clientFor(bob.token)
+        .from('household_members')
+        .select('share_routine')
+        .eq('user_id', bob.userId);
+      expect(data).toEqual([{ share_routine: false }]);
     });
 
     it('but still cannot tick one off', async () => {

@@ -64,16 +64,27 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
    * expected-versus-actual figure the stats screen reports.
    */
   const choreToday = useToday_View();
+  /*
+   * Searched over everything due today, not over what is still outstanding.
+   *
+   * `view.mine` and `view.theirs` hold outstanding items only, and floating
+   * chores are not in either — they are grouped away separately. Reading from
+   * them made un-ticking silently asymmetric: your tick completed the chore,
+   * which removed the occurrence from those lists, so the un-tick found
+   * nothing, passed no chore to the RPC, and left the chore completed with
+   * nothing on screen to say so. A chore linked to a floating schedule never
+   * ticked at all, in either direction.
+   */
   const linkedChoreFor = (linkedChoreId: string | null): LinkedChoreTick | null => {
     if (linkedChoreId === null || !isToday) return null;
-    const outstanding = [...choreToday.view.mine, ...choreToday.view.theirs].find(
-      (occ) => occ.choreId === linkedChoreId,
+    const dueToday = choreToday.agenda.find(
+      (occ) => occ.choreId === linkedChoreId && occ.dueOn === today,
     );
-    if (outstanding === undefined) return null;
+    if (dueToday === undefined) return null;
     return {
-      choreId: outstanding.choreId,
-      occurrenceKey: outstanding.occurrenceKey,
-      dueOn: outstanding.dueOn,
+      choreId: dueToday.choreId,
+      occurrenceKey: dueToday.occurrenceKey,
+      dueOn: dueToday.dueOn,
     };
   };
 

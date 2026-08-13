@@ -59,11 +59,28 @@ jest.mock('@/data/hooks/useRoutines', () => ({
 // The linked-chore lookup reads today's chore occurrences. Mocked so the view
 // tests stay about the routine screen; `mockChoreOccurrences` is what a linked
 // item would find due today.
-let mockChoreOccurrences: { choreId: string; occurrenceKey: string; dueOn: string }[] = [];
+let mockChoreOccurrences: {
+  choreId: string;
+  occurrenceKey: string;
+  dueOn: string;
+  status?: string;
+}[] = [];
 
+/*
+ * `agenda` is every occurrence in the window; `view.mine` is the outstanding
+ * ones, which is why the filter below is here rather than being a convenience.
+ *
+ * The earlier version returned the same array for both, so it agreed with the
+ * defect it was supposed to be able to catch — reading from `view.mine` still
+ * found a completed chore, which the real hook never would.
+ */
 jest.mock('@/data/hooks/useOccurrences', () => ({
   useToday_View: () => ({
-    view: { mine: mockChoreOccurrences, theirs: [] },
+    agenda: mockChoreOccurrences,
+    view: {
+      mine: mockChoreOccurrences.filter((o) => o.status !== 'completed'),
+      theirs: [],
+    },
   }),
 }));
 
@@ -77,7 +94,7 @@ jest.mock('@/data/hooks/useHousehold', () => ({
 }));
 
 jest.mock('@/stores/routineStore', () => ({
-  useRoutinePreference: () => ({ showOthers: true, shareByDefault: false, todayMode: 'routines' }),
+  useRoutinePreference: () => ({ showOthers: true, todayMode: 'routines' }),
   useRoutineStore: (selector: (s: unknown) => unknown) =>
     selector({ setTodayMode: jest.fn() } as unknown),
 }));
@@ -192,5 +209,56 @@ describe('RoutinesView', () => {
     renderView();
     fireEvent.press(screen.getByLabelText('Mark Stretch done'));
     expect(mockToggle).toHaveBeenCalledWith(expect.objectContaining({ complete: true, on: TODAY }));
+  });
+
+  describe('a linked chore', () => {
+    const LINKED = { choreId: 'dishes', occurrenceKey: 'v1:dishes:2026-03-15:0:-', dueOn: TODAY };
+
+    it('is passed along when the routine item is ticked', () => {
+      mockChoreOccurrences = [LINKED];
+      mockOccurrences = [occurrence({ title: 'Wash up', linkedChoreId: 'dishes' })];
+      renderView();
+
+      fireEvent.press(screen.getByRole('checkbox', { name: /Wash up/ }));
+      expect(mockToggle).toHaveBeenCalledWith(expect.objectContaining({ chore: LINKED }));
+    });
+
+    it('is passed along when it is un-ticked, though the chore is done by then', () => {
+      // The asymmetry that shipped. Ticking completed the chore, which took the
+      // occurrence out of the outstanding lists this used to read, so the
+      // un-tick found nothing, sent no chore to the RPC, and left the chore
+      // completed with nothing on screen to say so.
+      // Completed, because the tick that preceded this un-tick completed it.
+      mockChoreOccurrences = [{ ...LINKED, status: 'completed' }];
+      mockOccurrences = [
+        occurrence({
+          title: 'Wash up',
+          linkedChoreId: 'dishes',
+          status: 'completed',
+          completedOn: TODAY,
+        }),
+      ];
+      renderView();
+
+      fireEvent.press(screen.getByRole('checkbox', { name: /Wash up/ }));
+      expect(mockToggle).toHaveBeenCalledWith(
+        expect.objectContaining({
+          complete: false,
+          chore: expect.objectContaining({
+            choreId: 'dishes',
+            occurrenceKey: LINKED.occurrenceKey,
+          }),
+        }),
+      );
+    });
+
+    it('is left alone when nothing of that chore is due today', () => {
+      mockChoreOccurrences = [];
+      mockOccurrences = [occurrence({ title: 'Wash up', linkedChoreId: 'dishes' })];
+      renderView();
+
+      fireEvent.press(screen.getByRole('checkbox', { name: /Wash up/ }));
+      expect(mockToggle).toHaveBeenCalledWith(expect.objectContaining({ chore: null }));
+    });
   });
 });

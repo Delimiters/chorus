@@ -30,6 +30,28 @@ jest.mock('@/data/hooks/useAuth', () => ({
   useDeleteAccount: () => ({ mutate: jest.fn(), isPending: false, error: null }),
 }));
 
+let mockSharedByMe = false;
+let mockRoutineCount = 0;
+const mockSetShare = jest.fn();
+
+jest.mock('@/data/hooks/useRoutines', () => ({
+  useRoutineItems: () => ({
+    data: {
+      items: Array.from({ length: mockRoutineCount }, (_, i) => ({
+        id: `r${i}`,
+        ownerId: 'me',
+      })),
+      unreadable: [],
+      sharedByMe: mockSharedByMe,
+    },
+    isPending: false,
+    error: null,
+  }),
+  useSetShareRoutine: () => ({ mutate: mockSetShare, isPending: false, isError: false }),
+}));
+
+jest.mock('@/stores/sessionStore', () => ({ useUserId: () => 'me' }));
+
 jest.mock('@/data/notifications', () => ({
   get notificationsAvailable() {
     return mockAvailable;
@@ -167,5 +189,44 @@ describe('deleting your account', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Delete my account' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Keep my account' }));
     expect(screen.queryByRole('button', { name: 'Yes, delete my account' })).toBeNull();
+  });
+});
+
+describe('routine sharing', () => {
+  beforeEach(() => {
+    mockSharedByMe = false;
+    mockRoutineCount = 0;
+    mockSetShare.mockClear();
+  });
+
+  it('offers a switch at all — which is the whole finding', () => {
+    // Sharing shipped as a column, a policy, an API call and a mutation hook,
+    // with no control anywhere in the app. Every test passed through the layer
+    // the missing screen would have used.
+    return renderScreen().then(() => {
+      expect(screen.getByLabelText('Share my routine with the household')).toBeTruthy();
+    });
+  });
+
+  it('says how much turning it on would reveal', async () => {
+    mockRoutineCount = 14;
+    await renderScreen();
+    expect(screen.getByText(/all 14 things in your routine/)).toBeTruthy();
+  });
+
+  it('does not offer a count when there is nothing to count', async () => {
+    await renderScreen();
+    expect(screen.queryByText(/all 0 things/)).toBeNull();
+  });
+
+  it('writes the switch through to the household, not to this phone', async () => {
+    await renderScreen();
+    fireEvent(screen.getByLabelText('Share my routine with the household'), 'valueChange', true);
+    expect(mockSetShare).toHaveBeenCalledWith({ shared: true });
+  });
+
+  it('describes showing others as a display setting, not a privacy one', async () => {
+    await renderScreen();
+    expect(screen.getByText(/display setting, not a privacy one/)).toBeTruthy();
   });
 });

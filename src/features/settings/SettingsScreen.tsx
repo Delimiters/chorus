@@ -26,6 +26,9 @@ import { FieldGroup, SegmentedControl } from '@/design/controls';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { useReminderStore } from '@/stores/reminderStore';
+import { useRoutineStore } from '@/stores/routineStore';
+import { useRoutineItems, useSetShareRoutine } from '@/data/hooks/useRoutines';
+import { useUserId } from '@/stores/sessionStore';
 import { useDeleteAccount } from '@/data/hooks/useAuth';
 import { REMINDER_TIMES } from '@/design/times';
 
@@ -59,6 +62,13 @@ export function SettingsScreen() {
   const setIncludeUnassigned = useReminderStore((s) => s.setIncludeUnassigned);
   const setIncludeOthers = useReminderStore((s) => s.setIncludeOthers);
   const setIncludeRoutines = useReminderStore((s) => s.setIncludeRoutines);
+  const userId = useUserId();
+  const showOthers = useRoutineStore((s) => s.preference.showOthers);
+  const setShowOthers = useRoutineStore((s) => s.setShowOthers);
+  const routineItems = useRoutineItems();
+  const setShareRoutine = useSetShareRoutine();
+  const sharedByMe = routineItems.data?.sharedByMe ?? false;
+  const myRoutineCount = routineItems.data?.items.filter((i) => i.ownerId === userId).length ?? 0;
 
   const weekStartsOn = String(household.data?.weekStartsOn ?? 0);
   const timeZone = household.data?.timeZone ?? 'UTC';
@@ -230,6 +240,46 @@ export function SettingsScreen() {
             </>
           )}
         </Stack>
+        {/*
+          Sharing is a fact about you, not about this phone — the switch writes
+          to your membership row, and only you can write it. "Show others"
+          sits beside it because the two are constantly confused, and the copy
+          has to be exact about which one is the privacy control.
+        */}
+        <SectionHeader title="Routines" />
+        <Stack gap={space.sm}>
+          {row(
+            'Share my routine',
+            sharedByMe
+              ? 'Your housemate can see your routine and what you have ticked off. They cannot change it.'
+              : myRoutineCount === 0
+                ? 'Off. Your routine is yours alone until you switch this on.'
+                : `Off. Switching it on shows all ${myRoutineCount} things in your routine, not just the ones you add afterwards.`,
+            <Switch
+              value={sharedByMe}
+              onValueChange={(shared) => setShareRoutine.mutate({ shared })}
+              disabled={setShareRoutine.isPending}
+              accessibilityLabel="Share my routine with the household"
+            />,
+          )}
+
+          {row(
+            "Show others' routines",
+            'Hides housemates\u2019 routines on your screen. A display setting, not a privacy one — what they share is up to them.',
+            <Switch
+              value={showOthers}
+              onValueChange={setShowOthers}
+              accessibilityLabel="Show other people's routines"
+            />,
+          )}
+
+          {setShareRoutine.isError ? (
+            <Txt variant="small" tone="danger" style={{ paddingHorizontal: space.md }}>
+              That did not save. Check your connection and try again.
+            </Txt>
+          ) : null}
+        </Stack>
+
         <SectionHeader title="Account" />
         <Stack gap={space.sm}>
           {confirmingDelete ? (

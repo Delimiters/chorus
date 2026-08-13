@@ -14,7 +14,7 @@ create extension if not exists pgtap with schema extensions;
 -- that the row is unchanged — and the check runs as somebody who can see it.
 
 begin;
-select plan(22);
+select plan(28);
 
 -- ── Fixture: one household, two members ───────────────────────────────────
 insert into auth.users (id, email, raw_user_meta_data)
@@ -136,9 +136,90 @@ select throws_ok(
   'and cannot create one in somebody else''s name'
 );
 
--- ═══ Alice turns sharing on ═══════════════════════════════════════════════
+-- ═══ While private, a completion is as invisible as the item ══════════════
+--
+-- The deny path of `routine_is_visible`. It was previously never exercised:
+-- every completion read happened after sharing had been switched on, so the
+-- SECURITY DEFINER function — the one place a mistake would be invisible —
+-- was only ever asked the question it answers yes to.
 
-reset role;
+select pg_temp.become('c1111111-1111-1111-1111-111111111111');
+
+insert into public.routine_completions
+  (household_id, routine_item_id, user_id, occurrence_key, due_on, completed_on)
+values ('ca000000-0000-0000-0000-000000000001', 'cb000000-0000-0000-0000-000000000002',
+        'c1111111-1111-1111-1111-111111111111', 'v1:therapy:2026-02-01:0:-',
+        '2026-02-01', '2026-02-01');
+
+select pg_temp.become('c2222222-2222-2222-2222-222222222222');
+
+select is(
+  (select count(*)::int from public.routine_completions), 0,
+  'a housemate sees no completions of an unshared routine'
+);
+
+-- ═══ The switch belongs to the person it exposes ══════════════════════════
+--
+-- Both directions, because both were broken. `household_members` had one
+-- update policy — admin-only — so the owner could expose the member's private
+-- routine, and the member could not expose their own. The previous version of
+-- this file switched sharing on with `reset role`, as superuser, which is
+-- exactly the identity that hides both faults.
+
+select pg_temp.become('c1111111-1111-1111-1111-111111111111');
+
+-- The hole this closes, and the reason a policy alone was not enough: Alice is
+-- the household owner, so `is_household_admin` lets her update Bob's row.
+-- Only the trigger stops her exposing his private routine with one request.
+select throws_ok(
+  $$ update public.household_members set share_routine = true
+     where user_id = 'c2222222-2222-2222-2222-222222222222' $$,
+  '42501', null,
+  'an admin cannot switch on a member''s sharing'
+);
+
+select pg_temp.become('c2222222-2222-2222-2222-222222222222');
+
+-- Bob is a plain member, and this is his own row. Before the self-update
+-- policy existed this matched nothing and reported success.
+select lives_ok(
+  $$ update public.household_members set share_routine = true
+     where user_id = 'c2222222-2222-2222-2222-222222222222' $$,
+  'a member can share their own routine'
+);
+
+select is(
+  (select share_routine from public.household_members
+   where user_id = 'c2222222-2222-2222-2222-222222222222'),
+  true,
+  'and it actually took'
+);
+
+-- The self-update policy must not become a promotion route.
+select throws_ok(
+  $$ update public.household_members set role = 'admin'
+     where user_id = 'c2222222-2222-2222-2222-222222222222' $$,
+  '42501', null,
+  'and a member cannot promote themselves with it'
+);
+
+-- Bob reaching for Alice's row is filtered rather than rejected: he is not an
+-- admin, so no row matches and no trigger fires. Checked as Alice, since a
+-- count Bob cannot influence would prove nothing either way.
+update public.household_members set share_routine = true
+where user_id = 'c1111111-1111-1111-1111-111111111111';
+
+select pg_temp.become('c1111111-1111-1111-1111-111111111111');
+
+select is(
+  (select share_routine from public.household_members
+   where user_id = 'c1111111-1111-1111-1111-111111111111'),
+  false,
+  'and cannot switch on somebody else''s'
+);
+
+-- ═══ Alice turns sharing on — herself, as the only person who can ═════════
+
 update public.household_members set share_routine = true
 where user_id = 'c1111111-1111-1111-1111-111111111111';
 

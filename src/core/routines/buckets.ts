@@ -67,6 +67,20 @@ export function minutesFromDayStart(time: CivilTime): number {
 }
 
 /** Which part of the day a specific time belongs to. */
+/**
+ * Whether a time falls on the calendar day *after* the routine day it belongs
+ * to.
+ *
+ * The routine day runs 05:00 to 05:00, so an item in Tuesday's Night section
+ * at 00:30 happens on Wednesday's calendar date. Anything that turns a routine
+ * occurrence into an instant — a notification, most obviously — has to add the
+ * day back, or it fires almost twenty-four hours early, and for an item due
+ * today it lands in the past and is dropped without a word.
+ */
+export function fallsOnNextCalendarDay(time: CivilTime): boolean {
+  return minutesSinceMidnight(time) < DAY_START;
+}
+
 export function bucketOf(time: CivilTime): TimeBucket {
   const minutes = minutesFromDayStart(time);
   // Compared in day-relative terms so the night span is a single range rather
