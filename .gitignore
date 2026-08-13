@@ -50,3 +50,6 @@ coverage/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# One-off household seed data. Personal to a household, and this repo is public.
+scripts/seed/
