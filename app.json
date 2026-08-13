@@ -2,13 +2,14 @@
   "expo": {
     "name": "Chorus",
     "slug": "chorus",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "chorus",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.delimiters.chorus",
+      "buildNumber": "2",
       "supportsTablet": false
     },
     "android": {
@@ -19,7 +20,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.delimiters.chorus"
+      "package": "com.delimiters.chorus",
+      "versionCode": 2
     },
     "web": {
       "output": "static",
