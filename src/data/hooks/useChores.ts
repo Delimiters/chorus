@@ -84,14 +84,22 @@ function useInvalidateHousehold() {
  * particular date, and "due whenever you got to it" is the honest reading —
  * which also keeps the column non-null without a migration.
  */
-export function useSomedayCompletions() {
+/**
+ * When each one-off chore was ticked, if it was.
+ *
+ * Both kinds that are finished for good once they are done: Someday, which is
+ * ticked on the chore list itself, and one-time, which is ticked on Today.
+ * A repeating chore is excluded because "when was it completed" has no single
+ * answer for it.
+ */
+export function useOneOffCompletions() {
   const householdId = useActiveHouseholdId();
   const list = useChoreList({ includeArchived: true });
 
   const choreIds = useMemo(
     () =>
       (list.data?.chores ?? [])
-        .filter((c) => c.schedule.rule.kind === 'unscheduled')
+        .filter((c) => c.schedule.rule.kind === 'unscheduled' || c.schedule.rule.kind === 'once')
         .map((c) => c.id),
     [list.data],
   );
