@@ -4,9 +4,11 @@
  * Nine times out of ten this is the only screen either person opens. It answers
  * one question — what needs doing, and is it mine — and gets out of the way.
  *
- * Yours first, then everyone else's, then what's already been done. Seeing what
- * your housemate did is half the reason to share a list, and it's the thing that
- * stops you having to ask.
+ * Yours first, then everyone else's, then what is due merely sometime this
+ * week, then what has already been done. Dated before floating, because a
+ * chore due today is a stronger claim on the next ten minutes than one due by
+ * Sunday. Seeing what your housemate did is half the reason to share a list,
+ * and it's the thing that stops you having to ask.
  */
 
 import { useRouter } from 'expo-router';
@@ -286,13 +288,6 @@ export function TodayScreen() {
           </View>
         )}
 
-        {view.floating.length > 0 ? (
-          <>
-            <SectionHeader title={formatFlexibleWindow.sectionTitle} />
-            <Stack gap={space.xs}>{view.floating.map(renderFloating)}</Stack>
-          </>
-        ) : null}
-
         {byOwnership ? (
           <>
             {view.mine.length > 0 ? (
@@ -330,6 +325,20 @@ export function TodayScreen() {
             )}
           </>
         )}
+
+        {/*
+          Below the dated sections, not above them.
+          
+          A floating chore is due *sometime* this week; the things in Yours are
+          due today. Leading with the looser commitment pushed the actual
+          answer to "what should I do now" below the fold on a phone.
+        */}
+        {view.floating.length > 0 ? (
+          <>
+            <SectionHeader title={formatFlexibleWindow.sectionTitle} />
+            <Stack gap={space.xs}>{view.floating.map(renderFloating)}</Stack>
+          </>
+        ) : null}
 
         {view.done.length > 0 ? (
           <>
