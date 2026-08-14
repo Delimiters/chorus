@@ -16,6 +16,7 @@ import { create } from 'zustand';
 
 import { DEFAULT_POLICY, type ReminderPolicy } from '@/core/notify/plan';
 import type { CivilTime } from '@/core/civil/types';
+import { BUCKETS, DEFAULT_BUCKET_TIMES, type TimeBucket } from '@/core/routines/buckets';
 
 const STORAGE_KEY = 'chorus.reminders.v1';
 
@@ -28,6 +29,7 @@ interface ReminderState {
   readonly setIncludeUnassigned: (include: boolean) => void;
   readonly setIncludeOthers: (include: boolean) => void;
   readonly setIncludeRoutines: (include: boolean) => void;
+  readonly setBucketTime: (bucket: TimeBucket, time: CivilTime) => void;
   readonly hydrate: () => Promise<void>;
 }
 
@@ -38,6 +40,7 @@ interface Stored {
   includeUnassigned?: boolean;
   includeOthers?: boolean;
   includeRoutines?: boolean;
+  bucketTimes?: Record<string, string>;
 }
 
 function persist(policy: ReminderPolicy): void {
@@ -47,6 +50,7 @@ function persist(policy: ReminderPolicy): void {
     includeUnassigned: policy.includeUnassigned,
     includeOthers: policy.includeOthers,
     includeRoutines: policy.includeRoutines,
+    bucketTimes: policy.bucketTimes,
   };
   // Fire and forget: a failed write costs a preference, not correctness, and
   // blocking a toggle on disk would make the switch feel broken.
@@ -87,6 +91,15 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
     persist(policy);
   },
 
+  setBucketTime: (bucket, time) => {
+    const policy = {
+      ...get().policy,
+      bucketTimes: { ...get().policy.bucketTimes, [bucket]: time },
+    };
+    set({ policy });
+    persist(policy);
+  },
+
   hydrate: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -111,6 +124,21 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
             ...(typeof stored.includeRoutines === 'boolean'
               ? { includeRoutines: stored.includeRoutines }
               : {}),
+            // Per bucket, and each one checked on its own: a stored blob from
+            // before this setting existed is missing keys rather than
+            // malformed, and one bad value should not cost the other three.
+            ...{
+              bucketTimes: BUCKETS.reduce<Record<TimeBucket, CivilTime>>(
+                (acc, bucket) => {
+                  const value = stored.bucketTimes?.[bucket];
+                  if (typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+                    acc[bucket] = value as CivilTime;
+                  }
+                  return acc;
+                },
+                { ...DEFAULT_BUCKET_TIMES },
+              ),
+            },
           },
         });
       }

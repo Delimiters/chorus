@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import { addDays, civilDate } from '../civil/date';
 import type { CivilTime } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
+import { bucketOf } from '../routines/buckets';
 import type { RoutineOccurrence } from '../routines/project';
 import { DEFAULT_POLICY, KEEP_ALIVE_ID, MAX_PENDING, planReminders } from './plan';
 import {
@@ -88,7 +89,8 @@ describe('planRoutineReminders', () => {
     expect(reminders[0]).toMatchObject({
       title: 'Morning routine',
       body: '3 things to do',
-      atTime: '05:00',
+      // The policy's morning time, not the 05:00 boundary the day starts at.
+      atTime: '07:00',
     });
   });
 
@@ -115,10 +117,28 @@ describe('planRoutineReminders', () => {
 
   it('mixes timed and untimed in the same bucket without merging them', () => {
     const reminders = plan([
-      routine({ itemId: 'timed', occurrenceKey: 'timed', timeOfDay: '07:00' as CivilTime }),
+      routine({ itemId: 'timed', occurrenceKey: 'timed', timeOfDay: '09:15' as CivilTime }),
       routine({ itemId: 'untimed', occurrenceKey: 'untimed', timeOfDay: null }),
     ]);
-    expect(reminders.map((r) => r.atTime).sort()).toEqual(['05:00', '07:00']);
+    expect(reminders.map((r) => r.atTime).sort()).toEqual(['07:00', '09:15']);
+  });
+
+  it('fires a bucket at the time the policy says, not at the day boundary', () => {
+    // The whole reason bucket reminder times are separate from bucket bounds:
+    // the day starts at 05:00 so Night can be one span, and being told about
+    // your morning routine then is an alarm clock.
+    const reminders = plan([routine({ timeOfDay: null })], {
+      ...DEFAULT_POLICY,
+      bucketTimes: { ...DEFAULT_POLICY.bucketTimes, morning: '10:45' as CivilTime },
+    });
+    expect(reminders[0]?.atTime).toBe('10:45');
+  });
+
+  it('leaves the bucket boundaries alone when the reminder time moves', () => {
+    // Non-vacuity for the pair above: an item at 06:00 is still Morning, even
+    // with the morning reminder set to the middle of the day.
+    expect(bucketOf('06:00' as CivilTime)).toBe('morning');
+    expect(bucketOf('20:00' as CivilTime)).toBe('night');
   });
 
   describe('what it stays quiet about', () => {

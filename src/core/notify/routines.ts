@@ -11,12 +11,7 @@
 import { addDays, compareCivil, toEpochDay } from '../civil/date';
 import type { CivilDate } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
-import {
-  bucketStart,
-  describeBucket,
-  fallsOnNextCalendarDay,
-  type TimeBucket,
-} from '../routines/buckets';
+import { describeBucket, fallsOnNextCalendarDay, type TimeBucket } from '../routines/buckets';
 import type { RoutineOccurrence } from '../routines/project';
 import {
   capReminders,
@@ -129,7 +124,9 @@ export function planRoutineReminders(input: {
       title: `${describeBucket(group.bucket)} routine`,
       body: group.count === 1 ? '1 thing to do' : `${group.count} things to do`,
       onDate: group.date,
-      atTime: bucketStart(group.bucket),
+      // The chosen reminder time, not the bucket boundary. Morning begins at
+      // 05:00 because the day does; that is not when anyone wants telling.
+      atTime: policy.bucketTimes[group.bucket],
     });
   }
 

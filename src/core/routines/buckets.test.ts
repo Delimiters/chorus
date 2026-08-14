@@ -51,8 +51,9 @@ describe('bucketOf', () => {
       ['12:00', 'afternoon'],
       ['16:59', 'afternoon'],
       ['17:00', 'evening'],
-      ['20:59', 'evening'],
-      ['21:00', 'night'],
+      ['19:59', 'evening'],
+      ['20:00', 'night'],
+      ['20:59', 'night'],
     ])('%s is %s', (time, bucket) => {
       expect(bucketOf(t(time))).toBe(bucket);
     });
@@ -118,11 +119,11 @@ describe('minutesFromDayStart', () => {
 describe('bucketRange', () => {
   it('runs from its own start to the next one', () => {
     expect(bucketRange('morning')).toEqual({ from: '05:00', to: '12:00' });
-    expect(bucketRange('evening')).toEqual({ from: '17:00', to: '21:00' });
+    expect(bucketRange('evening')).toEqual({ from: '17:00', to: '20:00' });
   });
 
   it('wraps night around to the next morning', () => {
-    expect(bucketRange('night')).toEqual({ from: '21:00', to: '05:00' });
+    expect(bucketRange('night')).toEqual({ from: '20:00', to: '05:00' });
   });
 
   it('leaves no gap between one bucket and the next', () => {
