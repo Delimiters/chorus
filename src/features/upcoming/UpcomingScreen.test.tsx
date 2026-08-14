@@ -53,6 +53,20 @@ const mockChores: ChoreInput[] = [
     assignment: { kind: 'fixed', memberId: THEM },
     archived: false,
   },
+  {
+    // The kind that was missing from this file, and so from its coverage:
+    // a chore due *sometime* in a week rather than on a day.
+    id: 'plants',
+    title: 'Water the plants',
+    schedule: {
+      rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 2 },
+      startsOn: d('2026-07-05'),
+      endsOn: null,
+      timesOfDay: [],
+    },
+    assignment: { kind: 'anyone' },
+    archived: false,
+  },
 ];
 
 const mockItems = (() => {
@@ -220,5 +234,51 @@ describe('adding a chore from Upcoming', () => {
     renderScreen();
     fireEvent.press(screen.getByRole('button', { name: 'Add a chore' }));
     expect(mockPush).toHaveBeenCalledWith('/chore/new');
+  });
+});
+
+describe('flexible chores across several weeks', () => {
+  /*
+   * Upcoming shows a month or more at once. The flexible band used to collect
+   * every group in range and head the lot with "Sometime this week", so one
+   * weekly chore appeared three or four times over, each row claiming to be
+   * due in the week you were looking at.
+   */
+  const bandTitles = () =>
+    screen
+      .getAllByRole('header')
+      .map((h) => String(h.props.children))
+      .filter((t) => t.startsWith('Sometime'));
+
+  it('heads the current week honestly', async () => {
+    await renderScreen();
+    expect(bandTitles()[0]).toBe('Sometime this week');
+  });
+
+  it('names the later weeks instead of calling them all this week', async () => {
+    await renderScreen();
+    const later = bandTitles().slice(1);
+
+    expect(later.length).toBeGreaterThan(0);
+    for (const title of later) {
+      expect(title).toMatch(/^Sometime the week of /);
+    }
+  });
+
+  it('files one band per week rather than one band for everything', async () => {
+    // Non-vacuity: with a single week on screen the test above would hold no
+    // matter how the grouping worked.
+    await renderScreen();
+    expect(bandTitles().length).toBeGreaterThan(2);
+  });
+
+  it('puts this week above the first dated day, so it leads the screen', async () => {
+    await renderScreen();
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    const band = headers.indexOf('Sometime this week');
+    const laterBand = headers.findIndex((t) => t.startsWith('Sometime the week of'));
+
+    expect(band).toBeGreaterThanOrEqual(0);
+    expect(band).toBeLessThan(laterBand);
   });
 });

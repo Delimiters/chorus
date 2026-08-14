@@ -5,7 +5,7 @@
  * is presentation, not scheduling. The engine stays free of both.
  */
 
-import { addDays, daysBetween, partsOf, weekdayOf } from '@/core/civil/date';
+import { addDays, compareCivil, daysBetween, partsOf, weekdayOf } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -77,6 +77,23 @@ export function formatFlexibleWindow(from: CivilDate, until: CivilDate, today: C
 
 /** Heading for the band of chores that are not on any particular day. */
 formatFlexibleWindow.sectionTitle = 'Sometime this week';
+
+/**
+ * Heading for a band of flexible chores belonging to one particular week.
+ *
+ * Upcoming shows a month or more at once, so "Sometime this week" is only
+ * honest for the week containing today — anywhere else it names the wrong
+ * week, which is how one chore came to look like four.
+ */
+export function formatWeekBand(weekStart: CivilDate, today: CivilDate): string {
+  const weekEnd = addDays(weekStart, 6);
+  if (compareCivil(weekStart, today) <= 0 && compareCivil(today, weekEnd) <= 0) {
+    return formatFlexibleWindow.sectionTitle;
+  }
+  const sameMonth = partsOf(weekStart).month === partsOf(weekEnd).month;
+  const to = sameMonth ? String(dayOfMonth(weekEnd)) : formatDayShort(weekEnd);
+  return `Sometime the week of ${formatDayShort(weekStart)}–${to}`;
+}
 
 /**
  * The small caption under a day number on the Upcoming rail.

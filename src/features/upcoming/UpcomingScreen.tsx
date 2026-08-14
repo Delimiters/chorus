@@ -16,7 +16,7 @@ import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 
 import { addDays, compareCivil, endOfMonth, startOfMonth, startOfWeek } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
-import { groupFloating, type AgendaItem } from '@/core/occurrence/agenda';
+import { groupFloating, type AgendaItem, type FloatingGroup } from '@/core/occurrence/agenda';
 import { describeRule } from '@/core/recurrence/describe';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import {
@@ -36,6 +36,7 @@ import {
   dayOfMonth,
   formatDayCaption,
   formatFlexibleWindow,
+  formatWeekBand,
   weekdayShort,
 } from '@/features/common/format';
 
@@ -115,22 +116,78 @@ export function UpcomingScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, byMember]);
 
-  /** The agenda below the grid: from the selected day forward, dated days only. */
-  const agenda = useMemo(() => {
-    const forward = items.filter((i) => compareCivil(i.dueOn, selected) >= 0);
-    const { floating, dated } = groupFloating(forward);
+  /**
+   * The agenda below the grid, a week at a time.
+   *
+   * Flexible chores are filed under the week they are actually due in, rather
+   * than piled into one band at the top. Upcoming shows a month or more at
+   * once, so that band held every occurrence in range — a single "3× a week"
+   * chore appeared three or four times over, under a heading that said "this
+   * week" about all of them.
+   *
+   * A chore whose window is longer than a week (monthly floating) is filed
+   * under the first visible week its window overlaps, so it is listed once and
+   * near the top rather than at the far end of its month.
+   */
+  const weeks = useMemo(() => {
+    /*
+     * Dated rows are filtered by day; flexible ones by whether their window is
+     * still open.
+     *
+     * Filtering floating groups by slot date — which is what filtering the
+     * items first did — deleted the current week's band from Thursday onward,
+     * because a "2× this week" chore has its nominal slots early in the week.
+     * The chore is still due this week; the day its slot notionally sits on is
+     * an implementation detail of how the engine spreads them.
+     */
+    const { floating: allFloating, dated: allDated } = groupFloating(items);
+    const dated = allDated.filter((i) => compareCivil(i.dueOn, selected) >= 0);
+    const cutoff = compareCivil(selected, today) > 0 ? selected : today;
+    const floating = allFloating.filter((g) => compareCivil(g.flexibleUntil, cutoff) >= 0);
+    const selectedWeek = startOfWeek(selected, weekStartsOn);
 
-    const byDay = new Map<CivilDate, AgendaItem[]>();
-    for (const item of dated) {
-      const bucket = byDay.get(item.dueOn);
-      if (bucket) bucket.push(item);
-      else byDay.set(item.dueOn, [item]);
-    }
-    return {
-      floating: floating.filter((g) => compareCivil(g.flexibleUntil, today) >= 0),
-      days: [...byDay.entries()].sort((a, b) => compareCivil(a[0], b[0])),
+    type Week = {
+      weekStart: CivilDate;
+      floating: FloatingGroup[];
+      days: Map<CivilDate, AgendaItem[]>;
     };
-  }, [items, selected, today]);
+    const byWeek = new Map<CivilDate, Week>();
+    const weekFor = (date: CivilDate): Week => {
+      const weekStart = startOfWeek(date, weekStartsOn);
+      const found = byWeek.get(weekStart);
+      if (found) return found;
+      const made: Week = { weekStart, floating: [], days: new Map() };
+      byWeek.set(weekStart, made);
+      return made;
+    };
+
+    for (const item of dated) {
+      const week = weekFor(item.dueOn);
+      const bucket = week.days.get(item.dueOn);
+      if (bucket) bucket.push(item);
+      else week.days.set(item.dueOn, [item]);
+    }
+
+    for (const group of floating) {
+      // Clamped, so a window that began before the selected day is filed under
+      // the week you are looking at rather than one scrolled off the top.
+      const anchor =
+        compareCivil(group.flexibleFrom, selected) >= 0 ? group.flexibleFrom : selected;
+      const week = weekFor(anchor);
+      if (compareCivil(week.weekStart, selectedWeek) < 0) continue;
+      week.floating.push(group);
+    }
+
+    return [...byWeek.values()]
+      .sort((a, b) => compareCivil(a.weekStart, b.weekStart))
+      .map((week) => ({
+        weekStart: week.weekStart,
+        floating: week.floating,
+        days: [...week.days.entries()].sort((a, b) => compareCivil(a[0], b[0])),
+      }));
+  }, [items, selected, today, weekStartsOn]);
+
+  const hasAnything = weeks.some((w) => w.days.length > 0 || w.floating.length > 0);
 
   if (isLoading) return <LoadingState />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;
@@ -168,84 +225,98 @@ export function UpcomingScreen() {
           paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
         }}
       >
-        {agenda.floating.length > 0 ? (
-          <>
-            <SectionHeader title={formatFlexibleWindow.sectionTitle} />
-            <Stack gap={space.xs}>
-              {agenda.floating.map((group) => {
-                const next = group.nextSlot;
-                return (
-                  <FloatingRow
-                    key={`${group.choreId}:${group.periodKey}:${group.subject ?? '-'}`}
-                    group={group}
-                    ink={next ? inkOf(next) : null}
-                    turnLabel={next ? turnLabelOf(next) : null}
-                    windowLabel={formatFlexibleWindow(
-                      group.flexibleFrom,
-                      group.flexibleUntil,
-                      today,
-                    )}
-                    onToggle={() => {
-                      if (next) toggle.mutate({ item: next, complete: true });
-                    }}
-                    onOpen={() => setOpen(next ?? group.slots[0] ?? null)}
-                  />
-                );
-              })}
-            </Stack>
-          </>
-        ) : null}
-
-        {agenda.days.length === 0 ? (
+        {!hasAnything ? (
           <View style={{ paddingVertical: space.xxxl, alignItems: 'center' }}>
             <Txt tone="faint">Nothing scheduled from here on.</Txt>
           </View>
         ) : null}
 
-        {agenda.days.map(([date, dayItems]) => (
-          <View
-            key={date}
-            style={{
-              flexDirection: 'row',
-              gap: space.md,
-              paddingTop: space.md,
-              borderTopWidth: 1,
-              borderTopColor: colors.rule,
-              marginTop: space.sm,
-            }}
-          >
-            <View style={{ width: 44, gap: 1 }}>
-              <Txt
-                variant="label"
-                tone={date === today ? 'accent' : 'faint'}
-                style={{ fontSize: 9 }}
-              >
-                {weekdayShort(date)}
-              </Txt>
-              <Txt
-                variant="mono"
-                style={{ fontSize: 17, color: date === today ? colors.inkA : colors.text }}
-              >
-                {dayOfMonth(date)}
-              </Txt>
-              <Txt variant="small" tone="faint" style={{ fontSize: 10 }}>
-                {formatDayCaption(date, today)}
-              </Txt>
-            </View>
+        {/*
+          A week at a time: the flexible band, then that week's days.
+          
+          The band sits above the days of its own week, so the current week's
+          flexible chores are still the first thing on the screen — and a
+          chore due the week after next is filed under a heading that says so
+          rather than one claiming it is due this week.
+        */}
+        {weeks.map((week) => (
+          <View key={week.weekStart}>
+            {week.floating.length > 0 ? (
+              <>
+                <SectionHeader title={formatWeekBand(week.weekStart, today)} />
+                <Stack gap={space.xs}>
+                  {week.floating.map((group) => {
+                    const next = group.nextSlot;
+                    return (
+                      <FloatingRow
+                        key={`${group.choreId}:${group.periodKey}:${group.subject ?? '-'}`}
+                        group={group}
+                        ink={next ? inkOf(next) : null}
+                        turnLabel={next ? turnLabelOf(next) : null}
+                        windowLabel={formatFlexibleWindow(
+                          group.flexibleFrom,
+                          group.flexibleUntil,
+                          today,
+                        )}
+                        onToggle={() => {
+                          if (next) toggle.mutate({ item: next, complete: true });
+                        }}
+                        onOpen={() => setOpen(next ?? group.slots[0] ?? null)}
+                      />
+                    );
+                  })}
+                </Stack>
+              </>
+            ) : null}
 
-            <Stack gap={space.xs} style={{ flex: 1 }}>
-              {dayItems.map((item) => (
-                <ChoreRow
-                  key={item.occurrenceKey}
-                  item={item}
-                  ink={inkOf(item)}
-                  turnLabel={turnLabelOf(item)}
-                  scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
-                  onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
-                  onOpen={() => setOpen(item)}
-                />
-              ))}
-            </Stack>
+            {week.days.map(([date, dayItems]) => (
+              <View
+                key={date}
+                style={{
+                  flexDirection: 'row',
+                  gap: space.md,
+                  paddingTop: space.md,
+                  borderTopWidth: 1,
+                  borderTopColor: colors.rule,
+                  marginTop: space.sm,
+                }}
+              >
+                <View style={{ width: 44, gap: 1 }}>
+                  <Txt
+                    variant="label"
+                    tone={date === today ? 'accent' : 'faint'}
+                    style={{ fontSize: 9 }}
+                  >
+                    {weekdayShort(date)}
+                  </Txt>
+                  <Txt
+                    variant="mono"
+                    style={{ fontSize: 17, color: date === today ? colors.inkA : colors.text }}
+                  >
+                    {dayOfMonth(date)}
+                  </Txt>
+                  <Txt variant="small" tone="faint" style={{ fontSize: 10 }}>
+                    {formatDayCaption(date, today)}
+                  </Txt>
+                </View>
+
+                <Stack gap={space.xs} style={{ flex: 1 }}>
+                  {dayItems.map((item) => (
+                    <ChoreRow
+                      key={item.occurrenceKey}
+                      item={item}
+                      ink={inkOf(item)}
+                      turnLabel={turnLabelOf(item)}
+                      scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
+                      onToggle={() =>
+                        toggle.mutate({ item, complete: item.status !== 'completed' })
+                      }
+                      onOpen={() => setOpen(item)}
+                    />
+                  ))}
+                </Stack>
+              </View>
+            ))}
           </View>
         ))}
       </ScrollView>
