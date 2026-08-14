@@ -199,6 +199,20 @@ describe('Today', () => {
     ).toBeOnTheScreen();
   });
 
+  it('puts what is due today above what is merely due this week', async () => {
+    // Order is the whole point of this screen and nothing asserted it, so the
+    // floating section sat above Yours — leading with the loosest commitment
+    // and pushing "what should I do now" below the fold.
+    await renderScreen();
+    const headers = screen.getAllByRole('header').map((h) => h.props.children);
+    const yours = headers.findIndex((t) => String(t).startsWith('Yours'));
+    const week = headers.findIndex((t) => String(t) === 'Sometime this week');
+
+    expect(yours).toBeGreaterThanOrEqual(0);
+    expect(week).toBeGreaterThanOrEqual(0);
+    expect(yours).toBeLessThan(week);
+  });
+
   it('completes an occurrence when its checkbox is pressed', async () => {
     await renderScreen();
     await fireEvent.press(screen.getByLabelText('Mark Dishes done'));
