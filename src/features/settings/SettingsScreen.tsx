@@ -28,10 +28,25 @@ import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { useReminderStore } from '@/stores/reminderStore';
 import { useRoutineStore } from '@/stores/routineStore';
+import { BUCKETS, bucketRange, describeBucket, type TimeBucket } from '@/core/routines/buckets';
+import { SingleTimeField } from '@/features/common/SingleTimeField';
 import { useRoutineItems, useSetShareRoutine } from '@/data/hooks/useRoutines';
 import { useUserId } from '@/stores/sessionStore';
 import { useDeleteAccount } from '@/data/hooks/useAuth';
 import { REMINDER_TIMES } from '@/design/times';
+
+/**
+ * One-tap choices per bucket, inside that bucket's own window.
+ *
+ * Offering 7am for the Night reminder would schedule it outside the window it
+ * is about, so each list is drawn from its own part of the day.
+ */
+const BUCKET_PRESETS: Record<TimeBucket, readonly CivilTime[]> = {
+  morning: ['06:00', '07:00', '08:00', '09:00'] as CivilTime[],
+  afternoon: ['12:00', '12:30', '13:00', '15:00'] as CivilTime[],
+  evening: ['17:00', '17:30', '18:00', '19:00'] as CivilTime[],
+  night: ['20:00', '20:30', '21:00', '22:00'] as CivilTime[],
+};
 
 /** Times people actually pick. A free-text time field is a keyboard for nothing. */
 const WEEK_STARTS: readonly { value: string; label: string }[] = [
@@ -70,6 +85,7 @@ export function SettingsScreen() {
   const setIncludeUnassigned = useReminderStore((s) => s.setIncludeUnassigned);
   const setIncludeOthers = useReminderStore((s) => s.setIncludeOthers);
   const setIncludeRoutines = useReminderStore((s) => s.setIncludeRoutines);
+  const setBucketTime = useReminderStore((s) => s.setBucketTime);
   const userId = useUserId();
   const showOthers = useRoutineStore((s) => s.preference.showOthers);
   const setShowOthers = useRoutineStore((s) => s.setShowOthers);
@@ -231,6 +247,33 @@ export function SettingsScreen() {
                       accessibilityLabel="Remind me about my routine"
                     />,
                   )}
+
+                  {policy.includeRoutines ? (
+                    <>
+                      {/*
+                        When each bucket's one notification arrives — not where
+                        the bucket begins. Morning starts at 05:00 because the
+                        day does, which is not a time anyone wants telling
+                        about their stretches. The window is shown beside each
+                        so the two are never confused.
+                      */}
+                      <Txt variant="small" tone="faint" style={{ paddingHorizontal: space.md }}>
+                        When each part of the day gets its one notification.
+                      </Txt>
+                      {BUCKETS.map((bucket) => {
+                        const range = bucketRange(bucket);
+                        return (
+                          <SingleTimeField
+                            key={bucket}
+                            label={`${describeBucket(bucket)} (${range.from}–${range.to})`}
+                            value={policy.bucketTimes[bucket]}
+                            presets={BUCKET_PRESETS[bucket]}
+                            onChange={(time) => setBucketTime(bucket, time)}
+                          />
+                        );
+                      })}
+                    </>
+                  ) : null}
 
                   {/*
                     Stated rather than hidden. iOS holds a fixed number of

@@ -34,13 +34,14 @@ import { radius, space } from '@/design/tokens';
  * Only hours and minutes are read back. The date part is today so the wheel
  * opens somewhere sensible rather than in 1970.
  */
-function toPickerDate(time: CivilTime): Date {
+/** Shared with SingleTimeField, so the two cannot disagree about a time. */
+export function toPickerDate(time: CivilTime): Date {
   const [hh, mm] = time.split(':').map(Number) as [number, number];
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
 }
 
-function fromPickerDate(date: Date): CivilTime {
+export function fromPickerDate(date: Date): CivilTime {
   const hh = String(date.getHours()).padStart(2, '0');
   const mm = String(date.getMinutes()).padStart(2, '0');
   // Through the parser rather than trusting the format, so the app has exactly

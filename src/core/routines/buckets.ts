@@ -30,7 +30,26 @@ const STARTS: Record<TimeBucket, CivilTime> = {
   morning: '05:00' as CivilTime,
   afternoon: '12:00' as CivilTime,
   evening: '17:00' as CivilTime,
-  night: '21:00' as CivilTime,
+  night: '20:00' as CivilTime,
+};
+
+/**
+ * When each bucket's grouped reminder fires, by default.
+ *
+ * Distinct from `STARTS`, which is where the bucket *begins*, and the
+ * distinction is the whole point. The boundaries are structural: the day
+ * starts at 05:00 so Night is one span rather than two, and every routine sort
+ * is measured from there. Nobody wants to be told about their morning routine
+ * at five in the morning, though, and borrowing the boundary as the reminder
+ * time meant exactly that.
+ *
+ * Defaults only. The reminder policy carries whatever was actually chosen.
+ */
+export const DEFAULT_BUCKET_TIMES: Record<TimeBucket, CivilTime> = {
+  morning: '07:00' as CivilTime,
+  afternoon: '12:30' as CivilTime,
+  evening: '17:30' as CivilTime,
+  night: '20:00' as CivilTime,
 };
 
 const LABELS: Record<TimeBucket, string> = {

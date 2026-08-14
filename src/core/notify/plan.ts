@@ -14,6 +14,7 @@
 import { addDays, compareCivil, toEpochDay } from '../civil/date';
 import type { CivilDate, CivilTime } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
+import { DEFAULT_BUCKET_TIMES, type TimeBucket } from '../routines/buckets';
 
 /**
  * iOS keeps at most 64 pending local notifications per app and silently drops
@@ -68,6 +69,17 @@ export interface ReminderPolicy {
    * noisy. See core/notify/routines.ts for how the queue is shared.
    */
   readonly includeRoutines: boolean;
+  /**
+   * When each routine bucket's grouped reminder fires.
+   *
+   * Separate from where the bucket *begins*, and the distinction is the whole
+   * reason this exists. The day starts at 05:00 so that Night is one span
+   * rather than two, and every routine sort is measured from there — so the
+   * boundary cannot move without putting 06:00 in Night. Borrowing the
+   * boundary as the reminder time meant Morning buzzed at five in the
+   * morning, which is an alarm clock rather than a nudge.
+   */
+  readonly bucketTimes: Record<TimeBucket, CivilTime>;
   /** How many days ahead to plan. Bounded so the queue cannot run away. */
   readonly horizonDays: number;
 }
@@ -78,6 +90,7 @@ export const DEFAULT_POLICY: ReminderPolicy = {
   includeUnassigned: false,
   includeOthers: false,
   includeRoutines: true,
+  bucketTimes: DEFAULT_BUCKET_TIMES,
   horizonDays: 30,
 };
 
