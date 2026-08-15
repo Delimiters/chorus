@@ -15,11 +15,12 @@
 import { useMemo } from 'react';
 import { View } from 'react-native';
 
-import { partsOf, weekdayOf } from '@/core/civil/date';
+import { addDays, minCivil, partsOf, weekdayOf } from '@/core/civil/date';
 import type { CivilDate, NthWeek, Weekday } from '@/core/civil/types';
 import { describeRule } from '@/core/recurrence/describe';
 import type { MonthOverflow, RecurrenceRule } from '@/core/recurrence/types';
 import { Txt } from '@/design/components';
+import { formatDayShort } from './format';
 import { FieldGroup, SegmentedControl, Stepper, ToggleChips } from '@/design/controls';
 import { space } from '@/design/tokens';
 import { DateField } from '@/features/common/DateField';
@@ -105,6 +106,14 @@ export interface RecurrenceDraft {
   /** "due Tuesday" vs "due this week" — carried so editing does not rewrite it. */
   readonly granularity: 'day' | 'week' | 'month';
   /**
+   * When the chore starts appearing on Today.
+   *
+   * The choice is held here rather than the date it resolves to, so moving the
+   * due date moves the lead with it. `ruleFrom` turns it into a real date,
+   * because the engine has no idea what today is.
+   */
+  readonly showWhen: ShowWhen;
+  /**
    * Carried for the same reason.
    *
    * The builder only ever *offers* `clamp`, but a stored rule may say `skip`,
@@ -138,6 +147,7 @@ export function draftFromRule(rule: RecurrenceRule, today: CivilDate): Recurrenc
     nthWeekday: weekdayOf(today),
     dueOn: today,
     granularity: 'day',
+    showWhen: 'day',
     overflow: 'clamp',
   };
 
@@ -167,7 +177,12 @@ export function draftFromRule(rule: RecurrenceRule, today: CivilDate): Recurrenc
       case 'monthlyFloating':
         return { ...base, interval: rule.everyNMonths, timesPerPeriod: rule.timesPerPeriod };
       case 'once':
-        return { ...base, dueOn: rule.dueOn, granularity: rule.granularity };
+        return {
+          ...base,
+          dueOn: rule.dueOn,
+          granularity: rule.granularity,
+          showWhen: showWhenOf(rule.dueOn, rule.showFrom),
+        };
       case 'unscheduled':
         return base;
     }
@@ -175,8 +190,37 @@ export function draftFromRule(rule: RecurrenceRule, today: CivilDate): Recurrenc
 
   return {
     ...parts,
-    rule: ruleFrom(parts, frequencyOf(rule), weeklyPatternOf(rule), monthlyPatternOf(rule)),
+    rule: ruleFrom(parts, frequencyOf(rule), weeklyPatternOf(rule), monthlyPatternOf(rule), today),
   };
+}
+
+/** When a one-time chore starts showing on Today. */
+export type ShowWhen = 'day' | 'd3' | 'week' | 'now';
+
+const LEAD_DAYS: Partial<Record<ShowWhen, number>> = { d3: 3, week: 7 };
+
+/** The stored date for a choice, or undefined for "on the day". */
+function showFromFor(when: ShowWhen, dueOn: CivilDate, today: CivilDate): CivilDate | undefined {
+  if (when === 'day') return undefined;
+  const wanted = when === 'now' ? today : addDays(dueOn, -(LEAD_DAYS[when] as number));
+  // Never after the deadline: a lead on a chore already due is just "now".
+  return minCivil(wanted, dueOn);
+}
+
+/**
+ * Which chip a stored date corresponds to.
+ *
+ * Exact matches first, because they are what this control writes. Anything
+ * else — a hand-seeded row, or a lead whose due date later moved — reads as
+ * "from now", which is true of any date already in the past and is the least
+ * surprising place for the highlight to sit.
+ */
+function showWhenOf(dueOn: CivilDate, showFrom: CivilDate | undefined): ShowWhen {
+  if (showFrom === undefined) return 'day';
+  if (showFrom === dueOn) return 'day';
+  if (showFrom === addDays(dueOn, -3)) return 'd3';
+  if (showFrom === addDays(dueOn, -7)) return 'week';
+  return 'now';
 }
 
 /** Rebuilds the rule from the draft's parts. Total over every combination. */
@@ -185,13 +229,24 @@ function ruleFrom(
   frequency: Frequency,
   weeklyPattern: WeeklyPattern,
   monthlyPattern: MonthlyPattern,
+  today: CivilDate,
 ): RecurrenceRule {
   switch (frequency) {
     case 'someday':
       return { kind: 'unscheduled' };
 
     case 'once':
-      return { kind: 'once', dueOn: draft.dueOn, granularity: draft.granularity };
+      return {
+        kind: 'once',
+        dueOn: draft.dueOn,
+        granularity: draft.granularity,
+        // Resolved to a real date here, and clamped: a lead longer than the
+        // time left simply means "from now", never a window that ends before
+        // it opens.
+        ...(showFromFor(draft.showWhen, draft.dueOn, today) === undefined
+          ? {}
+          : { showFrom: showFromFor(draft.showWhen, draft.dueOn, today) as CivilDate }),
+      };
 
     case 'daily':
       return { kind: 'daily', everyNDays: draft.interval };
@@ -250,6 +305,25 @@ interface Props {
   weekStartsOn?: Weekday;
 }
 
+/**
+ * The hint under the chips, which always names the real date.
+ *
+ * Doing the arithmetic for people is the point: "a week early" means nothing
+ * until it says which day that is. Every variant ends the same way, because
+ * "until you tick it off" is the half nobody expects — the chore does not
+ * disappear when the deadline passes.
+ */
+function showOnTodayHint(draft: RecurrenceDraft, today: CivilDate): string {
+  const from = showFromFor(draft.showWhen, draft.dueOn, today) ?? draft.dueOn;
+  const when = formatDayShort(from);
+  if (draft.showWhen === 'day') return `From ${when}, until you tick it off.`;
+  // Clamped: the lead ran past the deadline, or the deadline has gone.
+  if (from === today) return `From today, ${when}, until you tick it off.`;
+  const lead = draft.showWhen === 'd3' ? 'three days' : 'a week';
+  if (draft.showWhen === 'now') return `From today, ${when}, until you tick it off.`;
+  return `From ${when} — ${lead} before it is due — until you tick it off.`;
+}
+
 export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: Props) {
   const frequency = frequencyOf(draft.rule);
   const weeklyPattern = weeklyPatternOf(draft.rule);
@@ -272,6 +346,7 @@ export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: P
         over.frequency ?? frequency,
         over.weeklyPattern ?? weeklyPattern,
         over.monthlyPattern ?? monthlyPattern,
+        today,
       ),
     });
   };
@@ -309,7 +384,7 @@ export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: P
           </FieldGroup>
           <FieldGroup
             label="How exact"
-            hint="Only changes the wording and how long it waits before reading as late — the date itself does not move."
+            hint="Wording only — when it is due, and when it counts as late, do not move."
           >
             <SegmentedControl
               segments={[
@@ -320,6 +395,25 @@ export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: P
               value={draft.granularity}
               onChange={(granularity) => update({ granularity })}
               label="How exact"
+            />
+          </FieldGroup>
+
+          {/*
+            The behaviour question, kept apart from the wording one above.
+            A deadline three weeks out used to be invisible until the day it
+            arrived — which is the day it is already too late to plan around.
+          */}
+          <FieldGroup label="Show on Today" hint={showOnTodayHint(draft, today)}>
+            <SegmentedControl
+              segments={[
+                { value: 'day' as const, label: 'On the day' },
+                { value: 'd3' as const, label: '3 days early' },
+                { value: 'week' as const, label: 'A week early' },
+                { value: 'now' as const, label: 'From now' },
+              ]}
+              value={draft.showWhen}
+              onChange={(when) => update({ showWhen: when as ShowWhen })}
+              label="Show on Today"
             />
           </FieldGroup>
         </>

@@ -57,6 +57,7 @@ export const recurrenceRuleSchema = z.discriminatedUnion('kind', [
     kind: z.literal('once'),
     dueOn: civilDateSchema,
     granularity: z.enum(['day', 'week', 'month']),
+    showFrom: civilDateSchema.optional(),
   }),
 
   z.object({
