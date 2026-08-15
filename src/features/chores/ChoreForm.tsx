@@ -20,7 +20,7 @@ import type { Schedule } from '@/core/recurrence/types';
 import type { Assignment } from '@/core/rotation/types';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { BackBar, Button, ErrorState, Field, Stack, Txt } from '@/design/components';
-import { FieldGroup } from '@/design/controls';
+import { FieldGroup, SegmentedControl } from '@/design/controls';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
 import { useReminderPolicy } from '@/stores/reminderStore';
 import { describeSilence, whyNoReminder } from '@/core/notify/silence';
@@ -93,6 +93,17 @@ export function ChoreForm({
   const [categoryId, setCategoryId] = useState<string | null>(chore?.categoryId ?? null);
   const [priority, setPriority] = useState<Priority>(chore?.priority ?? DEFAULT_PRIORITY);
   const [icon, setIcon] = useState<IconName | null>(toIconName(chore?.icon));
+  /*
+   * Kept as a boolean and written out as an id.
+   *
+   * "Private" is a fact about you, not a person you nominate: there is no
+   * screen anywhere that offers making a chore private *to somebody else*, and
+   * the column stores an id only because a boolean would need `created_by` to
+   * be trustworthy, which it is not.
+   */
+  const [isPrivate, setIsPrivate] = useState<boolean>(
+    chore?.privateTo !== null && chore?.privateTo !== undefined,
+  );
 
   /**
    * Filing a chore under a category adopts that category's icon.
@@ -183,6 +194,7 @@ export function ChoreForm({
       categoryId,
       priority,
       icon,
+      privateTo: isPrivate ? userId : null,
     });
   };
 
@@ -291,6 +303,36 @@ export function ChoreForm({
           today={today}
           recurs={recurrence.rule.kind !== 'once' && recurrence.rule.kind !== 'unscheduled'}
         />
+
+        {/*
+          Below the assignment, because it answers a related question — who is
+          this chore's business — and above the buttons, because it must be
+          seen before saving rather than discovered afterwards.
+
+          Only offered when signed in: without an id there is nobody to keep it
+          private *to*, and a switch that silently did nothing would be worse
+          than its absence.
+        */}
+        {userId === null ? null : (
+          <FieldGroup
+            label="Private"
+            hint={
+              isPrivate
+                ? 'Only you can see this chore, and only you can see when it is done.'
+                : 'Everyone in the household can see this chore.'
+            }
+          >
+            <SegmentedControl
+              segments={[
+                { value: 'shared' as const, label: 'Shared' },
+                { value: 'private' as const, label: 'Only me' },
+              ]}
+              value={isPrivate ? 'private' : 'shared'}
+              onChange={(value: string) => setIsPrivate(value === 'private')}
+              label="Who can see this chore"
+            />
+          </FieldGroup>
+        )}
 
         <Stack gap={space.sm}>
           <Button

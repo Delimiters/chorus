@@ -36,6 +36,14 @@ export interface Chore extends ChoreInput {
   /** A glyph name from the allowlist, or null. See src/design/icons.ts. */
   readonly icon: string | null;
   /**
+   * Whose eyes only, or null for the whole household.
+   *
+   * Enforced by RLS on three tables — the chore, its completions and its
+   * exceptions — so a private chore is not merely hidden by this client. See
+   * the private-chores migration.
+   */
+  readonly privateTo: string | null;
+  /**
    * When it was added, and by whom.
    *
    * Both nullable: `created_by` has been optional since the schema was
@@ -64,6 +72,7 @@ function toChore(row: {
   category_id: string | null;
   priority: unknown;
   icon: string | null;
+  private_to?: string | null;
   created_at?: string | null;
   created_by?: string | null;
 }): { chore: Chore } | { error: string } {
@@ -87,6 +96,7 @@ function toChore(row: {
       categoryId: row.category_id,
       priority: toPriority(row.priority),
       icon: row.icon,
+      privateTo: row.private_to ?? null,
       createdAt: row.created_at ?? null,
       createdBy: row.created_by ?? null,
     },
@@ -106,7 +116,7 @@ export async function listChores(
   let query = supabase
     .from('chores')
     .select(
-      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, created_at, created_by',
+      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, private_to, created_at, created_by',
     )
     .eq('household_id', householdId)
     .order('title');
@@ -240,7 +250,7 @@ export async function listOneTimeChores(householdId: string): Promise<ChoreListR
   const { data, error } = await supabase
     .from('chores')
     .select(
-      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, created_at, created_by',
+      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, private_to, created_at, created_by',
     )
     .eq('household_id', householdId)
     .eq('schedule_kind', 'once')
@@ -303,6 +313,8 @@ export interface ChoreDraft {
   readonly priority: Priority;
   /** A glyph name from the allowlist, or null. See src/design/icons.ts. */
   readonly icon: string | null;
+  /** Your own id to keep it to yourself, or null to share it. */
+  readonly privateTo: string | null;
 }
 
 /**
@@ -329,6 +341,7 @@ export interface ChoreDraft {
 export function choreRow(draft: ChoreDraft): {
   title: string;
   notes: string | null;
+  private_to: string | null;
   schedule: Json;
   assignment: Json;
   category_id: string | null;
@@ -355,6 +368,7 @@ export function choreRow(draft: ChoreDraft): {
     assignment: assignment.data as unknown as Json,
     category_id: draft.categoryId,
     icon: draft.icon,
+    private_to: draft.privateTo,
     // Normalised on the way out as well as in. The column has a CHECK, so an
     // invalid value would be a 23514 at the database rather than a clear
     // message here, and this is the one function both writers share.

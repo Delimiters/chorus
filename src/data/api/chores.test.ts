@@ -29,6 +29,7 @@ const ANYONE: Assignment = { kind: 'anyone' };
 
 const draft = (over: Partial<ChoreDraft> = {}): ChoreDraft => ({
   title: 'Dishes',
+  privateTo: null,
   notes: null,
   schedule: DAILY,
   assignment: ANYONE,
@@ -48,9 +49,16 @@ describe('building the row', () => {
       'icon',
       'notes',
       'priority',
+      'private_to',
       'schedule',
       'title',
     ]);
+  });
+
+  it('writes a shared chore as null rather than omitting the key', () => {
+    // Same reasoning as the icon below: omitting it would leave a chore that
+    // had been made private stuck that way, with no route back to shared.
+    expect(choreRow(draft({ privateTo: null }))).toHaveProperty('private_to', null);
   });
 
   it('writes a null icon as null rather than dropping the key', () => {

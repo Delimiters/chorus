@@ -186,6 +186,7 @@ export type Database = {
           id: string
           notes: string | null
           priority: string
+          private_to: string | null
           schedule: Json
           schedule_kind: string | null
           starts_on: string | null
@@ -205,6 +206,7 @@ export type Database = {
           id?: string
           notes?: string | null
           priority?: string
+          private_to?: string | null
           schedule: Json
           schedule_kind?: string | null
           starts_on?: string | null
@@ -224,6 +226,7 @@ export type Database = {
           id?: string
           notes?: string | null
           priority?: string
+          private_to?: string | null
           schedule?: Json
           schedule_kind?: string | null
           starts_on?: string | null
@@ -250,6 +253,13 @@ export type Database = {
             columns: ["household_id"]
             isOneToOne: false
             referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chores_private_to_fkey"
+            columns: ["private_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
