@@ -65,6 +65,7 @@ const ROTATING_CHORE: Chore = {
   categoryId: null,
   priority: 'normal',
   icon: null,
+  privateTo: null,
   createdAt: '2026-08-15T09:02:51.485803+00:00',
   createdBy: 'user-them',
 };
@@ -726,5 +727,40 @@ describe('where a chore came from', () => {
     // `created_by` is nullable, and a member can leave the household.
     await renderForm({ chore: { ...ROTATING_CHORE, createdBy: null } });
     expect(screen.getByText('Added on 15 August 2026')).toBeTruthy();
+  });
+});
+
+describe('keeping a chore to yourself', () => {
+  it('is shared unless you say otherwise', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Get anniversary flowers');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ privateTo: null }));
+  });
+
+  it('records it against you, not as a bare flag', async () => {
+    // The column holds an id because `created_by` is nullable and not
+    // trustworthy; the switch is a boolean because "private to somebody else"
+    // is not a thing any screen offers.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Get anniversary flowers');
+    await fireEvent.press(screen.getByLabelText('Only me'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ privateTo: ME }));
+  });
+
+  it('opens an existing private chore already switched on', async () => {
+    await renderForm({ chore: { ...ROTATING_CHORE, privateTo: ME } });
+    expect(screen.getByText(/Only you can see this chore/)).toBeTruthy();
+  });
+
+  it('can be shared again', async () => {
+    const { onSubmit } = await renderForm({ chore: { ...ROTATING_CHORE, privateTo: ME } });
+    await fireEvent.press(screen.getByLabelText('Shared'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ privateTo: null }));
   });
 });
