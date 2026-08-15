@@ -35,6 +35,15 @@ export interface Chore extends ChoreInput {
   readonly priority: Priority;
   /** A glyph name from the allowlist, or null. See src/design/icons.ts. */
   readonly icon: string | null;
+  /**
+   * When it was added, and by whom.
+   *
+   * Both nullable: `created_by` has been optional since the schema was
+   * written, and a row seeded outside the app may have neither. The editor
+   * shows whichever it has rather than asserting they exist.
+   */
+  readonly createdAt: string | null;
+  readonly createdBy: string | null;
 }
 
 /**
@@ -55,6 +64,8 @@ function toChore(row: {
   category_id: string | null;
   priority: unknown;
   icon: string | null;
+  created_at?: string | null;
+  created_by?: string | null;
 }): { chore: Chore } | { error: string } {
   const schedule = safeParseSchedule(row.schedule);
   if (!schedule.success) {
@@ -76,6 +87,8 @@ function toChore(row: {
       categoryId: row.category_id,
       priority: toPriority(row.priority),
       icon: row.icon,
+      createdAt: row.created_at ?? null,
+      createdBy: row.created_by ?? null,
     },
   };
 }
@@ -92,7 +105,9 @@ export async function listChores(
 ): Promise<ChoreListResult> {
   let query = supabase
     .from('chores')
-    .select('id, title, notes, schedule, assignment, archived_at, category_id, priority, icon')
+    .select(
+      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, created_at, created_by',
+    )
     .eq('household_id', householdId)
     .order('title');
 
@@ -224,7 +239,9 @@ export async function listExceptionsForChores(
 export async function listOneTimeChores(householdId: string): Promise<ChoreListResult> {
   const { data, error } = await supabase
     .from('chores')
-    .select('id, title, notes, schedule, assignment, archived_at, category_id, priority, icon')
+    .select(
+      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, created_at, created_by',
+    )
     .eq('household_id', householdId)
     .eq('schedule_kind', 'once')
     .is('archived_at', null)

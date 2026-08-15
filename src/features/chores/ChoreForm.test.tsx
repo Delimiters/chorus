@@ -65,6 +65,8 @@ const ROTATING_CHORE: Chore = {
   categoryId: null,
   priority: 'normal',
   icon: null,
+  createdAt: '2026-08-15T09:02:51.485803+00:00',
+  createdBy: 'user-them',
 };
 
 /** `async` because RNTL v14's `render` is; see docs/TESTING.md. */
@@ -704,5 +706,25 @@ describe('assignment', () => {
       kind: 'rotate',
       segments: [{ effectiveFrom: TODAY, memberIds: [ME, THEM], offset: 0 }],
     });
+  });
+});
+
+describe('where a chore came from', () => {
+  it('says who added it and when, when editing', async () => {
+    // The question that prompted this: a chore appeared already assigned, and
+    // there was no way inside the app to see who had put it there.
+    await renderForm({ chore: ROTATING_CHORE });
+    expect(screen.getByText('Added by Sam on 15 August 2026')).toBeTruthy();
+  });
+
+  it('says nothing at all when creating one', async () => {
+    await renderForm({});
+    expect(screen.queryByText(/^Added /)).toBeNull();
+  });
+
+  it('still gives the date when the creator is unknown', async () => {
+    // `created_by` is nullable, and a member can leave the household.
+    await renderForm({ chore: { ...ROTATING_CHORE, createdBy: null } });
+    expect(screen.getByText('Added on 15 August 2026')).toBeTruthy();
   });
 });
