@@ -37,7 +37,21 @@ export type RecurrenceRule =
   | {
       readonly kind: 'once';
       readonly dueOn: CivilDate;
+      /** Wording only: "once on 3 March" against "once in March". */
       readonly granularity: 'day' | 'week' | 'month';
+      /**
+       * The day it starts appearing on Today, if that is before it is due.
+       *
+       * Absent means it appears on its due date and not before, which is the
+       * old and still the default behaviour. Present, it counts as due from
+       * that day onward — so a deadline weeks away can sit on Today from the
+       * moment it is agreed, rather than surfacing on the day it is already
+       * too late to plan around.
+       *
+       * A stored date rather than a flag, because the engine cannot ask what
+       * today is. The screen that offers the switch knows, and writes it down.
+       */
+      readonly showFrom?: CivilDate;
     }
   /** "Daily" is `everyNDays: 1`; "every 3 days" is `everyNDays: 3`. */
   | { readonly kind: 'daily'; readonly everyNDays: number }

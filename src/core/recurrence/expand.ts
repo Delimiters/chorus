@@ -95,8 +95,27 @@ export function expandOccurrences(
       // task — and clamping to them made "add a one-time thing I should have
       // done yesterday" write a row that appeared on no screen, which is
       // postmortem failure #5 in mirror image.
+      //
+      // `showFrom` widens the *front* of the flexible window, and nothing
+      // else: `dueOn` is untouched, so the occurrence key, the period key and
+      // the row's date on Upcoming are all exactly as they were. Status is
+      // derived from this window (see project.ts), so a chore with `showFrom`
+      // reads as due from that day rather than upcoming, and still turns
+      // overdue the day after its deadline.
+      //
+      // Clamped, because a chore given a start date after its own deadline
+      // would otherwise produce a window that ends before it begins.
       return isSameOrAfter(rule.dueOn, window.start) && isSameOrBefore(rule.dueOn, window.end)
-        ? [build(rule.dueOn, dayPeriodKey(rule.dueOn), 0, 0, rule.dueOn, rule.dueOn)]
+        ? [
+            build(
+              rule.dueOn,
+              dayPeriodKey(rule.dueOn),
+              0,
+              0,
+              rule.showFrom === undefined ? rule.dueOn : minCivil(rule.showFrom, rule.dueOn),
+              rule.dueOn,
+            ),
+          ]
         : [];
 
     case 'daily':

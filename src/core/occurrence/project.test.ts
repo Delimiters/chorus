@@ -458,3 +458,78 @@ describe('the agenda, rendered as text', () => {
     ]);
   });
 });
+
+/**
+ * A deadline you want to see coming.
+ *
+ * A one-time chore used to be `upcoming` — and so absent from Today — right up
+ * to its due date, visible for exactly one day, then overdue. That is the
+ * opposite of useful for "renew the registration by the 31st": it surfaced on
+ * the day it was already too late to plan around.
+ *
+ * `showFrom` widens the front of the flexible window. Status is derived from
+ * that window, so the chore reads as due from the chosen day onward.
+ */
+describe('a one-time chore that starts showing early', () => {
+  const deadline = d('2026-01-20');
+
+  const withShowFrom = (showFrom?: CivilDate): ChoreInput =>
+    chore({
+      id: 'registration',
+      title: 'Renew registration',
+      schedule: {
+        rule:
+          showFrom === undefined
+            ? { kind: 'once', dueOn: deadline, granularity: 'day' }
+            : { kind: 'once', dueOn: deadline, granularity: 'day', showFrom },
+        startsOn: deadline,
+        endsOn: null,
+        timesOfDay: [],
+      },
+    });
+
+  const statusOn = (today: CivilDate, showFrom?: CivilDate) => {
+    const [occ] = projectOccurrences(input({ chores: [withShowFrom(showFrom)], today }), CAL, {
+      start: d('2026-01-01'),
+      end: d('2026-01-31'),
+    });
+    return occ?.status;
+  };
+
+  it('is upcoming before its start day', () => {
+    expect(statusOn(d('2026-01-12'), d('2026-01-13'))).toBe('upcoming');
+  });
+
+  it('is due from its start day, well before the deadline', () => {
+    expect(statusOn(d('2026-01-13'), d('2026-01-13'))).toBe('due');
+  });
+
+  it('is still due the day before the deadline', () => {
+    expect(statusOn(d('2026-01-19'), d('2026-01-13'))).toBe('due');
+  });
+
+  it('turns overdue only after the deadline, not after the start day', () => {
+    expect(statusOn(d('2026-01-21'), d('2026-01-13'))).toBe('overdue');
+  });
+
+  it('without it, is invisible until the day — which is the whole complaint', () => {
+    // Non-vacuity: the assertions above must be doing something the default
+    // does not already do.
+    expect(statusOn(d('2026-01-13'))).toBe('upcoming');
+    expect(statusOn(d('2026-01-20'))).toBe('due');
+  });
+
+  it('clamps a start day set after the deadline rather than inverting', () => {
+    // The window would otherwise end before it began.
+    expect(statusOn(d('2026-01-20'), d('2026-01-25'))).toBe('due');
+  });
+
+  it('leaves the due date alone, so nothing else moves', () => {
+    const [occ] = projectOccurrences(
+      input({ chores: [withShowFrom(d('2026-01-13'))], today: d('2026-01-15') }),
+      CAL,
+      { start: d('2026-01-01'), end: d('2026-01-31') },
+    );
+    expect(occ?.dueOn).toBe(deadline);
+  });
+});
