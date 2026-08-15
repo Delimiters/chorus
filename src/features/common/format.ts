@@ -10,6 +10,20 @@ import type { CivilDate } from '@/core/civil/types';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS_LONG = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 const MONTHS = [
   'January',
   'February',
@@ -116,4 +130,22 @@ export function datesBetween(start: CivilDate, end: CivilDate): CivilDate[] {
   const span = daysBetween(start, end);
   for (let i = 0; i <= span; i += 1) out.push(addDays(start, i));
   return out;
+}
+
+/**
+ * A stored timestamp as a plain day: "on 15 August 2026".
+ *
+ * Takes the ISO string the database returns rather than a CivilDate, because
+ * this is provenance — the instant a row was written — not a scheduling date.
+ * `Date` is fine here for the same reason: this file is presentation, and the
+ * engine's Date-free rule is about the schedule, not about a timestamp that is
+ * already fixed.
+ */
+export function formatTimestampDay(iso: string | null): string | null {
+  if (iso === null) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  const day = at.getDate();
+  const month = MONTHS_LONG[at.getMonth()] as string;
+  return `on ${day} ${month} ${at.getFullYear()}`;
 }

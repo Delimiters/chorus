@@ -26,6 +26,7 @@ import { useReminderPolicy } from '@/stores/reminderStore';
 import { describeSilence, whyNoReminder } from '@/core/notify/silence';
 import { useCategoryList, useCreateCategory } from '@/data/hooks/useCategories';
 import { useTheme } from '@/design/theme';
+import { formatTimestampDay } from '@/features/common/format';
 import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
 import { DateField } from '@/features/common/DateField';
@@ -52,6 +53,20 @@ interface Props {
   onArchive?: (() => void) | undefined;
   isSaving?: boolean;
   error?: string | null;
+}
+
+/**
+ * "Added by Sam on 15 August 2026", degrading gracefully.
+ *
+ * `created_by` is nullable and a member can leave, so the name is looked up
+ * rather than assumed; without one this says when but not who, which is still
+ * more than the screen said before.
+ */
+function creditLine(chore: Chore, members: readonly PickerMember[]): string {
+  const when = formatTimestampDay(chore.createdAt);
+  const who = members.find((m) => m.userId === chore.createdBy)?.displayName ?? null;
+  if (when === null) return who === null ? '' : `Added by ${who}`;
+  return who === null ? `Added ${when}` : `Added by ${who} ${when}`;
 }
 
 export function ChoreForm({
@@ -302,6 +317,21 @@ export function ChoreForm({
                   : 'It stops appearing, and everything already ticked off stays counted. You can bring it back from the archived list.'}
               </Txt>
             </View>
+          ) : null}
+
+          {/*
+            Who added it, and when.
+            
+            Read-only, and last on the screen because it is provenance rather
+            than a setting. It answers "where did this come from" without a
+            trip to the database — which is exactly how the question came up:
+            a chore appeared, assigned, and there was no way in the app to see
+            that the other person had added it that morning.
+          */}
+          {editing && chore.createdAt !== null ? (
+            <Txt variant="small" tone="faint" style={{ paddingTop: space.lg }}>
+              {creditLine(chore, members)}
+            </Txt>
           ) : null}
         </Stack>
       </ScrollView>
