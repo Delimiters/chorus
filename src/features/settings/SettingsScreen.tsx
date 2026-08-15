@@ -86,6 +86,7 @@ export function SettingsScreen() {
   const setIncludeOthers = useReminderStore((s) => s.setIncludeOthers);
   const setIncludeRoutines = useReminderStore((s) => s.setIncludeRoutines);
   const setBucketTime = useReminderStore((s) => s.setBucketTime);
+  const setAnnounceNewChores = useReminderStore((s) => s.setAnnounceNewChores);
   const userId = useUserId();
   const showOthers = useRoutineStore((s) => s.preference.showOthers);
   const setShowOthers = useRoutineStore((s) => s.setShowOthers);
@@ -274,6 +275,16 @@ export function SettingsScreen() {
                       })}
                     </>
                   ) : null}
+
+                  {row(
+                    'When a chore is added',
+                    'Tells you when your housemate puts something new on the list.',
+                    <Switch
+                      value={policy.announceNewChores}
+                      onValueChange={setAnnounceNewChores}
+                      accessibilityLabel="Tell me when a chore is added"
+                    />,
+                  )}
 
                   {/*
                     Stated rather than hidden. iOS holds a fixed number of

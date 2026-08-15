@@ -80,6 +80,18 @@ export interface ReminderPolicy {
    * morning, which is an alarm clock rather than a nudge.
    */
   readonly bucketTimes: Record<TimeBucket, CivilTime>;
+  /**
+   * Whether to be told when the other person adds a chore.
+   *
+   * Stored and honoured by the Settings screen, and read by nothing else yet:
+   * delivery needs a remote push, because the only moment the app could notice
+   * the insert locally is while it is open, and a banner then would be
+   * announcing a row that is already on the screen. Remote push needs APNs,
+   * which needs a paid Apple account. The preference is kept now so that the
+   * day the account exists, the answer to "did they want this" is already
+   * here rather than defaulted for them.
+   */
+  readonly announceNewChores: boolean;
   /** How many days ahead to plan. Bounded so the queue cannot run away. */
   readonly horizonDays: number;
 }
@@ -91,6 +103,7 @@ export const DEFAULT_POLICY: ReminderPolicy = {
   includeOthers: false,
   includeRoutines: true,
   bucketTimes: DEFAULT_BUCKET_TIMES,
+  announceNewChores: true,
   horizonDays: 30,
 };
 

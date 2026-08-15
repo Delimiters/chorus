@@ -247,3 +247,13 @@ describe('which build am I looking at', () => {
     expect(screen.getByText('Chorus 9.9.9 (42)')).toBeTruthy();
   });
 });
+
+describe('being told about a new chore', () => {
+  it('offers the switch, and writes it to this phone', async () => {
+    await renderScreen();
+    const toggle = screen.getByLabelText('Tell me when a chore is added');
+
+    fireEvent(toggle, 'valueChange', false);
+    expect(useReminderStore.getState().policy.announceNewChores).toBe(false);
+  });
+});

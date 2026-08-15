@@ -30,6 +30,7 @@ interface ReminderState {
   readonly setIncludeOthers: (include: boolean) => void;
   readonly setIncludeRoutines: (include: boolean) => void;
   readonly setBucketTime: (bucket: TimeBucket, time: CivilTime) => void;
+  readonly setAnnounceNewChores: (announce: boolean) => void;
   readonly hydrate: () => Promise<void>;
 }
 
@@ -41,6 +42,7 @@ interface Stored {
   includeOthers?: boolean;
   includeRoutines?: boolean;
   bucketTimes?: Record<string, string>;
+  announceNewChores?: boolean;
 }
 
 function persist(policy: ReminderPolicy): void {
@@ -51,6 +53,7 @@ function persist(policy: ReminderPolicy): void {
     includeOthers: policy.includeOthers,
     includeRoutines: policy.includeRoutines,
     bucketTimes: policy.bucketTimes,
+    announceNewChores: policy.announceNewChores,
   };
   // Fire and forget: a failed write costs a preference, not correctness, and
   // blocking a toggle on disk would make the switch feel broken.
@@ -91,6 +94,12 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
     persist(policy);
   },
 
+  setAnnounceNewChores: (announceNewChores) => {
+    const policy = { ...get().policy, announceNewChores };
+    set({ policy });
+    persist(policy);
+  },
+
   setBucketTime: (bucket, time) => {
     const policy = {
       ...get().policy,
@@ -123,6 +132,9 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
               : {}),
             ...(typeof stored.includeRoutines === 'boolean'
               ? { includeRoutines: stored.includeRoutines }
+              : {}),
+            ...(typeof stored.announceNewChores === 'boolean'
+              ? { announceNewChores: stored.announceNewChores }
               : {}),
             // Per bucket, and each one checked on its own: a stored blob from
             // before this setting existed is missing keys rather than
