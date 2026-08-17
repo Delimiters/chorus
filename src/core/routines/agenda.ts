@@ -41,13 +41,23 @@ export interface DaySummary {
 }
 
 /**
- * Within a bucket: timed items in clock order, then untimed, then by title.
+ * Within a bucket: what you put first, then clock order, then title.
+ *
+ * A hand-placed item beats the clock, because the sequence somebody dragged
+ * into place is a statement about the order they do things — which is exactly
+ * what a time of day fails to express for the untimed majority.
  *
  * Total, so the order never depends on which occurrence happened to arrive
- * first — two items at 07:00 must not swap places between renders.
+ * first: two untimed items with no position must not swap places between
+ * renders. `Infinity` for an unplaced item is what puts it after the placed
+ * ones while still letting the fall-through decide among its own kind.
  */
-function byTimeThenTitle(a: RoutineOccurrence, b: RoutineOccurrence): number {
-  return a.sortKey - b.sortKey || a.title.localeCompare(b.title);
+function byOrder(a: RoutineOccurrence, b: RoutineOccurrence): number {
+  return (
+    (a.position ?? Infinity) - (b.position ?? Infinity) ||
+    a.sortKey - b.sortKey ||
+    a.title.localeCompare(b.title)
+  );
 }
 
 export function bucketSections(
@@ -65,7 +75,7 @@ export function bucketSections(
 
   for (const bucket of BUCKETS) {
     const inBucket = forDay.filter((occ) => occ.bucket === bucket);
-    const mine = inBucket.filter((occ) => occ.ownerId === userId).sort(byTimeThenTitle);
+    const mine = inBucket.filter((occ) => occ.ownerId === userId).sort(byOrder);
 
     const theirs: PersonRoutine[] = [];
     if (options.showOthers) {
@@ -79,7 +89,7 @@ export function bucketSections(
       // Sorted by owner id so the order is stable across renders; the screen
       // shows names, which it resolves itself.
       for (const [ownerId, items] of [...owners.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-        theirs.push({ ownerId, items: [...items].sort(byTimeThenTitle) });
+        theirs.push({ ownerId, items: [...items].sort(byOrder) });
       }
     }
 

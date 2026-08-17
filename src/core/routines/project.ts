@@ -40,6 +40,8 @@ export interface RoutineItemInput {
   readonly linkedChoreId: string | null;
   readonly icon: string | null;
   readonly remind: boolean;
+  /** Manual order within a bucket; null when never dragged. */
+  readonly position: number | null;
   /** Soft-deleted items produce nothing. */
   readonly archived: boolean;
 }
@@ -77,6 +79,15 @@ export interface RoutineOccurrence extends Occurrence {
    * the evening. Untimed items sort after timed ones within their bucket.
    */
   readonly sortKey: number;
+  /**
+   * Where the owner dragged it, or null if they never have.
+   *
+   * Null is not zero. An item nobody has placed keeps its time order and sits
+   * after everything that has been placed — so a list looks untouched until it
+   * is reordered, and a new item joins the bottom of its bucket instead of the
+   * middle of somebody's sequence.
+   */
+  readonly position: number | null;
 }
 
 /** Untimed items sit after every timed one in their bucket. */
@@ -123,6 +134,7 @@ export function projectRoutineOccurrences(
         completedOn: done,
         status: statusOf(occurrence, done, today),
         sortKey: item.timeOfDay === null ? UNTIMED : minutesFromDayStart(item.timeOfDay),
+        position: item.position,
       });
     }
   }

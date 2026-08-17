@@ -33,6 +33,7 @@ const item = (over: Partial<RoutineItemInput> = {}): RoutineItemInput => ({
   linkedChoreId: null,
   icon: null,
   remind: false,
+  position: null,
   archived: false,
   ...over,
 });
