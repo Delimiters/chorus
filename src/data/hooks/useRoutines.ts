@@ -33,6 +33,7 @@ import {
   type LinkedChoreTick,
   type RoutineDraft,
   type RoutineItem,
+  type RoutineListResult,
 } from '../api/routines';
 import { qk } from '../queryKeys';
 import { useHousehold } from './useHousehold';
@@ -200,13 +201,55 @@ export function useDeleteRoutineItem() {
   });
 }
 
-/** Drag-to-reorder, written for the whole bucket at once. */
+/**
+ * Drag-to-reorder, written for the whole bucket at once.
+ *
+ * Optimistic, and it has to be. The list renders from the query cache, so
+ * without this the dropped row re-rendered in its old place the instant the
+ * gesture ended, then moved again when the refetch landed — the item visibly
+ * jumping back and forth before settling. The cache is patched to the new
+ * order first, so the row simply stays where it was put.
+ *
+ * Every routine list query is patched, archived or not: the same item appears
+ * in both, and leaving one stale would make the editor disagree with the
+ * screen you dragged on.
+ */
 export function useReorderRoutine() {
+  const householdId = useActiveHouseholdId();
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateHousehold();
+
   return useMutation({
     mutationFn: ({ orderedIds }: { orderedIds: readonly string[] }) =>
       reorderRoutineItems(orderedIds),
-    onSuccess: invalidate,
+
+    onMutate: async ({ orderedIds }) => {
+      if (householdId === null) return;
+      const prefix = qk.routines(householdId);
+      // Cancel first, or a refetch already in flight lands after the patch and
+      // puts the old order straight back.
+      await queryClient.cancelQueries({ queryKey: prefix });
+      const snapshot = queryClient.getQueriesData({ queryKey: prefix });
+
+      const rank = new Map(orderedIds.map((id, index) => [id, index]));
+      queryClient.setQueriesData<RoutineListResult>({ queryKey: prefix }, (existing) => {
+        if (existing === undefined || !Array.isArray(existing.items)) return existing;
+        return {
+          ...existing,
+          items: existing.items.map((item) =>
+            rank.has(item.id) ? { ...item, position: rank.get(item.id) as number } : item,
+          ),
+        };
+      });
+
+      return { snapshot };
+    },
+
+    onError: (_error, _input, context) => {
+      for (const [key, data] of context?.snapshot ?? []) queryClient.setQueryData(key, data);
+    },
+
+    onSettled: invalidate,
   });
 }
 
