@@ -17,7 +17,7 @@ import { inkColor, inkSoft } from './inks';
 import { useTheme } from './theme';
 import { MIN_TARGET, radius, space } from './tokens';
 import { Txt } from './components';
-import { formatLateness } from './format';
+import { formatLateness, formatMissedBefore } from './format';
 import type { Priority } from '@/core/chore/priority';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
@@ -280,7 +280,7 @@ export function ChoreRow({
           {/* Quiet, not a reproach — see the overdue rule in DESIGN_SYSTEM.md. */}
           {item.missedBefore > 0 && !done ? (
             <Txt variant="small" tone="faint">
-              · missed last time
+              {`· ${formatMissedBefore(item.missedBefore)}`}
             </Txt>
           ) : null}
         </View>
