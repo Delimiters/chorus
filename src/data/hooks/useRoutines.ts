@@ -28,6 +28,7 @@ import {
   listRoutineItems,
   setShareRoutine,
   uncompleteRoutine,
+  reorderRoutineItems,
   updateRoutineItem,
   type LinkedChoreTick,
   type RoutineDraft,
@@ -195,6 +196,16 @@ export function useDeleteRoutineItem() {
   const invalidate = useInvalidateHousehold();
   return useMutation({
     mutationFn: ({ itemId }: { itemId: string }) => deleteRoutineItem(itemId),
+    onSuccess: invalidate,
+  });
+}
+
+/** Drag-to-reorder, written for the whole bucket at once. */
+export function useReorderRoutine() {
+  const invalidate = useInvalidateHousehold();
+  return useMutation({
+    mutationFn: ({ orderedIds }: { orderedIds: readonly string[] }) =>
+      reorderRoutineItems(orderedIds),
     onSuccess: invalidate,
   });
 }

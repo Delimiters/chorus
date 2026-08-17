@@ -10,6 +10,7 @@
 
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Pressable, View } from 'react-native';
+import { useReorderableDrag } from 'react-native-reorderable-list';
 
 import { formatCivilTime } from '@/core/civil/time';
 import type { RoutineOccurrence } from '@/core/routines/project';
@@ -30,11 +31,19 @@ interface Props {
    * screen offering something the server would refuse.
    */
   canTick: boolean;
+  /**
+   * Whether a long press picks the row up to reorder it.
+   *
+   * Off for a housemate's routine and for any day but today: a past day is a
+   * record of what happened, and rearranging it would rewrite that.
+   */
+  draggable?: boolean;
   onToggle: () => void;
   onOpen?: (() => void) | undefined;
 }
 
-export function RoutineRow({ item, ink, canTick, onToggle, onOpen }: Props) {
+export function RoutineRow({ item, ink, canTick, draggable = false, onToggle, onOpen }: Props) {
+  const drag = useReorderableDrag();
   const { colors } = useTheme();
   const done = item.status === 'completed';
   const missed = item.status === 'missed';
@@ -94,8 +103,16 @@ export function RoutineRow({ item, ink, canTick, onToggle, onOpen }: Props) {
       ) : (
         <Pressable
           onPress={onOpen}
+          // The drag comes from the same press the row already handles, so a
+          // tap still opens the item and a hold picks it up. A separate grab
+          // handle would cost a column of width on every row to serve a
+          // gesture used once in a while.
+          onLongPress={draggable ? drag : undefined}
+          delayLongPress={220}
           accessibilityRole="button"
-          accessibilityLabel={`${item.title}. Edit.`}
+          accessibilityLabel={
+            draggable ? `${item.title}. Edit, or hold to reorder.` : `${item.title}. Edit.`
+          }
           style={{ flex: 1 }}
         >
           {body}

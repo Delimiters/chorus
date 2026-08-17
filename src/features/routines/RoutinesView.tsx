@@ -18,7 +18,7 @@ import { addDays, compareCivil } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
 import type { RoutineOccurrence } from '@/core/routines/project';
 import { useMembers } from '@/data/hooks/useHousehold';
-import { useRoutineDay, useToggleRoutine } from '@/data/hooks/useRoutines';
+import { useReorderRoutine, useRoutineDay, useToggleRoutine } from '@/data/hooks/useRoutines';
 import { useToday_View } from '@/data/hooks/useOccurrences';
 import type { LinkedChoreTick } from '@/data/api/routines';
 import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
@@ -29,6 +29,8 @@ import { useTheme } from '@/design/theme';
 import { MIN_TARGET, space } from '@/design/tokens';
 import { formatDayLong } from '@/features/common/format';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
+import ReorderableList, { reorderItems } from 'react-native-reorderable-list';
+
 import { RoutineRow } from './RoutineRow';
 
 interface Props {
@@ -52,6 +54,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
     showOthers: preference.showOthers,
   });
   const toggle = useToggleRoutine();
+  const reorder = useReorderRoutine();
 
   /**
    * The chore occurrence a linked item would tick, if one is due today.
@@ -154,27 +157,46 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
           summary.sections.map((section) => (
             <View key={section.bucket}>
               <SectionHeader title={section.title} count={section.totalCount} />
-              <Stack gap={space.xs}>
-                {section.mine.map((item) => (
-                  <RoutineRow
-                    key={item.occurrenceKey}
-                    item={item}
-                    ink={myInk}
-                    // Only today is tickable: a past day is a record, and a
-                    // future one has not happened.
-                    canTick={isToday}
-                    onToggle={() =>
-                      toggle.mutate({
-                        occurrence: item,
-                        complete: item.status !== 'completed',
-                        on: day,
-                        chore: linkedChoreFor(item.linkedChoreId),
-                      })
-                    }
-                    onOpen={() => onOpen(item)}
-                  />
-                ))}
-              </Stack>
+              {/*
+                Long-press a row to drag it. Only your own list, and only on
+                today: a past day is a record of what happened, and reordering
+                it would rewrite that.
+
+                `ReorderableList` inside a ScrollView is deliberate — these are
+                a handful of rows under a fixed header, and nesting a scroller
+                would fight the page. `scrollEnabled={false}` keeps the outer
+                one in charge.
+              */}
+              <ReorderableList
+                data={[...section.mine]}
+                keyExtractor={(item) => item.occurrenceKey}
+                scrollEnabled={false}
+                onReorder={({ from, to }) => {
+                  const next = reorderItems([...section.mine], from, to);
+                  reorder.mutate({ orderedIds: next.map((i) => i.itemId) });
+                }}
+                renderItem={({ item }) => (
+                  <View style={{ paddingBottom: space.xs }}>
+                    <RoutineRow
+                      item={item}
+                      ink={myInk}
+                      // Only today is tickable: a past day is a record, and a
+                      // future one has not happened.
+                      canTick={isToday}
+                      draggable={isToday}
+                      onToggle={() =>
+                        toggle.mutate({
+                          occurrence: item,
+                          complete: item.status !== 'completed',
+                          on: day,
+                          chore: linkedChoreFor(item.linkedChoreId),
+                        })
+                      }
+                      onOpen={() => onOpen(item)}
+                    />
+                  </View>
+                )}
+              />
 
               {section.theirs.map((person) => (
                 <View key={person.ownerId}>

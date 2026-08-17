@@ -38,6 +38,7 @@ const occurrence = (over: Partial<RoutineOccurrence> = {}): RoutineOccurrence =>
 let mockOccurrences: RoutineOccurrence[] = [];
 let mockDay = TODAY;
 const mockToggle = jest.fn();
+const mockReorder = jest.fn();
 
 jest.mock('@/data/hooks/useRoutines', () => ({
   useRoutineDay: (on: string, options: { showOthers: boolean }) => {
@@ -54,6 +55,7 @@ jest.mock('@/data/hooks/useRoutines', () => ({
     };
   },
   useToggleRoutine: () => ({ mutate: mockToggle, error: null }),
+  useReorderRoutine: () => ({ mutate: mockReorder, error: null }),
 }));
 
 // The linked-chore lookup reads today's chore occurrences. Mocked so the view
@@ -84,6 +86,34 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
   }),
 }));
 
+/*
+ * A plain list stand-in for the drag library.
+ *
+ * It renders every row through the real `renderItem`, so everything these
+ * tests assert about rows still goes through the component that ships. What it
+ * cannot exercise is the gesture itself — dragging is a Reanimated worklet on
+ * the UI thread, and there is no honest way to fire it from jsdom. The
+ * ordering it produces is tested where it lives, in core/routines/agenda.
+ */
+jest.mock('react-native-reorderable-list', () => {
+  const { View } = jest.requireActual('react-native');
+  const React = jest.requireActual('react');
+  const List = ({ data, renderItem, keyExtractor }: any) =>
+    React.createElement(
+      View,
+      null,
+      data.map((item: unknown, index: number) =>
+        React.createElement(View, { key: keyExtractor(item, index) }, renderItem({ item, index })),
+      ),
+    );
+  return {
+    __esModule: true,
+    default: List,
+    reorderItems: jest.requireActual('react-native-reorderable-list').reorderItems,
+    useReorderableDrag: () => jest.fn(),
+  };
+});
+
 jest.mock('@/data/hooks/useHousehold', () => ({
   useMembers: () => ({
     data: [
@@ -112,6 +142,7 @@ beforeEach(() => {
   mockChoreOccurrences = [];
   mockDay = TODAY;
   mockToggle.mockClear();
+  mockReorder.mockClear();
 });
 
 describe('RoutinesView', () => {

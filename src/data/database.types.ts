@@ -534,6 +534,7 @@ export type Database = {
           id: string
           linked_chore_id: string | null
           notes: string | null
+          position: number | null
           remind: boolean
           schedule: Json
           schedule_kind: string | null
@@ -554,6 +555,7 @@ export type Database = {
           id?: string
           linked_chore_id?: string | null
           notes?: string | null
+          position?: number | null
           remind?: boolean
           schedule: Json
           schedule_kind?: string | null
@@ -574,6 +576,7 @@ export type Database = {
           id?: string
           linked_chore_id?: string | null
           notes?: string | null
+          position?: number | null
           remind?: boolean
           schedule?: Json
           schedule_kind?: string | null

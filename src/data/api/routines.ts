@@ -31,7 +31,7 @@ export interface RoutineItem extends RoutineItemInput {
 }
 
 const ITEM_COLUMNS =
-  'id, household_id, user_id, title, notes, icon, schedule, time_of_day, bucket, remind, linked_chore_id, archived_at';
+  'id, household_id, user_id, title, notes, icon, schedule, time_of_day, bucket, remind, linked_chore_id, archived_at, position';
 
 /**
  * Parses a row into something the engine accepts.
@@ -52,6 +52,7 @@ function toItem(
     time_of_day: string | null;
     bucket: string | null;
     remind: boolean;
+    position: number | null;
     linked_chore_id: string | null;
     archived_at: string | null;
   },
@@ -79,6 +80,7 @@ function toItem(
       bucket: row.bucket,
       linkedChoreId: row.linked_chore_id,
       remind: row.remind,
+      position: row.position ?? null,
       archived: row.archived_at !== null,
       archivedAt: row.archived_at,
       shared,
@@ -249,6 +251,31 @@ export async function updateRoutineItem(itemId: string, draft: RoutineDraft): Pr
     if (isDuplicate(error)) throw new Error('That chore is already in your routine.');
     fail(error);
   }
+}
+
+/**
+ * Writes a whole bucket's order in one go.
+ *
+ * Every visible item gets a position, not just the one that moved. Writing a
+ * single row would leave the rest null, and null means "never placed" — which
+ * sorts *after* everything placed, so dragging one item to the top would fling
+ * the others to the bottom.
+ *
+ * Sequential integers rather than gaps or fractions: the list is a handful of
+ * items, a rewrite is cheap, and a scheme that never needs renumbering is only
+ * worth its complexity at a scale a personal routine will never reach.
+ *
+ * RLS does the guarding. `routine_items` is owner-only on write, so an id
+ * belonging to somebody else simply matches no row.
+ */
+export async function reorderRoutineItems(orderedIds: readonly string[]): Promise<void> {
+  const results = await Promise.all(
+    orderedIds.map((id, index) =>
+      supabase.from('routine_items').update({ position: index }).eq('id', id),
+    ),
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) fail(failed.error);
 }
 
 /** Archive rather than delete, so a day you have already lived keeps its shape. */
