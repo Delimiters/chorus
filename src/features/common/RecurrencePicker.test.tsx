@@ -337,3 +337,41 @@ describe('the sentence under the controls', () => {
     expect(screen.getByText('Repeats every other day.')).toBeOnTheScreen();
   });
 });
+
+describe('a one-time chore you can do any time that month', () => {
+  /*
+   * The concept survives the removal of the "How exact" picker — it moved
+   * into the same control that decides when the chore shows up, because a
+   * window and a deadline-with-warning are the same record. A chore due the
+   * 31st and visible from the 1st *is* "sometime in August".
+   */
+  it('sets the span to the whole month and says so', async () => {
+    const { rule } = await renderPicker({
+      kind: 'once',
+      dueOn: civilDate('2026-08-31'),
+      granularity: 'day',
+    });
+    await fireEvent.press(screen.getByLabelText('All month'));
+
+    expect(rule()).toEqual({
+      kind: 'once',
+      dueOn: civilDate('2026-08-31'),
+      granularity: 'month',
+      showFrom: civilDate('2026-08-01'),
+    });
+  });
+
+  it('does not rewrite the wording of a chore it was not asked to change', async () => {
+    // The silent-rewrite guard. Deriving granularity from the control alone
+    // turned every stored "once in the week of…" into "once on…" the moment
+    // anything else on the form was saved.
+    const { rule } = await renderPicker({
+      kind: 'once',
+      dueOn: civilDate('2026-08-31'),
+      granularity: 'week',
+    });
+    await fireEvent.press(screen.getByLabelText('A week early'));
+
+    expect(rule()).toMatchObject({ granularity: 'week', showFrom: civilDate('2026-08-24') });
+  });
+});

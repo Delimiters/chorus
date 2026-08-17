@@ -15,12 +15,12 @@
 import { useMemo } from 'react';
 import { View } from 'react-native';
 
-import { addDays, minCivil, partsOf, weekdayOf } from '@/core/civil/date';
+import { addDays, minCivil, partsOf, startOfMonth, weekdayOf } from '@/core/civil/date';
 import type { CivilDate, NthWeek, Weekday } from '@/core/civil/types';
 import { describeRule } from '@/core/recurrence/describe';
 import type { MonthOverflow, RecurrenceRule } from '@/core/recurrence/types';
 import { Txt } from '@/design/components';
-import { formatDayShort } from './format';
+import { dayOfMonth, formatDayShort, monthName } from './format';
 import { FieldGroup, SegmentedControl, Stepper, ToggleChips } from '@/design/controls';
 import { space } from '@/design/tokens';
 import { DateField } from '@/features/common/DateField';
@@ -195,16 +195,45 @@ export function draftFromRule(rule: RecurrenceRule, today: CivilDate): Recurrenc
 }
 
 /** When a one-time chore starts showing on Today. */
-export type ShowWhen = 'day' | 'd3' | 'week' | 'now';
-
-const LEAD_DAYS: Partial<Record<ShowWhen, number>> = { d3: 3, week: 7 };
+/**
+ * When a one-time chore starts appearing on the Today tab.
+ *
+ * `month` is the old "window" idea, and it lives here rather than in a second
+ * control because a window and a deadline-with-warning are the same record: a
+ * chore due the 31st and shown from the 1st *is* "sometime in August". Two
+ * controls would have been two doors into one room.
+ */
+export type ShowWhen = 'day' | 'week' | 'month' | 'now';
 
 /** The stored date for a choice, or undefined for "on the day". */
 function showFromFor(when: ShowWhen, dueOn: CivilDate, today: CivilDate): CivilDate | undefined {
   if (when === 'day') return undefined;
-  const wanted = when === 'now' ? today : addDays(dueOn, -(LEAD_DAYS[when] as number));
+  const wanted =
+    when === 'now' ? today : when === 'month' ? startOfMonth(dueOn) : addDays(dueOn, -7);
   // Never after the deadline: a lead on a chore already due is just "now".
   return minCivil(wanted, dueOn);
+}
+
+/**
+ * The wording that follows from the span, rather than a separate control.
+ *
+ * `granularity` used to be its own picker labelled "How exact", which claimed
+ * to change when a chore read as late and did not — it only ever changed the
+ * sentence. Two different people read it as "show it all month" and lost
+ * twenty-five chores behind it. It is now derived: a chore visible for its
+ * whole month is described as being due in that month, and everything else is
+ * described by its date.
+ */
+function granularityFor(
+  when: ShowWhen,
+  stored: 'day' | 'week' | 'month',
+): 'day' | 'week' | 'month' {
+  // Only ever *set* by choosing All month. Otherwise whatever the chore
+  // already said is kept: a rule rebuilt on open must come back byte for byte,
+  // or editing a title quietly rewrites the sentence under it. Chores written
+  // before this control existed still say "once in the week of…", and saving
+  // an unrelated change should not take that away.
+  return when === 'month' ? 'month' : stored;
 }
 
 /**
@@ -218,7 +247,7 @@ function showFromFor(when: ShowWhen, dueOn: CivilDate, today: CivilDate): CivilD
 function showWhenOf(dueOn: CivilDate, showFrom: CivilDate | undefined): ShowWhen {
   if (showFrom === undefined) return 'day';
   if (showFrom === dueOn) return 'day';
-  if (showFrom === addDays(dueOn, -3)) return 'd3';
+  if (showFrom === startOfMonth(dueOn)) return 'month';
   if (showFrom === addDays(dueOn, -7)) return 'week';
   return 'now';
 }
@@ -239,7 +268,7 @@ function ruleFrom(
       return {
         kind: 'once',
         dueOn: draft.dueOn,
-        granularity: draft.granularity,
+        granularity: granularityFor(draft.showWhen, draft.granularity),
         // Resolved to a real date here, and clamped: a lead longer than the
         // time left simply means "from now", never a window that ends before
         // it opens.
@@ -319,9 +348,10 @@ function showOnTodayHint(draft: RecurrenceDraft, today: CivilDate): string {
   if (draft.showWhen === 'day') return `From ${when}, until you tick it off.`;
   // Clamped: the lead ran past the deadline, or the deadline has gone.
   if (from === today) return `From today, ${when}, until you tick it off.`;
-  const lead = draft.showWhen === 'd3' ? 'three days' : 'a week';
-  if (draft.showWhen === 'now') return `From today, ${when}, until you tick it off.`;
-  return `From ${when} — ${lead} before it is due — until you tick it off.`;
+  if (draft.showWhen === 'month') {
+    return `All of ${monthName(draft.dueOn)} — due by the ${ordinal(dayOfMonth(draft.dueOn))}, and it stays until you tick it off.`;
+  }
+  return `From ${when} — a week before it is due — until you tick it off.`;
 }
 
 export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: Props) {
@@ -382,38 +412,23 @@ export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: P
               weekStartsOn={weekStartsOn}
             />
           </FieldGroup>
-          <FieldGroup
-            label="How exact"
-            hint="Wording only — when it is due, and when it counts as late, do not move."
-          >
-            <SegmentedControl
-              segments={[
-                { value: 'day' as const, label: 'That day' },
-                { value: 'week' as const, label: 'That week' },
-                { value: 'month' as const, label: 'That month' },
-              ]}
-              value={draft.granularity}
-              onChange={(granularity) => update({ granularity })}
-              label="How exact"
-            />
-          </FieldGroup>
 
           {/*
             The behaviour question, kept apart from the wording one above.
             A deadline three weeks out used to be invisible until the day it
             arrived — which is the day it is already too late to plan around.
           */}
-          <FieldGroup label="Show on Today" hint={showOnTodayHint(draft, today)}>
+          <FieldGroup label="Show on the Today tab" hint={showOnTodayHint(draft, today)}>
             <SegmentedControl
               segments={[
                 { value: 'day' as const, label: 'On the day' },
-                { value: 'd3' as const, label: '3 days early' },
                 { value: 'week' as const, label: 'A week early' },
+                { value: 'month' as const, label: 'All month' },
                 { value: 'now' as const, label: 'From now' },
               ]}
               value={draft.showWhen}
               onChange={(when) => update({ showWhen: when as ShowWhen })}
-              label="Show on Today"
+              label="Show on the Today tab"
             />
           </FieldGroup>
         </>
