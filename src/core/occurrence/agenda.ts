@@ -19,8 +19,8 @@ export interface AgendaItem extends ProjectedOccurrence {
    * How many earlier occurrences of this chore were missed and then superseded
    * by this one.
    *
-   * Renders as a quiet "missed last time" on the row. Honest without turning
-   * the screen into a list of reproaches.
+   * Renders as a quiet "missed last time" — or "missed last 3 times" — on the
+   * row. Honest without turning the screen into a list of reproaches.
    */
   readonly missedBefore: number;
   /** Days overdue, for display. Zero unless the status is `overdue`. */

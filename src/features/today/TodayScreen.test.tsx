@@ -306,3 +306,23 @@ describe('adding a chore from Today', () => {
     expect(mockPush).toHaveBeenCalledWith('/chore/new');
   });
 });
+
+describe('a chore that keeps getting missed', () => {
+  /*
+   * The count has always been on the row and was thrown away in the render:
+   * "missed last time" whether one occurrence had been missed or nine. Asserted
+   * here rather than only on the helper, because the helper being right proves
+   * nothing about what the row passes it — which is how a correct pure function
+   * has twice shipped inert in this app.
+   */
+  it('says how many, not just that it happened', async () => {
+    await renderScreen();
+    expect(screen.getByText(/missed last \d+ times/)).toBeOnTheScreen();
+  });
+
+  it('never renders the ungrammatical "last 1 times"', async () => {
+    // Guards the plural at the point it is read, not just in the helper.
+    await renderScreen();
+    expect(screen.queryByText(/missed last 1 times/)).toBeNull();
+  });
+});
