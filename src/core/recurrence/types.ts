@@ -145,6 +145,18 @@ export interface Occurrence {
   readonly subject: string | null;
   /** Earliest date this may be completed. Equals `dueOn` for anchored rules. */
   readonly flexibleFrom: CivilDate;
+  /**
+   * Earliest date this should be *shown*, when that is before it is due.
+   *
+   * Deliberately not `flexibleFrom`, which says when the occurrence may be
+   * completed and is what distinguishes a genuinely floating chore — "three
+   * times this week" — from a dated one. Widening `flexibleFrom` to bring a
+   * deadline forward made every such chore read as floating and land in the
+   * "sometime this week" band, which is a different kind of thing entirely.
+   *
+   * Null for everything except a one-time chore asked to appear early.
+   */
+  readonly showFrom: CivilDate | null;
   /** Latest date this may be completed. Equals `dueOn` for anchored rules. */
   readonly flexibleUntil: CivilDate;
 }

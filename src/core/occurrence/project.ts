@@ -172,7 +172,10 @@ function statusOf(
 ): OccurrenceStatus {
   if (completion) return 'completed';
   if (exception?.kind === 'skip') return 'skipped';
-  if (compareCivil(today, occ.flexibleFrom) < 0) return 'upcoming';
+  // `showFrom` when the chore was asked to appear early, otherwise the start
+  // of its completion window. Kept separate because the flexible window is
+  // what tells a floating chore from a dated one.
+  if (compareCivil(today, occ.showFrom ?? occ.flexibleFrom) < 0) return 'upcoming';
   if (compareCivil(today, occ.flexibleUntil) > 0) return 'overdue';
   return 'due';
 }

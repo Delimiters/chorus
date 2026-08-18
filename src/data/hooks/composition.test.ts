@@ -208,3 +208,71 @@ describe('a routine day in the past', () => {
     expect(morning?.mine[0]?.status).toBe('due');
   });
 });
+
+/**
+ * A chore dated beyond the window, asked to appear early.
+ *
+ * `showFrom` decides whether an occurrence counts as due. It cannot decide
+ * whether the occurrence is *fetched*, and Today's window is about three weeks
+ * wide — so twenty-one chores due at the end of the month were invisible while
+ * being, by the engine's own reckoning, due today.
+ *
+ * The lingering query is the safety net for one-time chores no sane window
+ * contains, and it only looked backwards. These run the ranges it now projects.
+ */
+describe('a one-time chore due beyond the agenda window', () => {
+  const WINDOW = quantiseWindow(d('2026-08-17'), 0, 2, 1);
+  const TODAY_NOW = d('2026-08-17');
+
+  const errand = (showFrom?: CivilDate): ChoreInput =>
+    ({
+      id: 'patio',
+      title: 'Set up new patio set',
+      schedule: {
+        rule:
+          showFrom === undefined
+            ? { kind: 'once', dueOn: d('2026-08-31'), granularity: 'month' }
+            : { kind: 'once', dueOn: d('2026-08-31'), granularity: 'month', showFrom },
+        startsOn: d('2026-08-31'),
+        endsOn: null,
+        timesOfDay: [],
+      },
+      assignment: { kind: 'anyone' },
+      archived: false,
+    }) as ChoreInput;
+
+  /** Exactly the ranges `useLingeringOneTimeChores` projects. */
+  const lingering = (chore: ChoreInput) => {
+    const base = {
+      chores: [chore],
+      completions: [],
+      exceptions: [],
+      memberIds: [ME],
+      today: TODAY_NOW,
+    };
+    const behind = projectOccurrences(base, CAL, {
+      start: d('2025-09-21'),
+      end: d('2026-08-01'),
+    });
+    const ahead = projectOccurrences(base, CAL, {
+      start: d('2026-08-23'),
+      end: d('2027-07-14'),
+    });
+    return [...behind, ...ahead].filter((o) => o.status === 'due' || o.status === 'overdue');
+  };
+
+  it('is outside the window Today fetches, which is the whole problem', () => {
+    expect(WINDOW.end).toBe('2026-08-22');
+    expect(d('2026-08-31') > WINDOW.end).toBe(true);
+  });
+
+  it('is picked up when it has been asked to show early', () => {
+    expect(lingering(errand(TODAY_NOW)).map((o) => o.choreId)).toEqual(['patio']);
+  });
+
+  it('is left alone when it has not', () => {
+    // Non-vacuity, and the rule that keeps Today a list of things to do: a
+    // chore due in October with no showFrom is upcoming, not due.
+    expect(lingering(errand())).toEqual([]);
+  });
+});

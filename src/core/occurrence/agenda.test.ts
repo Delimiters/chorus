@@ -859,3 +859,54 @@ describe('overdue days', () => {
     expect(items.every((i) => i.daysOverdue === 0)).toBe(true);
   });
 });
+
+describe('a dated chore asked to appear early', () => {
+  /*
+   * `isFloatingItem` asks whether the completion window is wider than a day,
+   * because that is what separates "three times this week" from a chore due on
+   * a date. Bringing a deadline forward by widening that window therefore filed
+   * every such chore into the floating band — a different kind of thing, drawn
+   * with progress pips, and sorted apart from everything else.
+   *
+   * Visibility is now its own field, and the completion window says what it
+   * always said.
+   */
+  const early = project(
+    [
+      {
+        id: 'patio',
+        title: 'Set up new patio set',
+        schedule: {
+          rule: {
+            kind: 'once',
+            dueOn: d('2026-08-31'),
+            granularity: 'month',
+            showFrom: d('2026-08-17'),
+          },
+          startsOn: d('2026-08-31'),
+          endsOn: null,
+          timesOfDay: [],
+        },
+        assignment: { kind: 'anyone' },
+        archived: false,
+      } as ChoreInput,
+    ],
+    d('2026-08-17'),
+    { start: d('2026-08-01'), end: d('2026-09-30') },
+  );
+
+  it('is not a floating chore', () => {
+    expect(early[0]).toBeDefined();
+    expect(isFloatingItem(early[0]!)).toBe(false);
+  });
+
+  it('is still due, which is the point of asking', () => {
+    expect(early[0]?.status).toBe('due');
+  });
+
+  it('lands in the ordinary lists rather than the floating band', () => {
+    const view = buildTodayView(toAgendaItems(early, d('2026-08-17')), d('2026-08-17'), ME);
+    expect(view.mine.map((i) => i.choreId)).toEqual(['patio']);
+    expect(view.floating).toEqual([]);
+  });
+});
