@@ -90,9 +90,37 @@ export function collapseSupersededMisses(
     const latest = sorted.filter((o) => positionOf(o) === survivorAt);
     const earlier = sorted.filter((o) => positionOf(o) !== survivorAt);
 
-    // Only unfinished earlier occurrences count as "missed". A skipped one was a
-    // decision, not a failure.
-    const missedBefore = earlier.filter((o) => o.status === 'overdue' || o.status === 'due').length;
+    /*
+     * The unbroken run of misses immediately before this one — not every miss
+     * in the window.
+     *
+     * "Missed last 2 times" is a claim about the last two occurrences, so
+     * counting every unfinished one made it false whenever a completed one sat
+     * in between: a daily chore done on Friday and Monday but not the weekend
+     * reported two misses, while the last time was Monday and it was done.
+     *
+     * Walking back from the most recent also makes a retroactive tick do what
+     * it should. Ticking Saturday off on Monday ends the run at Saturday, so
+     * the row stops claiming a miss for a job that was done late rather than
+     * not at all.
+     *
+     * A completion ends the run; a skip is stepped over. The difference is
+     * what each one says. Doing the job means the streak is finished, so the
+     * count starts again. Skipping means that occurrence never needed doing —
+     * it is neither a miss to count nor evidence that the run stopped, and
+     * treating it as an ending would let somebody clear the number by
+     * skipping rather than by doing anything.
+     *
+     * Bounded by the window, so a very old streak is undercounted rather than
+     * overstated — the safer direction for a number shown as a fact.
+     */
+    let missedBefore = 0;
+    for (let i = earlier.length - 1; i >= 0; i -= 1) {
+      const status = (earlier[i] as ProjectedOccurrence).status;
+      if (status === 'skipped') continue;
+      if (status !== 'overdue' && status !== 'due') break;
+      missedBefore += 1;
+    }
 
     for (const occ of latest) {
       // A displaced occurrence did its job by existing — it told us the older

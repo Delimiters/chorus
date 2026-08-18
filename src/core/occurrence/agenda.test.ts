@@ -910,3 +910,60 @@ describe('a dated chore asked to appear early', () => {
     expect(view.floating).toEqual([]);
   });
 });
+
+describe('how many times in a row it was missed', () => {
+  /*
+   * Reported from the phone, on real data: a daily chore done on the 14th and
+   * the 17th but not the 15th or 16th said "missed last 2 times" — while the
+   * last time was the 17th, and it was done.
+   *
+   * "Missed last N times" is a claim about the most recent N occurrences, so
+   * counting every unfinished one in the window made it false whenever a
+   * completed occurrence sat in between.
+   */
+  const today = d('2026-01-10');
+  const window = { start: d('2026-01-01'), end: d('2026-01-10') };
+  const schedule = daily('2026-01-06');
+
+  const survivorAfter = (completedOn: readonly CivilDate[]) => {
+    const all = project([chore({ schedule })], today, window);
+    const completions: CompletionInput[] = all
+      .filter((o) => completedOn.includes(o.dueOn))
+      .map((o) => ({
+        choreId: o.choreId,
+        occurrenceKey: o.occurrenceKey,
+        completedOn: o.dueOn,
+        completedBy: ME,
+      }));
+    const items = collapseSupersededMisses(
+      project([chore({ schedule })], today, window, completions),
+      today,
+    );
+    return items.find((i) => i.dueOn === today);
+  };
+
+  it('counts an unbroken run', () => {
+    // 6th done, then 7th, 8th and 9th missed.
+    expect(survivorAfter([d('2026-01-06')])?.missedBefore).toBe(3);
+  });
+
+  it('stops at the last time it was done', () => {
+    // The bug, in the shape it was reported: done on the 6th and the 9th,
+    // missed the 7th and 8th. The last time was the 9th and it was done.
+    expect(survivorAfter([d('2026-01-06'), d('2026-01-09')])?.missedBefore).toBe(0);
+  });
+
+  it('counts only back to the last completion, not to the start of the window', () => {
+    // Done on the 7th, missed the 8th and 9th: two, not three.
+    expect(survivorAfter([d('2026-01-07')])?.missedBefore).toBe(2);
+  });
+
+  it('drops the count when a missed day is ticked off later', () => {
+    // Doing it late is doing it. Ticking the 9th off afterwards ends the run
+    // there, so the row stops claiming a miss for a job that got done.
+    const before = survivorAfter([])?.missedBefore;
+    const after = survivorAfter([d('2026-01-09')])?.missedBefore;
+    expect(before).toBe(4);
+    expect(after).toBe(0);
+  });
+});
