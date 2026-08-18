@@ -96,15 +96,13 @@ export function expandOccurrences(
       // done yesterday" write a row that appeared on no screen, which is
       // postmortem failure #5 in mirror image.
       //
-      // `showFrom` widens the *front* of the flexible window, and nothing
-      // else: `dueOn` is untouched, so the occurrence key, the period key and
-      // the row's date on Upcoming are all exactly as they were. Status is
-      // derived from this window (see project.ts), so a chore with `showFrom`
-      // reads as due from that day rather than upcoming, and still turns
-      // overdue the day after its deadline.
+      // `showFrom` rides alongside rather than widening the flexible window.
+      // That window says when the occurrence may be *completed*, and a wider
+      // one is exactly how `isFloatingItem` recognises "three times this week"
+      // — so widening it here filed every dated chore with a lead time into
+      // the floating band. `dueOn` is untouched either way.
       //
-      // Clamped, because a chore given a start date after its own deadline
-      // would otherwise produce a window that ends before it begins.
+      // Clamped, because a start date after the deadline is just "now".
       return isSameOrAfter(rule.dueOn, window.start) && isSameOrBefore(rule.dueOn, window.end)
         ? [
             build(
@@ -112,8 +110,11 @@ export function expandOccurrences(
               dayPeriodKey(rule.dueOn),
               0,
               0,
-              rule.showFrom === undefined ? rule.dueOn : minCivil(rule.showFrom, rule.dueOn),
+              // The completion window stays a single day. Widening it here is
+              // what made a dated chore with a lead time read as floating.
               rule.dueOn,
+              rule.dueOn,
+              rule.showFrom === undefined ? null : minCivil(rule.showFrom, rule.dueOn),
             ),
           ]
         : [];
@@ -181,10 +182,20 @@ type Build = (
   occurrenceIndex: number,
   flexibleFrom: CivilDate,
   flexibleUntil: CivilDate,
+  /** Only a one-time chore asked to appear before it is due passes this. */
+  showFrom?: CivilDate | null,
 ) => Occurrence;
 
 function makeBuilder(choreId: string, subject: string | null): Build {
-  return (dueOn, periodKey, slot, occurrenceIndex, flexibleFrom, flexibleUntil) => ({
+  return (
+    dueOn,
+    periodKey,
+    slot,
+    occurrenceIndex,
+    flexibleFrom,
+    flexibleUntil,
+    showFrom = null,
+  ) => ({
     choreId,
     occurrenceKey: occurrenceKeyOf(choreId, periodKey, slot, subject),
     occurrenceIndex,
@@ -194,6 +205,7 @@ function makeBuilder(choreId: string, subject: string | null): Build {
     subject,
     flexibleFrom,
     flexibleUntil,
+    showFrom,
   });
 }
 

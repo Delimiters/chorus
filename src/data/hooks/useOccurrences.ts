@@ -193,19 +193,26 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
 }
 
 /**
- * One-time chores still outstanding from before the agenda window.
+ * One-time chores outstanding from outside the agenda window, on either side.
  *
  * The collapse rule says a one-time chore never expires, but the window it
  * collapses is only a few weeks wide — so "renew the passport", set eight months
  * ago, was silently absent from Today and the screen cheerfully said "All clear".
  * The guarantee was true of the function and false of the product.
  *
+ * Forward as well as back, and the forward half is newer. A chore can now be
+ * asked to appear before it is due (`showFrom`), and that decides *status* —
+ * but an occurrence dated beyond the window is never fetched, so there is
+ * nothing for the status to be about. Twenty-one chores due at the end of the
+ * month sat invisible on Today for exactly this reason while every one of them
+ * was, by the engine's reckoning, due.
+ *
  * These need their own fetch precisely because no sane window contains them.
  */
 function useLingeringOneTimeChores(
   today: CivilDate,
   calendar: CalendarConfig,
-  before: CivilDate,
+  window: DateWindow,
 ): { items: readonly AgendaItem[]; error: Error | null } {
   const householdId = useActiveHouseholdId();
   const members = useMembers();
@@ -250,21 +257,43 @@ function useLingeringOneTimeChores(
     // Wide enough to hold any of them; each yields exactly one occurrence, so
     // the width costs nothing. Bounded above by the agenda window's start, so an
     // occurrence never appears both here and there.
-    const projected = projectOccurrences(
-      {
-        chores,
-        completions: (completionsQuery.data ?? []) as CompletionInput[],
-        exceptions: (exceptionsQuery.data ?? []) as ExceptionInput[],
-        memberIds: (members.data ?? []).map((m) => m.userId),
-        today,
-      },
-      calendar,
-      { start: addDays(before, -MAX_LOOKBACK_DAYS), end: addDays(before, -1) },
-    );
-    // Only what is still outstanding. A one-time chore finished last March is
-    // history, and Today is not a history screen.
+    const input = {
+      chores,
+      completions: (completionsQuery.data ?? []) as CompletionInput[],
+      exceptions: (exceptionsQuery.data ?? []) as ExceptionInput[],
+      memberIds: (members.data ?? []).map((m) => m.userId),
+      today,
+    };
+
+    /*
+     * Two projections, not one wide one.
+     *
+     * The projector pads its window by 31 days each side and refuses anything
+     * over 400 days, so a single range covering both directions would trip
+     * that guard — loudly, which is what the guard is for.
+     *
+     * Each range stops short of the agenda window, so an occurrence can never
+     * appear both here and there.
+     */
+    const behind = projectOccurrences(input, calendar, {
+      start: addDays(window.start, -MAX_LOOKBACK_DAYS),
+      end: addDays(window.start, -1),
+    });
+    const ahead = projectOccurrences(input, calendar, {
+      start: addDays(window.end, 1),
+      end: addDays(today, MAX_LOOKAHEAD_DAYS),
+    });
+
+    /*
+     * Only what is outstanding *now*.
+     *
+     * This is what keeps the forward half honest: a chore due in October with
+     * no `showFrom` is `upcoming`, not `due`, so it is dropped here and Today
+     * stays a list of things to actually do. Only a chore that has been asked
+     * to appear early survives.
+     */
     return toAgendaItems(
-      projected.filter((o) => o.status === 'due' || o.status === 'overdue'),
+      [...behind, ...ahead].filter((o) => o.status === 'due' || o.status === 'overdue'),
       today,
     );
   }, [
@@ -274,7 +303,7 @@ function useLingeringOneTimeChores(
     members.data,
     today,
     calendar,
-    before,
+    window,
   ]);
 
   return {
@@ -297,6 +326,15 @@ function useLingeringOneTimeChores(
  */
 const MAX_LOOKBACK_DAYS = 330;
 
+/**
+ * How far ahead Today reaches for a chore asked to appear before it is due.
+ *
+ * Same bound as the lookback and for the same reason: it is a separate
+ * projection, so each stays inside the engine's 400-day ceiling once the
+ * projector's 31-day padding is added at both ends.
+ */
+const MAX_LOOKAHEAD_DAYS = 330;
+
 /** The Today screen's data, arranged as the design specifies. */
 export function useToday_View() {
   const household = useHousehold();
@@ -310,7 +348,7 @@ export function useToday_View() {
   const window = useMemo(() => quantiseWindow(today, weekStartsOn, 2, 1), [today, weekStartsOn]);
 
   const occurrences = useOccurrences(window);
-  const lingering = useLingeringOneTimeChores(today, occurrences.calendar, window.start);
+  const lingering = useLingeringOneTimeChores(today, occurrences.calendar, window);
 
   const view = useMemo(
     () => buildTodayView([...lingering.items, ...occurrences.agenda], today, userId ?? ''),
