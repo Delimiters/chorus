@@ -46,6 +46,17 @@ const item = (over: Partial<AgendaItem> = {}): AgendaItem =>
     ...over,
   }) as AgendaItem;
 
+/*
+ * The sheet now reads a chore's steps. Mocked rather than standing up a
+ * QueryClient: these tests are about what the sheet offers, and the steps have
+ * their own coverage in core/chore/subtask and SubtaskList.
+ */
+jest.mock('@/data/hooks/useSubtasks', () => ({
+  useSubtasksFor: () => [],
+  useSubtaskTicks: () => new Set<string>(),
+  useToggleSubtask: () => ({ mutate: jest.fn() }),
+}));
+
 function renderSheet(target: AgendaItem | null = item()) {
   const handlers = {
     onClose: jest.fn(),

@@ -315,6 +315,13 @@ export interface ChoreDraft {
   readonly icon: string | null;
   /** Your own id to keep it to yourself, or null to share it. */
   readonly privateTo: string | null;
+  /**
+   * The steps, in order.
+   *
+   * Written separately from the chore row — they are their own table — so this
+   * travels on the draft rather than through `choreRow`.
+   */
+  readonly subtasks?: readonly { id?: string; title: string }[];
 }
 
 /**

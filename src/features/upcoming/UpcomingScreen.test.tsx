@@ -92,6 +92,17 @@ const mockReschedule = jest.fn();
 const mockClear = jest.fn();
 const mockPush = jest.fn();
 
+/*
+ * The sheet reads a chore's steps. Mocked rather than standing up a
+ * QueryClient: these tests are about the screen, and steps have their own
+ * coverage in SubtaskList.
+ */
+jest.mock('@/data/hooks/useSubtasks', () => ({
+  useSubtasksFor: () => [],
+  useSubtaskTicks: () => new Set<string>(),
+  useToggleSubtask: () => ({ mutate: jest.fn() }),
+}));
+
 jest.mock('@/data/hooks/useOccurrences', () => ({
   useOccurrences: () => ({
     items: mockItems,
