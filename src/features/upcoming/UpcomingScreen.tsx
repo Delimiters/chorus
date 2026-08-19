@@ -91,6 +91,12 @@ export function UpcomingScreen() {
     return map;
   }, [chores]);
 
+  const notesFor = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const chore of chores) map.set(chore.id, chore.notes);
+    return map;
+  }, [chores]);
+
   const inkOf = (item: AgendaItem): string | null =>
     item.assignee.kind === 'member' ? (byMember.get(item.assignee.memberId)?.ink ?? null) : null;
 
@@ -308,6 +314,7 @@ export function UpcomingScreen() {
                       ink={inkOf(item)}
                       turnLabel={turnLabelOf(item)}
                       scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
+                      notes={notesFor.get(item.choreId) ?? null}
                       onToggle={() =>
                         toggle.mutate({ item, complete: item.status !== 'completed' })
                       }

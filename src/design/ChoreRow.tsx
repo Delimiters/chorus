@@ -184,6 +184,16 @@ interface ChoreRowProps {
    * the icon is hidden from screen readers rather than read out twice.
    */
   icon?: string | null;
+  /**
+   * The chore's note, shown on demand.
+   *
+   * Notes were reachable only by opening the chore to edit it, so anything put
+   * in one — "by 4pm Monday", "conflicts with the Uribe appointment" — was
+   * invisible exactly where the task is read. Collapsed by default, because a
+   * note is detail for when you are actually doing the job and would otherwise
+   * make every row two lines taller.
+   */
+  notes?: string | null;
   onToggle: () => void;
   onOpen: () => void;
   style?: StyleProp<ViewStyle>;
@@ -197,11 +207,13 @@ export function ChoreRow({
   category = null,
   priority = 'normal',
   icon = null,
+  notes = null,
   onToggle,
   onOpen,
   style,
 }: ChoreRowProps) {
   const { colors } = useTheme();
+  const note = notes === null ? '' : notes.trim();
   const done = item.status === 'completed';
   const overdue = item.status === 'overdue';
   const skipped = item.status === 'skipped';
@@ -284,6 +296,12 @@ export function ChoreRow({
             </Txt>
           ) : null}
         </View>
+
+        {note.length > 0 ? (
+          <Txt variant="small" tone="faint" numberOfLines={2} style={{ marginTop: 1 }}>
+            {note}
+          </Txt>
+        ) : null}
       </Pressable>
     </View>
   );

@@ -73,7 +73,13 @@ export function TodayScreen() {
 
   /** The two grouping axes per chore, and the categories by id, for the rows. */
   const choreMeta = useMemo(
-    () => new Map(chores.map((c) => [c.id, { categoryId: c.categoryId, priority: c.priority }])),
+    () =>
+      new Map(
+        chores.map((c) => [
+          c.id,
+          { categoryId: c.categoryId, priority: c.priority, notes: c.notes },
+        ]),
+      ),
     [chores],
   );
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
@@ -139,6 +145,7 @@ export function TodayScreen() {
         ink={ink}
         turnLabel={turnLabel}
         scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
+        notes={meta?.notes ?? null}
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={meta?.priority ?? 'normal'}
         icon={choreIcons.get(item.choreId) ?? null}

@@ -16,9 +16,11 @@ import { type Chore } from '@/data/api/chores';
 import type { CivilDate } from '@/core/civil/types';
 import { useChoreList, useOneOffCompletions, useToggleSomeday } from '@/data/hooks/useChores';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
+import { useUserId } from '@/stores/sessionStore';
+import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { useToday } from '@/data/today';
 import { Checkbox, SectionHeader } from '@/design/ChoreRow';
-import { Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { formatDayShort } from '@/features/common/format';
 import { groupItems, type Groupable } from '@/core/occurrence/grouping';
 import { useCategoryList } from '@/data/hooks/useCategories';
@@ -34,6 +36,9 @@ export function ChoresScreen() {
   const { colors, isDark } = useTheme();
   const router = useRouter();
   const members = useMembers();
+  const userId = useUserId();
+  /** Your own accent, so the button matches the one on Today. */
+  const myInk = members.data?.find((m) => m.userId === userId)?.accent ?? null;
   const [showArchived, setShowArchived] = useState(false);
 
   const query = useChoreList({ includeArchived: showArchived });
@@ -192,6 +197,16 @@ export function ChoresScreen() {
                 ? describeSchedule(chore.schedule)
                 : `Done ${formatDayShort(doneOn)}`}
             </Txt>
+
+            {/*
+              The note, on the library screen too. It was reachable only by
+              opening the chore, which is where its detail went to be ignored.
+            */}
+            {chore.notes !== null && chore.notes.trim().length > 0 ? (
+              <Txt variant="small" tone="faint" numberOfLines={2}>
+                {chore.notes.trim()}
+              </Txt>
+            ) : null}
           </Stack>
         </Pressable>
       </View>
@@ -200,7 +215,12 @@ export function ChoresScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
-      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl }}>
+      <ScrollView
+        contentContainerStyle={{
+          padding: space.lg,
+          paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
+        }}
+      >
         <Stack gap={2} style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
           <Txt variant="display" accessibilityRole="header">
             Chores
@@ -259,10 +279,6 @@ export function ChoresScreen() {
           </>
         ) : null}
 
-        <View style={{ paddingTop: space.xl }}>
-          <Button label="Add a chore" onPress={() => router.push('/chore/new')} />
-        </View>
-
         <Pressable
           onPress={() => setShowArchived((v) => !v)}
           accessibilityRole="switch"
@@ -281,6 +297,12 @@ export function ChoresScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      {/*
+        The same floating button Today has. The inline one at the foot of the
+        list meant scrolling the whole library to add anything.
+      */}
+      <AddChoreButton onPress={() => router.push('/chore/new')} ink={myInk} />
     </SafeAreaView>
   );
 }

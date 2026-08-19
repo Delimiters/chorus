@@ -24,10 +24,15 @@ const CAL: CalendarConfig = { weekStartsOn: 0 };
 
 const d = (s: string): CivilDate => civilDate(s);
 
-const mockChores: ChoreInput[] = [
+/*
+ * Typed as engine input, but the screen is handed the fuller `Chore` — which
+ * carries `notes`. One fixture has one, so the row that renders it is covered.
+ */
+const mockChores: (ChoreInput & { notes?: string | null })[] = [
   {
     id: 'dishes',
     title: 'Dishes',
+    notes: 'Rinse the pans first',
     schedule: {
       rule: { kind: 'daily', everyNDays: 1 },
       startsOn: d('2026-07-27'),
@@ -324,5 +329,14 @@ describe('a chore that keeps getting missed', () => {
     // Guards the plural at the point it is read, not just in the helper.
     await renderScreen();
     expect(screen.queryByText(/missed last 1 times/)).toBeNull();
+  });
+});
+
+describe('a chore with a note', () => {
+  it('shows it on the row, not only in the editor', async () => {
+    // The complaint: details written into a note were invisible everywhere a
+    // chore is actually read.
+    await renderScreen();
+    expect(screen.getByText('Rinse the pans first')).toBeOnTheScreen();
   });
 });
