@@ -108,7 +108,26 @@ jest.mock('react-native-reorderable-list', () => {
     );
   return {
     __esModule: true,
-    default: List,
+    /*
+     * The plain list, which must not be used here.
+     *
+     * Inside a scrolling page it renders fine and then swallows the pan
+     * gesture, so the page will not scroll at all — a frozen screen on any
+     * routine long enough to need scrolling. The library ships
+     * `NestedReorderableList` and `ScrollViewContainer` for this, and nothing
+     * in a jsdom test can tell the two apart, so this stands in for the device
+     * check that is not possible here.
+     */
+    default: () => {
+      throw new Error(
+        'RoutinesView must use NestedReorderableList inside ScrollViewContainer, ' +
+          'not the plain ReorderableList — the page stops scrolling.',
+      );
+    },
+    // The screen uses the nested pair, which is the library's supported way to
+    // put a draggable list inside a scrolling page.
+    NestedReorderableList: List,
+    ScrollViewContainer: ({ children, ...rest }: any) => React.createElement(View, rest, children),
     reorderItems: jest.requireActual('react-native-reorderable-list').reorderItems,
     useReorderableDrag: () => jest.fn(),
   };

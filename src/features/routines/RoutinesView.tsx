@@ -11,7 +11,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { addDays, compareCivil } from '@/core/civil/date';
@@ -29,7 +29,11 @@ import { useTheme } from '@/design/theme';
 import { MIN_TARGET, space } from '@/design/tokens';
 import { formatDayLong } from '@/features/common/format';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
-import ReorderableList, { reorderItems } from 'react-native-reorderable-list';
+import {
+  NestedReorderableList,
+  reorderItems,
+  ScrollViewContainer,
+} from 'react-native-reorderable-list';
 
 import { RoutineRow } from './RoutineRow';
 
@@ -104,7 +108,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
-      <ScrollView
+      <ScrollViewContainer
         contentContainerStyle={{
           padding: space.lg,
           paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
@@ -162,15 +166,21 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
                 today: a past day is a record of what happened, and reordering
                 it would rewrite that.
 
-                `ReorderableList` inside a ScrollView is deliberate — these are
-                a handful of rows under a fixed header, and nesting a scroller
-                would fight the page. `scrollEnabled={false}` keeps the outer
-                one in charge.
+                `NestedReorderableList` inside a `ScrollViewContainer` is the
+                library's supported way to put a draggable list inside a
+                scrolling page, and both halves are required. A plain
+                `ReorderableList` in a plain `ScrollView` renders, and then the
+                page will not scroll at all — the list's pan handler takes the
+                gesture and the outer view never sees it, which reads as a
+                frozen screen on a routine long enough to need scrolling.
+
+                `scrollable={false}`: the list has no height of its own, so the
+                container does the scrolling.
               */}
-              <ReorderableList
+              <NestedReorderableList
                 data={[...section.mine]}
                 keyExtractor={(item) => item.occurrenceKey}
-                scrollEnabled={false}
+                scrollable={false}
                 onReorder={({ from, to }) => {
                   const next = reorderItems([...section.mine], from, to);
                   reorder.mutate({ orderedIds: next.map((i) => i.itemId) });
@@ -231,7 +241,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
             </Txt>
           </View>
         ) : null}
-      </ScrollView>
+      </ScrollViewContainer>
 
       <AddChoreButton onPress={onAdd} ink={myInk} />
     </SafeAreaView>
