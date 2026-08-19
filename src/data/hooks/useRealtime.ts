@@ -40,6 +40,11 @@ const TABLES = [
   // which rows actually arrive.
   'routine_items',
   'routine_completions',
+  // Ticking a step is the other phone's business too, the same as ticking a
+  // chore. The definitions are here so a step added on one phone appears on
+  // the other without a manual refresh.
+  'chore_subtasks',
+  'chore_subtask_ticks',
 ] as const;
 
 export function useRealtimeHousehold(): void {

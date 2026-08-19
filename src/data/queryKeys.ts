@@ -33,6 +33,11 @@ export const qk = {
    * handler's broad invalidation picks them up with no extra wiring — even
    * though most rows in them are private to one person.
    */
+  /** Every subtask in the household; the screens filter by chore themselves. */
+  subtasks: (householdId: string) => [...qk.household(householdId), 'subtasks'] as const,
+  /** Ticks for one occurrence; a new occurrence simply has none. */
+  subtaskTicks: (householdId: string, occurrenceKey: string) =>
+    [...qk.subtasks(householdId), 'ticks', occurrenceKey] as const,
   routines: (householdId: string) => [...qk.household(householdId), 'routines'] as const,
   routineList: (householdId: string, filters: Record<string, unknown>) =>
     [...qk.routines(householdId), 'list', filters] as const,

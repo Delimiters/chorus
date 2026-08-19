@@ -29,6 +29,7 @@ import { useTheme } from '@/design/theme';
 import { formatTimestampDay } from '@/features/common/format';
 import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
+import { SubtaskEditor, type SubtaskDraft } from './SubtaskEditor';
 import { DateField } from '@/features/common/DateField';
 import { CategoryAndPriorityPicker } from './CategoryPicker';
 import { IconPicker } from '@/features/common/IconPicker';
@@ -44,6 +45,8 @@ import { SchedulePreview } from '@/features/common/SchedulePreview';
 interface Props {
   /** Absent when creating. */
   chore?: Chore | undefined;
+  /** The chore's existing steps, in order. Empty when creating. */
+  subtasks?: readonly SubtaskDraft[];
   members: readonly PickerMember[];
   userId: string | null;
   today: CivilDate;
@@ -71,6 +74,7 @@ function creditLine(chore: Chore, members: readonly PickerMember[]): string {
 
 export function ChoreForm({
   chore,
+  subtasks = [],
   members,
   userId,
   today,
@@ -101,6 +105,7 @@ export function ChoreForm({
    * the column stores an id only because a boolean would need `created_by` to
    * be trustworthy, which it is not.
    */
+  const [steps, setSteps] = useState<readonly SubtaskDraft[]>(subtasks);
   const [isPrivate, setIsPrivate] = useState<boolean>(
     chore?.privateTo !== null && chore?.privateTo !== undefined,
   );
@@ -195,6 +200,13 @@ export function ChoreForm({
       priority,
       icon,
       privateTo: isPrivate ? userId : null,
+      // Blank rows are how a half-typed step looks; they are not steps.
+      subtasks: steps
+        .filter((step) => step.title.trim().length > 0)
+        .map((step) => ({
+          ...(step.id === undefined ? {} : { id: step.id }),
+          title: step.title.trim(),
+        })),
     });
   };
 
@@ -325,6 +337,8 @@ export function ChoreForm({
           private *to*, and a switch that silently did nothing would be worse
           than its absence.
         */}
+        <SubtaskEditor value={steps} onChange={setSteps} />
+
         {userId === null ? null : (
           <FieldGroup
             label="Private"

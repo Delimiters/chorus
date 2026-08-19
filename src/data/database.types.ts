@@ -172,6 +172,103 @@ export type Database = {
           },
         ]
       }
+      chore_subtask_ticks: {
+        Row: {
+          created_at: string
+          household_id: string
+          id: string
+          occurrence_key: string
+          subtask_id: string
+          ticked_by: string | null
+          ticked_on: string
+        }
+        Insert: {
+          created_at?: string
+          household_id: string
+          id?: string
+          occurrence_key: string
+          subtask_id: string
+          ticked_by?: string | null
+          ticked_on: string
+        }
+        Update: {
+          created_at?: string
+          household_id?: string
+          id?: string
+          occurrence_key?: string
+          subtask_id?: string
+          ticked_by?: string | null
+          ticked_on?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chore_subtask_ticks_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_subtask_ticks_subtask_id_fkey"
+            columns: ["subtask_id"]
+            isOneToOne: false
+            referencedRelation: "chore_subtasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_subtask_ticks_ticked_by_fkey"
+            columns: ["ticked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chore_subtasks: {
+        Row: {
+          chore_id: string
+          created_at: string
+          household_id: string
+          id: string
+          position: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          chore_id: string
+          created_at?: string
+          household_id: string
+          id?: string
+          position?: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          chore_id?: string
+          created_at?: string
+          household_id?: string
+          id?: string
+          position?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chore_subtasks_chore_id_fkey"
+            columns: ["chore_id"]
+            isOneToOne: false
+            referencedRelation: "chores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_subtasks_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chores: {
         Row: {
           archived_at: string | null

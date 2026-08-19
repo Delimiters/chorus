@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import type { CalendarConfig } from '@/core/civil/types';
 import type { ChoreDraft } from '@/data/api/chores';
 import { useArchiveChore, useChore, useCreateChore, useUpdateChore } from '@/data/hooks/useChores';
+import { useReplaceSubtasks, useSubtasksFor } from '@/data/hooks/useSubtasks';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useToday } from '@/data/today';
 import { LoadingState } from '@/design/components';
@@ -33,6 +34,8 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
   const create = useCreateChore();
   const update = useUpdateChore();
   const archive = useArchiveChore();
+  const steps = useSubtasksFor(choreId);
+  const saveSteps = useReplaceSubtasks();
 
   // Editing a chore that has not arrived yet: wait rather than opening the form
   // empty, which would look like a new chore and save as a duplicate.
@@ -43,9 +46,22 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
     else router.replace('/chores');
   };
 
+  /*
+   * The chore row and its steps are two writes, in that order.
+   *
+   * A new chore has no id until it is saved, so the steps cannot be written
+   * first — and a chore that saved while its steps failed is a better failure
+   * than steps orphaned by a chore that never existed.
+   */
   const submit = (draft: ChoreDraft) => {
-    if (chore) update.mutate({ choreId: chore.id, draft }, { onSuccess: close });
-    else create.mutate(draft, { onSuccess: close });
+    const steps = draft.subtasks ?? [];
+    const afterSave = (savedChoreId: string) => {
+      saveSteps.mutate({ choreId: savedChoreId, steps }, { onSuccess: close, onError: close });
+    };
+
+    if (chore)
+      update.mutate({ choreId: chore.id, draft }, { onSuccess: () => afterSave(chore.id) });
+    else create.mutate(draft, { onSuccess: (newChoreId) => afterSave(newChoreId) });
   };
 
   const pending = create.isPending || update.isPending;
@@ -60,6 +76,7 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
         accent: m.accent,
       }))}
       userId={userId}
+      subtasks={steps.map((s) => ({ id: s.id, title: s.title }))}
       today={today}
       calendar={calendar}
       onSubmit={submit}
