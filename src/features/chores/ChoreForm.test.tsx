@@ -764,3 +764,17 @@ describe('keeping a chore to yourself', () => {
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ privateTo: null }));
   });
 });
+
+describe('the note on a row', () => {
+  it('is what the form writes, so it can be read without opening this screen', async () => {
+    // Notes were reachable only here, in the editor. Anything put in one —
+    // "by 4pm Monday", "conflicts with the Uribe appointment" — was invisible
+    // on every screen that lists chores, which is where they get read.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Get labs done');
+    await fireEvent.changeText(screen.getByLabelText('Notes'), '  by 4pm Monday  ');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ notes: 'by 4pm Monday' }));
+  });
+});

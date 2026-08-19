@@ -136,6 +136,18 @@ export function RoutineForm({
       <ScrollView
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl, gap: space.xl }}
         keyboardShouldPersistTaps="handled"
+        /*
+          Inset the scroll view by the keyboard instead of letting it sit on
+          top. Without this the fields at the foot of a long form — the ones
+          most likely to be typed into last — were covered, and the only way to
+          reach them was to dismiss the keyboard first.
+
+          A content inset rather than a `KeyboardAvoidingView`: this form is
+          already a scroll view, so the scroller is the thing that should
+          shrink, and the wrapper would fight the `SafeAreaView` around it.
+          Android resizes the window itself, so this is iOS-only by design.
+        */
+        automaticallyAdjustKeyboardInsets
       >
         <BackBar label="Cancel" onPress={onCancel} />
 
