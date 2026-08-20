@@ -65,6 +65,31 @@ export async function listSubtaskTicks(
 }
 
 /**
+ * Ticks for several occurrences at once.
+ *
+ * The list screens draw steps under every row, so asking per occurrence would
+ * be a query per row. Keys are passed in rather than the whole table being
+ * fetched: a household's tick history grows without bound, and only what is
+ * on screen is ever needed.
+ */
+export async function listSubtaskTicksForOccurrences(
+  householdId: string,
+  occurrenceKeys: readonly string[],
+): Promise<readonly { subtaskId: string; occurrenceKey: string }[]> {
+  if (occurrenceKeys.length === 0) return [];
+  const { data, error } = await supabase
+    .from('chore_subtask_ticks')
+    .select('subtask_id, occurrence_key')
+    .eq('household_id', householdId)
+    .in('occurrence_key', [...occurrenceKeys]);
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    subtaskId: row.subtask_id,
+    occurrenceKey: row.occurrence_key,
+  }));
+}
+
+/**
  * Ticks a step for an occurrence, or removes the tick.
  *
  * The insert ignores a conflict on the unique key, so a double tap is success

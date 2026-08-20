@@ -28,8 +28,6 @@ import { Sheet, SheetAction } from '@/design/Sheet';
 import { space } from '@/design/tokens';
 import { DateField } from '@/features/common/DateField';
 import { formatDayShort } from '@/features/common/format';
-import { SubtaskList } from '@/features/common/SubtaskList';
-import { useSubtaskTicks, useSubtasksFor, useToggleSubtask } from '@/data/hooks/useSubtasks';
 
 interface Props {
   item: AgendaItem | null;
@@ -77,11 +75,6 @@ export function OccurrenceSheet({
 }: Props) {
   const [moving, setMoving] = useState(false);
   const [movedTo, setMovedTo] = useState<CivilDate>(today);
-  // Hooks before the early return below: `item` is null while the sheet is
-  // mounted-but-hidden, and the rules of hooks do not care.
-  const subtasks = useSubtasksFor(item?.choreId ?? null);
-  const ticked = useSubtaskTicks(item?.occurrenceKey ?? null);
-  const toggleSubtask = useToggleSubtask(item?.occurrenceKey ?? null, today);
 
   const close = () => {
     setMoving(false);
@@ -149,23 +142,6 @@ export function OccurrenceSheet({
               onToggleComplete(item);
               close();
             }}
-          />
-
-          {/*
-            The steps, above the other actions and below the one that finishes
-            the chore. Ticking them all does not finish it: they record where
-            you got to, and the chore is done when you say it is.
-
-            The sheet stays open while they are ticked — that is the point of
-            having them here rather than behind the editor.
-          */}
-          <SubtaskList
-            subtasks={subtasks}
-            ticked={ticked}
-            ink={null}
-            onToggle={(subtask, next) =>
-              toggleSubtask.mutate({ subtaskId: subtask.id, ticked: next })
-            }
           />
 
           {/* Turning a chore into something you actually do at a time of day.

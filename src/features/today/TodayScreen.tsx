@@ -17,6 +17,7 @@ import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
+import { useSubtaskTicksFor, useSubtasksByChore, useToggleSubtask } from '@/data/hooks/useSubtasks';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
 import { useRoutineStore } from '@/stores/routineStore';
 import { useMyRoutineItems } from '@/data/hooks/useRoutines';
@@ -42,6 +43,9 @@ import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
 import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
 import { formatDayLong, formatFlexibleWindow } from '@/features/common/format';
+
+/** Stable identity, so a row without ticks does not re-render needlessly. */
+const EMPTY_TICKS: ReadonlySet<string> = new Set();
 
 export function TodayScreen() {
   const { colors } = useTheme();
@@ -134,6 +138,23 @@ export function TodayScreen() {
     };
   };
 
+  /*
+   * Steps and their ticks for everything on screen.
+   *
+   * One batched query rather than one per row: the ticks belong to specific
+   * occurrences, and Today can hold a couple of dozen.
+   */
+  const subtasksByChore = useSubtasksByChore();
+  const visibleKeys = useMemo(
+    () =>
+      [...view.mine, ...view.theirs, ...view.done, ...view.skipped]
+        .filter((i) => subtasksByChore.has(i.choreId))
+        .map((i) => i.occurrenceKey),
+    [view.mine, view.theirs, view.done, view.skipped, subtasksByChore],
+  );
+  const ticksByOccurrence = useSubtaskTicksFor(visibleKeys);
+  const toggleSubtask = useToggleSubtask(today);
+
   const renderRow = (item: AgendaItem) => {
     const { ink, turnLabel } = ownership(item.assignee);
     const meta = choreMeta.get(item.choreId);
@@ -146,6 +167,11 @@ export function TodayScreen() {
         turnLabel={turnLabel}
         scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
         notes={meta?.notes ?? null}
+        subtasks={subtasksByChore.get(item.choreId) ?? []}
+        tickedSubtasks={ticksByOccurrence.get(item.occurrenceKey) ?? EMPTY_TICKS}
+        onToggleSubtask={(subtaskId, ticked) =>
+          toggleSubtask.mutate({ subtaskId, ticked, occurrenceKey: item.occurrenceKey })
+        }
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={meta?.priority ?? 'normal'}
         icon={choreIcons.get(item.choreId) ?? null}
