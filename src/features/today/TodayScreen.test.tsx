@@ -98,10 +98,16 @@ let mockLoading = false;
  * QueryClient: these tests are about the screen, and steps have their own
  * coverage in SubtaskList.
  */
+let mockSteps: Map<string, { id: string; title: string }[]> = new Map();
+let mockTicks: Map<string, Set<string>> = new Map();
+const mockToggleSubtask = jest.fn();
+
 jest.mock('@/data/hooks/useSubtasks', () => ({
   useSubtasksFor: () => [],
   useSubtaskTicks: () => new Set<string>(),
-  useToggleSubtask: () => ({ mutate: jest.fn() }),
+  useSubtasksByChore: () => mockSteps,
+  useSubtaskTicksFor: () => mockTicks,
+  useToggleSubtask: () => ({ mutate: mockToggleSubtask }),
 }));
 
 jest.mock('@/data/hooks/useOccurrences', () => ({
@@ -349,5 +355,66 @@ describe('a chore with a note', () => {
     // chore is actually read.
     await renderScreen();
     expect(screen.getByText('Rinse the pans first')).toBeOnTheScreen();
+  });
+});
+
+describe('the steps inside a chore', () => {
+  /*
+   * On the row, not behind a tap. Steps are ticked while the chore is being
+   * done, so a list you had to open the occurrence sheet to reach was a list
+   * nobody would use — the same objection that got notes onto the row.
+   */
+  beforeEach(() => {
+    mockSteps = new Map();
+    mockTicks = new Map();
+    mockToggleSubtask.mockClear();
+  });
+
+  const withSteps = () => {
+    mockSteps = new Map([
+      [
+        'dishes',
+        [
+          { id: 's1', title: 'Rinse' },
+          { id: 's2', title: 'Load the machine' },
+        ],
+      ],
+    ]);
+  };
+
+  it('draws them under the chore, expanded, without opening anything', async () => {
+    withSteps();
+    await renderScreen();
+
+    expect(screen.getByText('Rinse')).toBeOnTheScreen();
+    expect(screen.getByText('Load the machine')).toBeOnTheScreen();
+  });
+
+  it('counts the ones ticked for this occurrence', async () => {
+    withSteps();
+    const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
+    mockTicks = new Map([[key, new Set(['s1'])]]);
+    await renderScreen();
+
+    expect(screen.getByText(/1 of 2 steps/)).toBeOnTheScreen();
+  });
+
+  it('ticks one against the occurrence it belongs to', async () => {
+    withSteps();
+    const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
+    await renderScreen();
+    await fireEvent.press(screen.getByLabelText('Mark Rinse done'));
+
+    expect(mockToggleSubtask).toHaveBeenCalledWith({
+      subtaskId: 's1',
+      ticked: true,
+      occurrenceKey: key,
+    });
+  });
+
+  it('says nothing at all for a chore without steps', async () => {
+    // Most chores have none; the row must not grow a header for them.
+    await renderScreen();
+    expect(screen.queryByText(/steps/)).toBeNull();
   });
 });

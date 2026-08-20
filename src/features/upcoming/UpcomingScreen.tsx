@@ -17,6 +17,8 @@ import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { addDays, compareCivil, endOfMonth, startOfMonth, startOfWeek } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
 import { groupFloating, type AgendaItem, type FloatingGroup } from '@/core/occurrence/agenda';
+import { useSubtaskTicksFor, useSubtasksByChore, useToggleSubtask } from '@/data/hooks/useSubtasks';
+
 import { describeRule } from '@/core/recurrence/describe';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import {
@@ -39,6 +41,9 @@ import {
   formatWeekBand,
   weekdayShort,
 } from '@/features/common/format';
+
+/** Stable identity, so a row without ticks does not re-render needlessly. */
+const EMPTY_TICKS: ReadonlySet<string> = new Set();
 
 export function UpcomingScreen() {
   const { colors } = useTheme();
@@ -90,6 +95,14 @@ export function UpcomingScreen() {
     for (const chore of chores) map.set(chore.id, describeRule(chore.schedule.rule));
     return map;
   }, [chores]);
+
+  const subtasksByChore = useSubtasksByChore();
+  const visibleKeys = useMemo(
+    () => items.filter((i) => subtasksByChore.has(i.choreId)).map((i) => i.occurrenceKey),
+    [items, subtasksByChore],
+  );
+  const ticksByOccurrence = useSubtaskTicksFor(visibleKeys);
+  const toggleSubtask = useToggleSubtask(today);
 
   const notesFor = useMemo(() => {
     const map = new Map<string, string | null>();
@@ -315,6 +328,15 @@ export function UpcomingScreen() {
                       turnLabel={turnLabelOf(item)}
                       scheduleLabel={scheduleFor.get(item.choreId) ?? ''}
                       notes={notesFor.get(item.choreId) ?? null}
+                      subtasks={subtasksByChore.get(item.choreId) ?? []}
+                      tickedSubtasks={ticksByOccurrence.get(item.occurrenceKey) ?? EMPTY_TICKS}
+                      onToggleSubtask={(subtaskId, ticked) =>
+                        toggleSubtask.mutate({
+                          subtaskId,
+                          ticked,
+                          occurrenceKey: item.occurrenceKey,
+                        })
+                      }
                       onToggle={() =>
                         toggle.mutate({ item, complete: item.status !== 'completed' })
                       }

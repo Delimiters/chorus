@@ -12,6 +12,7 @@ import { useMemo } from 'react';
 
 import {
   listSubtaskTicks,
+  listSubtaskTicksForOccurrences,
   listSubtasks,
   replaceSubtasks,
   setSubtaskTick,
@@ -51,20 +52,72 @@ export function useSubtaskTicks(occurrenceKey: string | null): ReadonlySet<strin
 }
 
 /**
+ * Steps grouped by chore, for drawing them under every row.
+ *
+ * Most chores have none, so this is usually a small map — and returning one
+ * lets a screen ask per row without filtering the whole list each time.
+ */
+export function useSubtasksByChore(): ReadonlyMap<string, readonly Subtask[]> {
+  const all = useSubtasks();
+  return useMemo(() => {
+    const map = new Map<string, Subtask[]>();
+    for (const subtask of all.data ?? []) {
+      const bucket = map.get(subtask.choreId);
+      if (bucket) bucket.push(subtask);
+      else map.set(subtask.choreId, [subtask]);
+    }
+    return map;
+  }, [all.data]);
+}
+
+/** Ticks for everything on screen, keyed by occurrence. */
+export function useSubtaskTicksFor(
+  occurrenceKeys: readonly string[],
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const householdId = useActiveHouseholdId();
+  const query = useQuery({
+    queryKey: qk.subtaskTicksFor(householdId ?? '__none__', occurrenceKeys),
+    queryFn:
+      householdId === null
+        ? skipToken
+        : () => listSubtaskTicksForOccurrences(householdId, occurrenceKeys),
+    enabled: householdId !== null && occurrenceKeys.length > 0,
+  });
+
+  return useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const tick of query.data ?? []) {
+      const bucket = map.get(tick.occurrenceKey);
+      if (bucket) bucket.add(tick.subtaskId);
+      else map.set(tick.occurrenceKey, new Set([tick.subtaskId]));
+    }
+    return map;
+  }, [query.data]);
+}
+
+/**
  * Ticking a step, optimistically.
  *
  * Optimistic for the same reason completing a chore is: the checkbox renders
  * from the cache, so without this it would flick back to its old state the
  * instant it was pressed and forward again when the write returned.
  */
-export function useToggleSubtask(occurrenceKey: string | null, tickedOn: string) {
+export function useToggleSubtask(tickedOn: string) {
   const householdId = useActiveHouseholdId();
   const userId = useUserId();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ subtaskId, ticked }: { subtaskId: string; ticked: boolean }) => {
-      if (householdId === null || userId === null || occurrenceKey === null) {
+    mutationFn: ({
+      subtaskId,
+      ticked,
+      occurrenceKey,
+    }: {
+      subtaskId: string;
+      ticked: boolean;
+      occurrenceKey: string;
+    }) => {
+      if (householdId === null || userId === null) {
         throw new Error('Please sign in again.');
       }
       return setSubtaskTick({
@@ -77,8 +130,8 @@ export function useToggleSubtask(occurrenceKey: string | null, tickedOn: string)
       });
     },
 
-    onMutate: async ({ subtaskId, ticked }) => {
-      if (householdId === null || occurrenceKey === null) return;
+    onMutate: async ({ subtaskId, ticked, occurrenceKey }) => {
+      if (householdId === null) return;
       const key = qk.subtaskTicks(householdId, occurrenceKey);
       await queryClient.cancelQueries({ queryKey: key });
       const snapshot = queryClient.getQueryData<readonly string[]>(key);
@@ -91,16 +144,17 @@ export function useToggleSubtask(occurrenceKey: string | null, tickedOn: string)
       return { snapshot };
     },
 
-    onError: (_error, _input, context) => {
-      if (householdId === null || occurrenceKey === null || context?.snapshot === undefined) return;
-      queryClient.setQueryData(qk.subtaskTicks(householdId, occurrenceKey), context.snapshot);
+    onError: (_error, input, context) => {
+      if (householdId === null || context?.snapshot === undefined) return;
+      queryClient.setQueryData(qk.subtaskTicks(householdId, input.occurrenceKey), context.snapshot);
     },
 
     onSettled: async () => {
-      if (householdId === null || occurrenceKey === null) return;
-      await queryClient.invalidateQueries({
-        queryKey: qk.subtaskTicks(householdId, occurrenceKey),
-      });
+      if (householdId === null) return;
+      // Everything under the subtasks prefix: the single-occurrence query the
+      // sheet uses and the batched one the lists use both hold this tick, and
+      // leaving either stale would make the two disagree on screen.
+      await queryClient.invalidateQueries({ queryKey: qk.subtasks(householdId) });
     },
   });
 }

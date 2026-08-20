@@ -38,6 +38,9 @@ export const qk = {
   /** Ticks for one occurrence; a new occurrence simply has none. */
   subtaskTicks: (householdId: string, occurrenceKey: string) =>
     [...qk.subtasks(householdId), 'ticks', occurrenceKey] as const,
+  /** Ticks for everything on screen, sorted so the key is stable. */
+  subtaskTicksFor: (householdId: string, occurrenceKeys: readonly string[]) =>
+    [...qk.subtasks(householdId), 'ticks-for', [...occurrenceKeys].sort()] as const,
   routines: (householdId: string) => [...qk.household(householdId), 'routines'] as const,
   routineList: (householdId: string, filters: Record<string, unknown>) =>
     [...qk.routines(householdId), 'list', filters] as const,

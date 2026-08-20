@@ -10,6 +10,7 @@
  * blue box always sits beside the words "Your turn". See docs/DESIGN_SYSTEM.md.
  */
 
+import { useState } from 'react';
 import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import type { AgendaItem, FloatingGroup } from '@/core/occurrence/agenda';
@@ -20,6 +21,9 @@ import { Txt } from './components';
 import { formatLateness, formatMissedBefore } from './format';
 import type { Priority } from '@/core/chore/priority';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+
+/** Stable identity, so a row without ticks does not re-render on every parent render. */
+const EMPTY_TICKS: ReadonlySet<string> = new Set();
 
 // ── Checkbox ────────────────────────────────────────────────────────────────
 
@@ -194,6 +198,18 @@ interface ChoreRowProps {
    * make every row two lines taller.
    */
   notes?: string | null;
+  /**
+   * The chore's steps, drawn under the row.
+   *
+   * On the row rather than behind a tap: a step is ticked while you are doing
+   * the chore, so putting the list one interaction away made it something you
+   * had to go looking for. Expanded by default for the same reason — a
+   * collapsed list of things to do is a list nobody reads.
+   */
+  subtasks?: readonly { id: string; title: string }[];
+  /** Which of them are ticked for *this* occurrence. */
+  tickedSubtasks?: ReadonlySet<string>;
+  onToggleSubtask?: (subtaskId: string, ticked: boolean) => void;
   onToggle: () => void;
   onOpen: () => void;
   style?: StyleProp<ViewStyle>;
@@ -208,12 +224,18 @@ export function ChoreRow({
   priority = 'normal',
   icon = null,
   notes = null,
+  subtasks = [],
+  tickedSubtasks,
+  onToggleSubtask,
   onToggle,
   onOpen,
   style,
 }: ChoreRowProps) {
   const { colors } = useTheme();
   const note = notes === null ? '' : notes.trim();
+  const [stepsOpen, setStepsOpen] = useState(true);
+  const ticked = tickedSubtasks ?? EMPTY_TICKS;
+  const stepsDone = subtasks.filter((s) => ticked.has(s.id)).length;
   const done = item.status === 'completed';
   const overdue = item.status === 'overdue';
   const skipped = item.status === 'skipped';
@@ -301,6 +323,68 @@ export function ChoreRow({
           <Txt variant="small" tone="faint" numberOfLines={2} style={{ marginTop: 1 }}>
             {note}
           </Txt>
+        ) : null}
+
+        {subtasks.length > 0 ? (
+          <View style={{ marginTop: 4, gap: 2 }}>
+            {/*
+              The count doubles as the collapse control, so the row gains a
+              tap target rather than an icon. Collapsing is per row and not
+              remembered — it is for getting a long list out of the way now,
+              not a preference.
+            */}
+            <Pressable
+              onPress={() => setStepsOpen((wasOpen: boolean) => !wasOpen)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: stepsOpen }}
+              accessibilityLabel={`${stepsDone} of ${subtasks.length} steps done. ${
+                stepsOpen ? 'Hide them' : 'Show them'
+              }.`}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Txt variant="small" tone="faint">
+                {`${stepsOpen ? '▾' : '▸'} ${stepsDone} of ${subtasks.length} steps`}
+              </Txt>
+            </Pressable>
+
+            {stepsOpen
+              ? subtasks.map((subtask) => {
+                  const isDone = ticked.has(subtask.id);
+                  return (
+                    <View
+                      key={subtask.id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: space.sm,
+                        paddingLeft: space.sm,
+                      }}
+                    >
+                      <Checkbox
+                        checked={isDone}
+                        ink={ink}
+                        disabled={onToggleSubtask === undefined}
+                        onPress={() => onToggleSubtask?.(subtask.id, !isDone)}
+                        label={
+                          isDone ? `Mark ${subtask.title} not done` : `Mark ${subtask.title} done`
+                        }
+                      />
+                      {isDone ? (
+                        <Txt
+                          variant="small"
+                          tone="faint"
+                          style={{ textDecorationLine: 'line-through' }}
+                        >
+                          {subtask.title}
+                        </Txt>
+                      ) : (
+                        <Txt variant="small">{subtask.title}</Txt>
+                      )}
+                    </View>
+                  );
+                })
+              : null}
+          </View>
         ) : null}
       </Pressable>
     </View>
