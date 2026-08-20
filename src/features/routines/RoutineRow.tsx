@@ -10,7 +10,6 @@
 
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Pressable, View } from 'react-native';
-import { useReorderableDrag } from 'react-native-reorderable-list';
 
 import { formatCivilTime } from '@/core/civil/time';
 import type { RoutineOccurrence } from '@/core/routines/project';
@@ -37,13 +36,20 @@ interface Props {
    * Off for a housemate's routine and for any day but today: a past day is a
    * record of what happened, and rearranging it would rewrite that.
    */
-  draggable?: boolean;
+  /**
+   * Picks the row up to reorder it, when it is inside a reorderable list.
+   *
+   * Passed in rather than taken from `useReorderableDrag` here: this row also
+   * renders a housemate's shared routine, which is a plain list with no
+   * provider above it, and calling that hook there throws — taking the whole
+   * Routines screen down the moment somebody shares.
+   */
+  onDrag?: (() => void) | undefined;
   onToggle: () => void;
   onOpen?: (() => void) | undefined;
 }
 
-export function RoutineRow({ item, ink, canTick, draggable = false, onToggle, onOpen }: Props) {
-  const drag = useReorderableDrag();
+export function RoutineRow({ item, ink, canTick, onDrag, onToggle, onOpen }: Props) {
   const { colors } = useTheme();
   const done = item.status === 'completed';
   const missed = item.status === 'missed';
@@ -107,11 +113,13 @@ export function RoutineRow({ item, ink, canTick, draggable = false, onToggle, on
           // tap still opens the item and a hold picks it up. A separate grab
           // handle would cost a column of width on every row to serve a
           // gesture used once in a while.
-          onLongPress={draggable ? drag : undefined}
+          onLongPress={onDrag}
           delayLongPress={220}
           accessibilityRole="button"
           accessibilityLabel={
-            draggable ? `${item.title}. Edit, or hold to reorder.` : `${item.title}. Edit.`
+            onDrag === undefined
+              ? `${item.title}. Edit.`
+              : `${item.title}. Edit, or hold to reorder.`
           }
           style={{ flex: 1 }}
         >
