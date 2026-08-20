@@ -18,11 +18,13 @@ import { addDays, compareCivil } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
 import type { RoutineOccurrence } from '@/core/routines/project';
 import { useMembers } from '@/data/hooks/useHousehold';
+import { useUserId } from '@/stores/sessionStore';
 import { useReorderRoutine, useRoutineDay, useToggleRoutine } from '@/data/hooks/useRoutines';
 import { useToday_View } from '@/data/hooks/useOccurrences';
 import type { LinkedChoreTick } from '@/data/api/routines';
 import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
 import { SectionHeader, SubHeader } from '@/design/ChoreRow';
+import { SegmentedControl } from '@/design/controls';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
@@ -51,14 +53,29 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
   const { colors } = useTheme();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
   const members = useMembers();
+  const userId = useUserId();
   const preference = useRoutinePreference();
 
   const [day, setDay] = useState<CivilDate>(today);
   const isToday = compareCivil(day, today) === 0;
 
-  const { summary, isLoading, error, unreadable } = useRoutineDay(day, {
+  const { summary, occurrences, isLoading, error, unreadable } = useRoutineDay(day, {
     showOthers: preference.showOthers,
   });
+  const setShowOthers = useRoutineStore((s) => s.setShowOthers);
+
+  /*
+   * Whether anybody else's routine is here to show.
+   *
+   * `occurrences` is unfiltered by the display setting, and RLS means only a
+   * *shared* routine ever arrives — so this is exactly "is there something the
+   * switch would do". Without it the control would sit on the screen promising
+   * to reveal a routine nobody has shared.
+   */
+  const someoneShares = useMemo(
+    () => occurrences.some((occ) => occ.ownerId !== userId),
+    [occurrences, userId],
+  );
   const toggle = useToggleRoutine();
   const reorder = useReorderRoutine();
 
@@ -117,6 +134,25 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
         }}
       >
         <ModeSwitch mode="routines" onChange={setTodayMode} />
+
+        {/*
+          Whose routines to show, on the screen it affects rather than buried
+          in Settings — and only when somebody has actually shared one, so it
+          never appears as a switch with nothing to switch.
+        */}
+        {someoneShares ? (
+          <View style={{ paddingHorizontal: space.sm, paddingBottom: space.md }}>
+            <SegmentedControl
+              segments={[
+                { value: 'mine', label: 'Just mine' },
+                { value: 'everyone', label: 'Everyone' },
+              ]}
+              value={preference.showOthers ? 'everyone' : 'mine'}
+              onChange={(value: string) => setShowOthers(value === 'everyone')}
+              label="Whose routines to show"
+            />
+          </View>
+        ) : null}
 
         <View
           style={{

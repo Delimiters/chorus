@@ -27,7 +27,6 @@ import { FieldGroup, SegmentedControl } from '@/design/controls';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { useReminderStore } from '@/stores/reminderStore';
-import { useRoutineStore } from '@/stores/routineStore';
 import { BUCKETS, bucketRange, describeBucket, type TimeBucket } from '@/core/routines/buckets';
 import { SingleTimeField } from '@/features/common/SingleTimeField';
 import { useRoutineItems, useSetShareRoutine } from '@/data/hooks/useRoutines';
@@ -88,8 +87,6 @@ export function SettingsScreen() {
   const setBucketTime = useReminderStore((s) => s.setBucketTime);
   const setAnnounceNewChores = useReminderStore((s) => s.setAnnounceNewChores);
   const userId = useUserId();
-  const showOthers = useRoutineStore((s) => s.preference.showOthers);
-  const setShowOthers = useRoutineStore((s) => s.setShowOthers);
   const routineItems = useRoutineItems();
   const setShareRoutine = useSetShareRoutine();
   const sharedByMe = routineItems.data?.sharedByMe ?? false;
@@ -322,16 +319,6 @@ export function SettingsScreen() {
               onValueChange={(shared) => setShareRoutine.mutate({ shared })}
               disabled={setShareRoutine.isPending}
               accessibilityLabel="Share my routine with the household"
-            />,
-          )}
-
-          {row(
-            "Show others' routines",
-            'Hides housemates\u2019 routines on your screen. A display setting, not a privacy one — what they share is up to them.',
-            <Switch
-              value={showOthers}
-              onValueChange={setShowOthers}
-              accessibilityLabel="Show other people's routines"
             />,
           )}
 
