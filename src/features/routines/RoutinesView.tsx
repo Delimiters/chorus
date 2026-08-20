@@ -37,6 +37,7 @@ import {
 } from 'react-native-reorderable-list';
 
 import { RoutineRow } from './RoutineRow';
+import { DraggableRoutineRow } from './DraggableRoutineRow';
 
 interface Props {
   today: CivilDate;
@@ -192,7 +193,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
                 }}
                 renderItem={({ item }) => (
                   <View style={{ paddingBottom: space.xs }}>
-                    <RoutineRow
+                    <DraggableRoutineRow
                       item={item}
                       ink={myInk}
                       // Only today is tickable: a past day is a record, and a
