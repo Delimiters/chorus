@@ -133,6 +133,8 @@ jest.mock('react-native-reorderable-list', () => {
   };
 });
 
+jest.mock('@/stores/sessionStore', () => ({ useUserId: () => 'me' }));
+
 jest.mock('@/data/hooks/useHousehold', () => ({
   useMembers: () => ({
     data: [
@@ -310,5 +312,31 @@ describe('RoutinesView', () => {
       fireEvent.press(screen.getByRole('checkbox', { name: /Wash up/ }));
       expect(mockToggle).toHaveBeenCalledWith(expect.objectContaining({ chore: null }));
     });
+  });
+});
+
+describe('whose routines to show', () => {
+  /*
+   * The control lives on the screen it affects. It was in Settings, two taps
+   * away from the list it changes, which is the wrong place for something you
+   * flip while looking at the thing.
+   */
+  it('is offered when a housemate has shared one', () => {
+    mockOccurrences = [
+      occurrence({ itemId: 'mine', occurrenceKey: 'mine' }),
+      occurrence({ itemId: 'theirs', occurrenceKey: 'theirs', ownerId: THEM }),
+    ];
+    renderView();
+
+    expect(screen.getByLabelText('Whose routines to show')).toBeTruthy();
+  });
+
+  it('is hidden when nobody has, so it never promises nothing', () => {
+    // Non-vacuity for the case above, and the point of the condition: a switch
+    // that reveals an empty list is worse than no switch.
+    mockOccurrences = [occurrence({ itemId: 'mine', occurrenceKey: 'mine' })];
+    renderView();
+
+    expect(screen.queryByLabelText('Whose routines to show')).toBeNull();
   });
 });

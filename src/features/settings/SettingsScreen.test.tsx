@@ -233,9 +233,14 @@ describe('routine sharing', () => {
     expect(mockSetShare).toHaveBeenCalledWith({ shared: true });
   });
 
-  it('describes showing others as a display setting, not a privacy one', async () => {
-    await renderScreen();
-    expect(screen.getByText(/display setting, not a privacy one/)).toBeTruthy();
+  it('keeps sharing here, because it is a fact about you rather than a view', () => {
+    // Sharing writes to your membership row and only you may write it. Whose
+    // routines you *look at* is a property of the screen you are looking at,
+    // and lives there now.
+    return renderScreen().then(() => {
+      expect(screen.getByLabelText('Share my routine with the household')).toBeTruthy();
+      expect(screen.queryByLabelText("Show other people's routines")).toBeNull();
+    });
   });
 });
 
