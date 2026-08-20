@@ -24,8 +24,9 @@ import {
 import type { CivilDate, Weekday } from '@/core/civil/types';
 import { inkColor } from '@/design/inks';
 import { Txt } from '@/design/components';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { dayOfMonth, monthName, weekdayShort } from '@/features/common/format';
 
 /** One dot per chore on a day, in the owner's ink. */
@@ -179,15 +180,30 @@ export function MonthGrid({
         </View>
       ))}
 
+      {/*
+        A real control, not a nine-point caption with a glyph in it. The old
+        one was the size of a footnote and had to be aimed at.
+      */}
       <Pressable
         onPress={onToggleExpanded}
         accessibilityRole="button"
+        accessibilityState={{ expanded }}
         accessibilityLabel={expanded ? 'Collapse to one week' : 'Expand to the whole month'}
-        hitSlop={{ top: 8, bottom: 8, left: 20, right: 20 }}
-        style={{ alignItems: 'center', paddingTop: 6 }}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
+          minHeight: MIN_TARGET,
+        }}
       >
-        <Txt variant="label" tone="faint" style={{ fontSize: 9 }}>
-          {expanded ? '▲ Week' : '▼ Month'}
+        <MaterialCommunityIcons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={22}
+          color={colors.textMuted}
+        />
+        <Txt variant="small" tone="faint">
+          {expanded ? 'Week' : 'Month'}
         </Txt>
       </Pressable>
     </View>

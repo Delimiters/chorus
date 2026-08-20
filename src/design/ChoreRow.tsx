@@ -244,9 +244,6 @@ export function ChoreRow({
     <View
       style={[
         {
-          flexDirection: 'row',
-          alignItems: 'flex-start',
-          gap: space.md,
           paddingHorizontal: space.md,
           paddingVertical: 11,
           borderRadius: radius.md,
@@ -261,132 +258,142 @@ export function ChoreRow({
         style,
       ]}
     >
-      <Checkbox
-        checked={done}
-        ink={ink}
-        onPress={onToggle}
-        label={done ? `Mark ${item.choreTitle} not done` : `Mark ${item.choreTitle} done`}
-      />
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.md }}>
+        <Checkbox
+          checked={done}
+          ink={ink}
+          onPress={onToggle}
+          label={done ? `Mark ${item.choreTitle} not done` : `Mark ${item.choreTitle} done`}
+        />
 
-      <Pressable
-        onPress={onOpen}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.choreTitle}, ${turnLabel ?? 'anyone can do it'}. Open options.`}
-        style={{ flex: 1, gap: 4 }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
-          {icon === null ? null : (
-            <View accessibilityElementsHidden importantForAccessibility="no">
-              <MaterialCommunityIcons name={icon as never} size={16} color={colors.textMuted} />
-            </View>
-          )}
-          <Txt
-            variant="bodyStrong"
-            style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
-          >
-            {item.choreTitle}
-          </Txt>
-        </View>
-
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-          {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
-
-          {priority === 'crucial' ? <Chip tone="overdue">Crucial</Chip> : null}
-
-          {category === null ? null : (
-            <Chip tone={category.ink === null ? 'quiet' : 'ink'} ink={category.ink}>
-              {category.name}
-            </Chip>
-          )}
-
-          {turnLabel !== null ? (
-            <Chip tone="ink" ink={ink}>
-              {turnLabel}
-            </Chip>
-          ) : null}
-
-          {done && item.completedBy !== null ? null : (
-            <Txt variant="small" tone="faint">
-              {scheduleLabel}
-            </Txt>
-          )}
-
-          {/* Quiet, not a reproach — see the overdue rule in DESIGN_SYSTEM.md. */}
-          {item.missedBefore > 0 && !done ? (
-            <Txt variant="small" tone="faint">
-              {`· ${formatMissedBefore(item.missedBefore)}`}
-            </Txt>
-          ) : null}
-        </View>
-
-        {note.length > 0 ? (
-          <Txt variant="small" tone="faint" numberOfLines={2} style={{ marginTop: 1 }}>
-            {note}
-          </Txt>
-        ) : null}
-
-        {subtasks.length > 0 ? (
-          <View style={{ marginTop: 4, gap: 2 }}>
-            {/*
-              The count doubles as the collapse control, so the row gains a
-              tap target rather than an icon. Collapsing is per row and not
-              remembered — it is for getting a long list out of the way now,
-              not a preference.
-            */}
-            <Pressable
-              onPress={() => setStepsOpen((wasOpen: boolean) => !wasOpen)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: stepsOpen }}
-              accessibilityLabel={`${stepsDone} of ${subtasks.length} steps done. ${
-                stepsOpen ? 'Hide them' : 'Show them'
-              }.`}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+        <Pressable
+          onPress={onOpen}
+          accessibilityRole="button"
+          accessibilityLabel={`${item.choreTitle}, ${turnLabel ?? 'anyone can do it'}. Open options.`}
+          style={{ flex: 1, gap: 4 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+            {icon === null ? null : (
+              <View accessibilityElementsHidden importantForAccessibility="no">
+                <MaterialCommunityIcons name={icon as never} size={16} color={colors.textMuted} />
+              </View>
+            )}
+            <Txt
+              variant="bodyStrong"
+              style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
             >
-              <Txt variant="small" tone="faint">
-                {`${stepsOpen ? '▾' : '▸'} ${stepsDone} of ${subtasks.length} steps`}
-              </Txt>
-            </Pressable>
-
-            {stepsOpen
-              ? subtasks.map((subtask) => {
-                  const isDone = ticked.has(subtask.id);
-                  return (
-                    <View
-                      key={subtask.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: space.sm,
-                        paddingLeft: space.sm,
-                      }}
-                    >
-                      <Checkbox
-                        checked={isDone}
-                        ink={ink}
-                        disabled={onToggleSubtask === undefined}
-                        onPress={() => onToggleSubtask?.(subtask.id, !isDone)}
-                        label={
-                          isDone ? `Mark ${subtask.title} not done` : `Mark ${subtask.title} done`
-                        }
-                      />
-                      {isDone ? (
-                        <Txt
-                          variant="small"
-                          tone="faint"
-                          style={{ textDecorationLine: 'line-through' }}
-                        >
-                          {subtask.title}
-                        </Txt>
-                      ) : (
-                        <Txt variant="small">{subtask.title}</Txt>
-                      )}
-                    </View>
-                  );
-                })
-              : null}
+              {item.choreTitle}
+            </Txt>
           </View>
+
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+            {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
+
+            {priority === 'crucial' ? <Chip tone="overdue">Crucial</Chip> : null}
+
+            {category === null ? null : (
+              <Chip tone={category.ink === null ? 'quiet' : 'ink'} ink={category.ink}>
+                {category.name}
+              </Chip>
+            )}
+
+            {turnLabel !== null ? (
+              <Chip tone="ink" ink={ink}>
+                {turnLabel}
+              </Chip>
+            ) : null}
+
+            {done && item.completedBy !== null ? null : (
+              <Txt variant="small" tone="faint">
+                {scheduleLabel}
+              </Txt>
+            )}
+
+            {/* Quiet, not a reproach — see the overdue rule in DESIGN_SYSTEM.md. */}
+            {item.missedBefore > 0 && !done ? (
+              <Txt variant="small" tone="faint">
+                {`· ${formatMissedBefore(item.missedBefore)}`}
+              </Txt>
+            ) : null}
+          </View>
+
+          {note.length > 0 ? (
+            <Txt variant="small" tone="faint" numberOfLines={2} style={{ marginTop: 1 }}>
+              {note}
+            </Txt>
+          ) : null}
+        </Pressable>
+
+        {/*
+          The disclosure, on the right of the cell and sized like a control.
+          It began as a chevron inside the steps line — sixteen points, faint,
+          with a text glyph for an arrow — which read as decoration and was
+          barely tappable. This one is a full 44pt target with a real icon.
+        */}
+        {subtasks.length > 0 ? (
+          <Pressable
+            onPress={() => setStepsOpen((wasOpen: boolean) => !wasOpen)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: stepsOpen }}
+            accessibilityLabel={`${stepsDone} of ${subtasks.length} steps done. ${
+              stepsOpen ? 'Hide them' : 'Show them'
+            }.`}
+            style={{
+              width: MIN_TARGET,
+              height: MIN_TARGET,
+              alignItems: 'center',
+              justifyContent: 'center',
+              // Pulled into the row's own padding so the icon sits on the
+              // edge of the cell rather than inset from it.
+              marginTop: -8,
+              marginRight: -space.sm,
+            }}
+          >
+            <MaterialCommunityIcons
+              name={stepsOpen ? 'chevron-up' : 'chevron-down'}
+              size={26}
+              color={colors.textMuted}
+            />
+          </Pressable>
         ) : null}
-      </Pressable>
+      </View>
+
+      {/*
+        Indented under the chore, not inside the row's tappable body — a step's
+        checkbox and the row's "open options" press must not compete.
+      */}
+      {subtasks.length > 0 && stepsOpen ? (
+        <View style={{ gap: 2, marginTop: 6, paddingLeft: space.xl }}>
+          <Txt variant="small" tone="faint">
+            {`${stepsDone} of ${subtasks.length} steps`}
+          </Txt>
+
+          {subtasks.map((subtask) => {
+            const isDone = ticked.has(subtask.id);
+            return (
+              <View
+                key={subtask.id}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+              >
+                <Checkbox
+                  checked={isDone}
+                  ink={ink}
+                  disabled={onToggleSubtask === undefined}
+                  onPress={() => onToggleSubtask?.(subtask.id, !isDone)}
+                  label={isDone ? `Mark ${subtask.title} not done` : `Mark ${subtask.title} done`}
+                />
+                {isDone ? (
+                  <Txt variant="small" tone="faint" style={{ textDecorationLine: 'line-through' }}>
+                    {subtask.title}
+                  </Txt>
+                ) : (
+                  <Txt variant="small">{subtask.title}</Txt>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }

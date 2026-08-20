@@ -27,6 +27,7 @@ import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { MIN_TARGET, space } from '@/design/tokens';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { formatDayLong } from '@/features/common/format';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
 import {
@@ -124,7 +125,11 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
             paddingHorizontal: space.sm,
           }}
         >
-          <Arrow label="Previous day" glyph="‹" onPress={() => setDay(addDays(day, -1))} />
+          <Arrow
+            label="Previous day"
+            glyph="chevron-left"
+            onPress={() => setDay(addDays(day, -1))}
+          />
           <Stack gap={2} style={{ alignItems: 'center' }}>
             <Txt variant="heading" accessibilityRole="header">
               {isToday ? 'Today' : formatDayLong(day)}
@@ -137,7 +142,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
               page back and forth. */}
           <Arrow
             label="Next day"
-            glyph="›"
+            glyph="chevron-right"
             disabled={isToday}
             onPress={() => setDay(addDays(day, 1))}
           />
@@ -255,7 +260,7 @@ function Arrow({
   disabled = false,
 }: {
   label: string;
-  glyph: string;
+  glyph: 'chevron-left' | 'chevron-right';
   onPress: () => void;
   disabled?: boolean;
 }) {
@@ -275,9 +280,11 @@ function Arrow({
         opacity: disabled ? 0.3 : 1,
       }}
     >
-      <Txt variant="title" style={{ color: colors.textMuted }}>
-        {glyph}
-      </Txt>
+      {/*
+        An icon rather than a ‹ character: the glyph rendered small and thin at
+        every text size, which made a 44pt target look like a 10pt one.
+      */}
+      <MaterialCommunityIcons name={glyph} size={28} color={colors.textMuted} />
     </Pressable>
   );
 }

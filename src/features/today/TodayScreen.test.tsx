@@ -412,6 +412,27 @@ describe('the steps inside a chore', () => {
     });
   });
 
+  it('offers a disclosure big enough to hit', async () => {
+    // The first version was a chevron inside the count line at sixteen points
+    // in faint text; it read as decoration and was hard to press.
+    withSteps();
+    await renderScreen();
+
+    const disclosure = screen.getByLabelText(/steps done\. Hide them\./);
+    expect(disclosure.props.style).toEqual(expect.objectContaining({ width: 44, height: 44 }));
+  });
+
+  it('collapses and expands', async () => {
+    withSteps();
+    await renderScreen();
+
+    await fireEvent.press(screen.getByLabelText(/steps done\. Hide them\./));
+    expect(screen.queryByText('Rinse')).toBeNull();
+
+    await fireEvent.press(screen.getByLabelText(/steps done\. Show them\./));
+    expect(screen.getByText('Rinse')).toBeOnTheScreen();
+  });
+
   it('says nothing at all for a chore without steps', async () => {
     // Most chores have none; the row must not grow a header for them.
     await renderScreen();
