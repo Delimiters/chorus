@@ -75,7 +75,16 @@ export function TodayScreen() {
   const categories = useCategoryList();
   const viewPref = useViewPreference();
   const setArrangement = useViewStore((s) => s.setArrangement);
-  const [comingUpOpen, setComingUpOpen] = useState(false);
+  /*
+   * Open, and collapsible.
+   *
+   * It shipped collapsed, which was sized for rows that were two or three
+   * lines each — thirty-two of those was the whole screen. Slim rows changed
+   * the arithmetic: the pile now costs about a third of what it did, and
+   * hiding work by default asks you to remember it is there. The heading and
+   * its count stay, so it can still be folded away on a heavy week.
+   */
+  const [comingUpOpen, setComingUpOpen] = useState(true);
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
 
   /**

@@ -370,13 +370,21 @@ export function ChoreRow({
               // Muted, not faint. 13pt faint is 3.75:1 against paper — below
               // AA — and this is now the category's only textual carrier,
               // where the chip it replaced was ink on a tinted ground.
+              //
+              // Its natural width, uncapped. It was held to 32% of the row so
+              // it could never crowd the title, which turned "Entertainment"
+              // into "Entertain…" — a truncation that helps nobody. Now that a
+              // title wraps rather than clipping, the two can share: the
+              // category takes what it needs and the title flows around it.
               <Txt
                 variant="small"
                 tone="muted"
-                numberOfLines={1}
-                // Capped, and never at the title's expense: the category is
-                // context, the name is the thing being read.
-                style={{ marginLeft: 'auto', paddingLeft: space.xs, maxWidth: '32%', marginTop: 2 }}
+                style={{
+                  marginLeft: 'auto',
+                  paddingLeft: space.xs,
+                  marginTop: 2,
+                  flexShrink: 0,
+                }}
               >
                 {category.name}
               </Txt>
