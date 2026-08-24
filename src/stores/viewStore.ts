@@ -32,6 +32,15 @@ const ARRANGEMENTS: readonly TodayArrangement[] = ['priority', 'when'];
 
 export interface ViewPreference {
   readonly arrangement: TodayArrangement;
+  /**
+   * Slim rows on Today: the name, its category colour, and how late it is.
+   *
+   * Per device rather than per household, and in Settings rather than on
+   * Today, because it is a standing preference about density — not a question
+   * you answer differently on a Tuesday. Any row expands in place regardless,
+   * so this sets the default rather than what is reachable.
+   */
+  readonly compactRows: boolean;
 }
 
 /**
@@ -41,13 +50,14 @@ export interface ViewPreference {
  * most" turned out to be a more useful first cut than "what kind of thing is
  * this". `when` is one tap away for the days that question changes.
  */
-export const DEFAULT_VIEW: ViewPreference = { arrangement: 'priority' };
+export const DEFAULT_VIEW: ViewPreference = { arrangement: 'priority', compactRows: true };
 
 interface ViewState {
   readonly view: ViewPreference;
   /** False until the stored value has been read, so nothing is written over it. */
   readonly hydrated: boolean;
   readonly setArrangement: (arrangement: TodayArrangement) => void;
+  readonly setCompactRows: (compactRows: boolean) => void;
   readonly hydrate: () => Promise<void>;
 }
 
@@ -63,6 +73,12 @@ export const useViewStore = create<ViewState>((set, get) => ({
 
   setArrangement: (arrangement) => {
     const view = { ...get().view, arrangement };
+    set({ view });
+    persist(view);
+  },
+
+  setCompactRows: (compactRows) => {
+    const view = { ...get().view, compactRows };
     set({ view });
     persist(view);
   },
@@ -86,6 +102,7 @@ export const useViewStore = create<ViewState>((set, get) => ({
             ...(ARRANGEMENTS.includes(stored.arrangement as TodayArrangement)
               ? { arrangement: stored.arrangement as TodayArrangement }
               : {}),
+            ...(typeof stored.compactRows === 'boolean' ? { compactRows: stored.compactRows } : {}),
           },
         });
       }

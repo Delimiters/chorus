@@ -16,7 +16,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -35,7 +35,7 @@ import {
   useToday_View,
   useToggleCompletion,
 } from '@/data/hooks/useOccurrences';
-import { ChoreRow, FloatingRow, SectionHeader } from '@/design/ChoreRow';
+import { ChoreRow, FloatingRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
 import { groupItems } from '@/core/occurrence/grouping';
 import { toPriority } from '@/core/chore/priority';
 import { useCategoryList } from '@/data/hooks/useCategories';
@@ -52,6 +52,13 @@ import { formatDayLong, formatFlexibleWindow } from '@/features/common/format';
 
 /** Stable identity, so a row without ticks does not re-render needlessly. */
 const EMPTY_TICKS: ReadonlySet<string> = new Set();
+
+/** One arrangement heading and the rows under it, inside one person's work. */
+interface Block {
+  readonly key: string;
+  readonly title: string;
+  readonly items: readonly AgendaItem[];
+}
 
 export function TodayScreen() {
   const { colors } = useTheme();
@@ -187,7 +194,7 @@ export function TodayScreen() {
         // A property of this screen rather than of the arrangement: Today is
         // the long list either way, and the rail has to mean the same thing in
         // both modes or it teaches nothing.
-        compact
+        compact={viewPref.compactRows}
         onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
         onOpen={() => setOpen(item)}
       />
@@ -206,54 +213,64 @@ export function TodayScreen() {
    * Folding those into one line is what actually shortens the list, so it is a
    * property of the screen rather than of either arrangement.
    *
-   * **The arrangement decides the rest.** Priority answers "what matters most",
-   * When answers "what is most overdue". They are two cuts of the same
-   * remaining work, which is why one control switches between them instead of
-   * two controls combining.
+   * **Yours and everyone else's stay apart.** The first version of this
+   * redesign merged them and leaned on the turn chip to tell them apart, on
+   * the theory that "does it matter" should be answered before "whose is it".
+   * In use that was plainly wrong: the first question anyone actually asks of
+   * this screen is what *they* have to do, and another person's list threaded
+   * through your own is noise however well it is labelled.
+   *
+   * **The arrangement decides the rest, inside each.** Priority answers "what
+   * matters most", When answers "what is most overdue". They are two cuts of
+   * the same remaining work, which is why one control switches between them
+   * instead of two controls combining.
    *
    * Category grouping is gone: every row now carries its category as a colour
    * and a name, so a heading said the same thing twice and cost a line.
    */
-  const outstanding = useMemo(() => {
-    // Sorted *before* splitting, and this line is load-bearing. `view.mine` and
-    // `view.theirs` are two lists, so concatenating them leaves ownership as
-    // the primary order — which would put a chore of mine one day late above
-    // one of Sam's six days late, under a heading that says "Late". Ownership
-    // was supposed to stop deciding the order; unsorted concatenation kept it
-    // deciding, invisibly, which is worse than the headings it replaced.
-    const merged = [...view.mine, ...view.theirs];
-    const [all] = groupItems(merged, choreMeta, categories, {
-      groupBy: 'none',
-      sortBy: 'due',
-    });
-    return all?.items ?? [];
-  }, [view.mine, view.theirs, choreMeta, categories]);
-  const urgency = useMemo(() => splitByUrgency(outstanding, today), [outstanding, today]);
+  const sortItems = useCallback(
+    (items: readonly AgendaItem[]): readonly AgendaItem[] => {
+      const [all] = groupItems(items, choreMeta, categories, { groupBy: 'none', sortBy: 'due' });
+      return all?.items ?? [];
+    },
+    [choreMeta, categories],
+  );
 
-  const byPriority = useMemo(() => {
-    // `groupItems` is generic over `Groupable`, and an `AgendaItem` is one — so
-    // the rows travel through it and come back out unchanged rather than being
-    // mapped to keys and rejoined.
-    const now = [...urgency.late, ...urgency.dueToday];
-    return groupItems(now, choreMeta, categories, {
-      groupBy: 'priority',
-      sortBy: 'due',
-    }).map((section) => ({
-      key: section.key,
-      title: section.title,
-      items: section.items,
-    }));
-  }, [urgency.late, urgency.dueToday, choreMeta, categories]);
+  /** The arrangement, applied inside one person's work. */
+  const arrange = useCallback(
+    (items: readonly AgendaItem[]): readonly Block[] => {
+      const urgency = splitByUrgency(sortItems(items), today);
+      const now = [...urgency.late, ...urgency.dueToday];
 
-  const sections =
-    viewPref.arrangement === 'priority'
-      ? byPriority
-      : [
-          { key: 'late', title: 'Late', items: urgency.late },
-          // "Due today" rather than "Today", which is the page's own title —
-          // a section heading repeating the screen name reads as a mistake.
-          { key: 'today', title: 'Due today', items: urgency.dueToday },
-        ];
+      const blocks =
+        viewPref.arrangement === 'priority'
+          ? groupItems(now, choreMeta, categories, { groupBy: 'priority', sortBy: 'due' }).map(
+              (section) => ({ key: section.key, title: section.title, items: section.items }),
+            )
+          : [
+              { key: 'late', title: 'Late', items: urgency.late },
+              // "Due today" rather than "Today", which is the page's own title.
+              { key: 'today', title: 'Due today', items: urgency.dueToday },
+            ];
+
+      return blocks.filter((block) => block.items.length > 0);
+    },
+    [sortItems, today, viewPref.arrangement, choreMeta, categories],
+  );
+
+  const mine = useMemo(() => arrange(view.mine), [arrange, view.mine]);
+  const theirs = useMemo(() => arrange(view.theirs), [arrange, view.theirs]);
+
+  /**
+   * Not yet due, from both people, in one collapsed pile.
+   *
+   * Split by owner it would be two collapsed lines saying almost nothing; the
+   * whole point of the section is that nothing in it needs deciding today.
+   */
+  const comingUp = useMemo(
+    () => splitByUrgency(sortItems([...view.mine, ...view.theirs]), today).comingUp,
+    [sortItems, view.mine, view.theirs, today],
+  );
 
   const renderFloating = (group: FloatingGroup) => {
     const next = group.nextSlot;
@@ -289,8 +306,30 @@ export function TodayScreen() {
    * either position, and one collapsed line. Opened by default in that case,
    * and the arrangement control hidden, since there is nothing to arrange.
    */
-  const nothingDueNow = sections.every((section) => section.items.length === 0);
+  const nothingDueNow = mine.length === 0 && theirs.length === 0;
   const showComingUp = comingUpOpen || nothingDueNow;
+
+  /*
+   * Ownership is the outer split, the arrangement the inner one.
+   *
+   * Both people's work is on the screen — seeing what your housemate has on is
+   * half the reason to share a list — but never interleaved with your own.
+   */
+  const renderOwned = (title: string, blocks: readonly Block[]) =>
+    blocks.length === 0 ? null : (
+      <View key={title}>
+        <SectionHeader
+          title={title}
+          count={blocks.reduce((total, block) => total + block.items.length, 0)}
+        />
+        {blocks.map((block) => (
+          <View key={block.key}>
+            <SubHeader title={block.title} count={block.items.length} />
+            <Stack gap={space.xs}>{block.items.map(renderRow)}</Stack>
+          </View>
+        ))}
+      </View>
+    );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
@@ -347,14 +386,8 @@ export function TodayScreen() {
           </View>
         )}
 
-        {sections.map((section) =>
-          section.items.length === 0 ? null : (
-            <View key={section.key}>
-              <SectionHeader title={section.title} count={section.items.length} />
-              <Stack gap={space.xs}>{section.items.map(renderRow)}</Stack>
-            </View>
-          ),
-        )}
+        {renderOwned('Yours', mine)}
+        {renderOwned('Everyone else', theirs)}
 
         {/*
           Not yet due, and folded away.
@@ -364,14 +397,14 @@ export function TodayScreen() {
           count is on the header, so the size of the pile is visible without
           the pile being.
         */}
-        {urgency.comingUp.length > 0 ? (
+        {comingUp.length > 0 ? (
           <View>
             <Pressable
               onPress={() => setComingUpOpen((open: boolean) => !open)}
               accessibilityRole="button"
               accessibilityState={{ expanded: showComingUp }}
-              accessibilityLabel={`Coming up, ${urgency.comingUp.length} chore${
-                urgency.comingUp.length === 1 ? '' : 's'
+              accessibilityLabel={`Coming up, ${comingUp.length} chore${
+                comingUp.length === 1 ? '' : 's'
               }. ${showComingUp ? 'Hide them' : 'Show them'}.`}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: MIN_TARGET }}
             >
@@ -383,11 +416,11 @@ export function TodayScreen() {
               {/* Muted rather than faint: 11pt faint is 3.75:1, below AA, and
                   this is the only door to the folded rows. */}
               <Txt variant="label" tone="muted">
-                {`COMING UP · ${urgency.comingUp.length}`}
+                {`COMING UP · ${comingUp.length}`}
               </Txt>
             </Pressable>
 
-            {showComingUp ? <Stack gap={space.xs}>{urgency.comingUp.map(renderRow)}</Stack> : null}
+            {showComingUp ? <Stack gap={space.xs}>{comingUp.map(renderRow)}</Stack> : null}
           </View>
         ) : null}
 

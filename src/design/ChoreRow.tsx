@@ -246,7 +246,16 @@ export function ChoreRow({
   const rail =
     compact && category !== null && category.ink !== null ? inkColor(category.ink, isDark) : null;
   const note = notes === null ? '' : notes.trim();
-  const [stepsOpen, setStepsOpen] = useState(true);
+  /*
+   * Expanded means "show me everything about this chore".
+   *
+   * On a roomy row it has only ever governed the steps, and they start open —
+   * a collapsed list of things to do is a list nobody reads. A compact row
+   * starts closed, because the whole point of it is to be one line until you
+   * ask for more.
+   */
+  const [stepsOpen, setStepsOpen] = useState(!compact);
+  const slim = compact && !stepsOpen;
   const ticked = tickedSubtasks ?? EMPTY_TICKS;
   const stepsDone = subtasks.filter((s) => ticked.has(s.id)).length;
   const done = item.status === 'completed';
@@ -318,11 +327,17 @@ export function ChoreRow({
                 <MaterialCommunityIcons name={icon as never} size={16} color={colors.textMuted} />
               </View>
             )}
+            {/*
+              `flex: 1` rather than `flexShrink`, so the title claims the space
+              first and the category name takes what is left. The other way
+              round, a five-word chore name was being clipped to make room for
+              "Maintenance".
+            */}
             <Txt
               variant="bodyStrong"
-              {...(compact ? { numberOfLines: 1 } : {})}
+              {...(slim ? { numberOfLines: 1 } : {})}
               style={[
-                compact ? { flexShrink: 1 } : null,
+                slim ? { flex: 1 } : null,
                 done || skipped ? { textDecorationLine: 'line-through' } : null,
               ]}
             >
@@ -343,45 +358,76 @@ export function ChoreRow({
                 variant="small"
                 tone="muted"
                 numberOfLines={1}
-                style={{ marginLeft: 'auto', paddingLeft: space.xs }}
+                // Capped, and never at the title's expense: the category is
+                // context, the name is the thing being read.
+                style={{ marginLeft: 'auto', paddingLeft: space.xs, maxWidth: '32%' }}
               >
                 {category.name}
               </Txt>
             ) : null}
-          </View>
 
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-            {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
+            {/*
+              How late, shortened to `6d`, and only on a slim row.
 
-            {priority === 'crucial' ? <Chip tone="overdue">Crucial</Chip> : null}
-
-            {category === null || compact ? null : (
-              <Chip tone={category.ink === null ? 'quiet' : 'ink'} ink={category.ink}>
-                {category.name}
-              </Chip>
-            )}
-
-            {turnLabel !== null ? (
-              <Chip tone="ink" ink={ink}>
-                {turnLabel}
-              </Chip>
-            ) : null}
-
-            {done && item.completedBy !== null ? null : (
-              <Txt variant="small" tone="faint">
-                {scheduleLabel}
-              </Txt>
-            )}
-
-            {/* Quiet, not a reproach — see the overdue rule in DESIGN_SYSTEM.md. */}
-            {item.missedBefore > 0 && !done ? (
-              <Txt variant="small" tone="faint">
-                {`· ${formatMissedBefore(item.missedBefore)}`}
+              Lateness is the one thing that cannot fold away — it is why a row
+              is worth looking at at all — but "6 days late" is a chip's worth
+              of width for one number. Expanded, the full chip returns.
+            */}
+            {slim && overdue ? (
+              <Txt
+                variant="small"
+                tone="danger"
+                style={
+                  category === null ? { marginLeft: 'auto', paddingLeft: space.xs } : undefined
+                }
+              >
+                {`${item.daysOverdue}d`}
               </Txt>
             ) : null}
           </View>
 
-          {note.length > 0 ? (
+          {/*
+            Everything below the title, which a slim row does not show.
+
+            A slim row is the name, its category colour, and how late it is —
+            enough to decide whether to do it. Chips, schedule text, the missed
+            count and the note are all detail for when you are actually doing
+            the job, and folding them roughly halves the row.
+          */}
+          {slim ? null : (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+              {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
+
+              {priority === 'crucial' ? <Chip tone="overdue">Crucial</Chip> : null}
+
+              {category === null || compact ? null : (
+                <Chip tone={category.ink === null ? 'quiet' : 'ink'} ink={category.ink}>
+                  {category.name}
+                </Chip>
+              )}
+
+              {turnLabel !== null ? (
+                <Chip tone="ink" ink={ink}>
+                  {turnLabel}
+                </Chip>
+              ) : null}
+
+              {done && item.completedBy !== null ? null : (
+                <Txt variant="small" tone="faint">
+                  {scheduleLabel}
+                </Txt>
+              )}
+
+              {/* Quiet, not a reproach — see the overdue rule in DESIGN_SYSTEM.md. */}
+              {item.missedBefore > 0 && !done ? (
+                <Txt variant="small" tone="faint">
+                  {`· ${formatMissedBefore(item.missedBefore)}`}
+                </Txt>
+              ) : null}
+            </View>
+          )}
+
+          {note.length > 0 && !slim ? (
             <Txt variant="small" tone="faint" numberOfLines={2} style={{ marginTop: 1 }}>
               {note}
             </Txt>
@@ -394,14 +440,18 @@ export function ChoreRow({
           with a text glyph for an arrow — which read as decoration and was
           barely tappable. This one is a full 44pt target with a real icon.
         */}
-        {subtasks.length > 0 ? (
+        {subtasks.length > 0 || compact ? (
           <Pressable
             onPress={() => setStepsOpen((wasOpen: boolean) => !wasOpen)}
             accessibilityRole="button"
             accessibilityState={{ expanded: stepsOpen }}
-            accessibilityLabel={`${stepsDone} of ${subtasks.length} steps done. ${
-              stepsOpen ? 'Hide them' : 'Show them'
-            }.`}
+            accessibilityLabel={
+              compact
+                ? `${item.choreTitle}. ${stepsOpen ? 'Hide details' : 'Show details'}.`
+                : `${stepsDone} of ${subtasks.length} steps done. ${
+                    stepsOpen ? 'Hide them' : 'Show them'
+                  }.`
+            }
             style={{
               width: MIN_TARGET,
               height: MIN_TARGET,
