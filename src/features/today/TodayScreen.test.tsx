@@ -490,6 +490,30 @@ describe('arranging Today', () => {
     expect(screen.getByText("Sam's turn")).toBeOnTheScreen();
   });
 
+  it('lets a long title shrink its own column instead of shoving the row apart', () => {
+    /*
+     * The bug this guards is invisible to this suite, so it is asserted at its
+     * cause. "Find cardiologist and schedule" rendered as one long line and
+     * pushed the category, the lateness and the chevron past the right edge of
+     * the cell, where `overflow: hidden` hid them while they stayed tappable —
+     * a chevron you could press but not see.
+     *
+     * Yoga will not shrink a box below its min-content width (for text, the
+     * longest word) unless `minWidth: 0` says it may; `flex: 1` does not lift
+     * that floor. Layout is not measured here, so the flag itself is the only
+     * observable thing, and it is exactly what was missing.
+     */
+    renderScreen();
+
+    const columns = screen.getAllByTestId('title-column');
+    expect(columns.length).toBeGreaterThan(0);
+
+    for (const column of columns) {
+      const style = StyleSheet.flatten(column.props.style) as { minWidth?: number };
+      expect(style.minWidth).toBe(0);
+    }
+  });
+
   it('never truncates a long category name', () => {
     // "Entertainment" was rendering as "Entertain…" against a 32% cap that
     // existed to protect the title. The title wraps now, so the cap bought
