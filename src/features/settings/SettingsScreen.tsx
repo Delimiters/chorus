@@ -31,6 +31,7 @@ import { BUCKETS, bucketRange, describeBucket, type TimeBucket } from '@/core/ro
 import { SingleTimeField } from '@/features/common/SingleTimeField';
 import { useRoutineItems, useSetShareRoutine } from '@/data/hooks/useRoutines';
 import { useUserId } from '@/stores/sessionStore';
+import { useViewPreference, useViewStore } from '@/stores/viewStore';
 import { useDeleteAccount } from '@/data/hooks/useAuth';
 import { REMINDER_TIMES } from '@/design/times';
 
@@ -62,6 +63,8 @@ const buildNumber =
     : String(Constants.expoConfig?.android?.versionCode ?? '—');
 
 export function SettingsScreen() {
+  const { compactRows } = useViewPreference();
+  const setCompactRows = useViewStore((state) => state.setCompactRows);
   const router = useRouter();
   const [testState, setTestState] = useState<'idle' | 'sending' | 'sent' | 'denied'>('idle');
   /**
@@ -166,6 +169,18 @@ export function SettingsScreen() {
 
         <SectionHeader title="On this phone" />
         <Stack gap={space.sm}>
+          {row(
+            'Slim rows on Today',
+            compactRows
+              ? 'On. Each chore is one line — its name, its category colour, and how late it is. Tap the chevron on any row for the rest.'
+              : 'Off. Every chore shows its chips, schedule and notes, which is roughly twice the height per row.',
+            <Switch
+              value={compactRows}
+              onValueChange={setCompactRows}
+              accessibilityLabel="Slim rows on Today"
+            />,
+          )}
+
           {!notificationsAvailable ? (
             <Txt variant="small" tone="faint">
               Reminders need the phone app — this build cannot schedule them.

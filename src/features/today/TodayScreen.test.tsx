@@ -97,10 +97,10 @@ const ALL_CHORES: Fixture[] = [
     archived: false,
   },
   {
-    // Mine, and overdue by one day — less late than Sam's gutters. Without a
-    // second overdue row the Late section holds exactly one item and any
-    // ordering at all puts it first, which is how the first version of the
-    // ordering test passed against unsorted concatenation.
+    // Sam's, and overdue by one day — less late than his gutters. Two overdue
+    // rows with the *same* owner is what makes ordering assertable: with one
+    // of each, the ownership split decides the order and any sort at all
+    // passes.
     id: 'lightbulb',
     title: 'Replace the hall lightbulb',
     priority: 'normal',
@@ -110,7 +110,7 @@ const ALL_CHORES: Fixture[] = [
       endsOn: null,
       timesOfDay: [],
     },
-    assignment: { kind: 'fixed', memberId: ME },
+    assignment: { kind: 'fixed', memberId: THEM },
     archived: false,
   },
   {
@@ -234,6 +234,18 @@ jest.mock('@/data/hooks/useCategories', () => ({
   useCategories: () => ({ data: mockCategories, isPending: false, isError: false }),
 }));
 
+/**
+ * Opens a slim row's detail.
+ *
+ * Today's rows are one line by default now — name, category colour, lateness —
+ * so chips, schedule text, notes and steps are behind the row's disclosure.
+ * Tests that assert on any of those have to ask for it, exactly as a person
+ * would.
+ */
+function expandRow(title: string) {
+  fireEvent.press(screen.getByLabelText(`${title}. Show details.`));
+}
+
 function renderScreen() {
   return render(
     <ThemeProvider>
@@ -262,21 +274,19 @@ describe('Today', () => {
     expect(screen.getByText('THURSDAY 30 JULY')).toBeOnTheScreen();
   });
 
-  it('arranges outstanding work by priority, both people in one list', async () => {
-    // Ownership used to be the top-level split — Yours, then Everyone else —
-    // which answered "whose is it" before "does it matter", and put a crucial
-    // chore of Sam's below every minor one of mine. Whose turn it is is now on
-    // the row, where it costs no heading.
+  it('keeps what is yours apart from what is theirs, and arranges inside each', async () => {
+    // Both, and in that order. A version of this screen merged the two lists
+    // and leaned on the turn chip to tell them apart; another person's work
+    // threaded through your own is noise however well it is labelled.
     await renderScreen();
-    expect(screen.getByRole('header', { name: /^Crucial/ })).toBeOnTheScreen();
-    expect(screen.queryByRole('header', { name: 'Yours' })).toBeNull();
-    expect(screen.queryByRole('header', { name: 'Everyone else' })).toBeNull();
 
-    // Sam's crucial chore and my normal one are both on the screen, under the
-    // heading each belongs to rather than under whose it is.
-    expect(
-      screen.getByRole('button', { name: /Take out the trash, Sam's turn/ }),
-    ).toBeOnTheScreen();
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    expect(headers).toContain('Yours');
+    expect(headers).toContain('Everyone else');
+    expect(headers.indexOf('Yours')).toBeLessThan(headers.indexOf('Everyone else'));
+
+    // And the arrangement is the inner cut, not the outer one.
+    expect(screen.getByRole('header', { name: /^Crucial/ })).toBeOnTheScreen();
   });
 
   it('names whose turn it is, in words and not only in colour', async () => {
@@ -393,7 +403,9 @@ describe('arranging Today', () => {
     expect(screen.queryByRole('header', { name: /^Crucial/ })).toBeNull();
     expect(screen.queryByRole('header', { name: /^Normal/ })).toBeNull();
     expect(screen.getByRole('header', { name: /^Late/ })).toBeOnTheScreen();
-    expect(screen.getByRole('header', { name: /^Due today/ })).toBeOnTheScreen();
+    // One per person, since the arrangement is nested inside the ownership
+    // split rather than replacing it.
+    expect(screen.getAllByRole('header', { name: /^Due today/ }).length).toBe(2);
 
     // And back, so the control is a switch rather than a one-way door.
     fireEvent.press(screen.getByRole('tab', { name: 'Priority' }));
@@ -401,11 +413,11 @@ describe('arranging Today', () => {
     expect(screen.queryByRole('header', { name: /^Due today/ })).toBeNull();
   });
 
-  it('orders by how late, not by whose it is', () => {
-    // `view.mine` and `view.theirs` are separate lists, so concatenating them
-    // leaves ownership as the primary sort — invisibly, under a heading that
-    // says "Late". The gutters are Sam's and six days late; nothing of mine is
-    // later than that, so mine-first ordering puts the wrong row on top.
+  it('orders by how late inside a section', () => {
+    // Ownership decides which section a row is in; nothing else about the
+    // order. Both of these are Sam's and both are late, so only the sort
+    // separates them — and unsorted, they arrive in fixture order, which puts
+    // the one-day-late row above the six-day-late one.
     renderScreen();
     fireEvent.press(screen.getByRole('tab', { name: 'When' }));
 
@@ -458,6 +470,25 @@ describe('arranging Today', () => {
     expect(screen.queryByLabelText(/Coming up, 1 chores/)).toBeNull();
   });
 
+  it('shows one line per chore until the row is asked for more', () => {
+    // The complaint that prompted this: "they don't seem meaningfully
+    // smaller". A slim row is the name, the category colour and how late it
+    // is; everything else is one tap away.
+    renderScreen();
+
+    // Present: the name, and the lateness shortened to a number.
+    expect(screen.getByText('Clean the gutters')).toBeOnTheScreen();
+    expect(screen.getByText('6d')).toBeOnTheScreen();
+
+    // Folded: the schedule text, the turn chip and the full lateness chip.
+    expect(screen.queryByText('6 days late')).toBeNull();
+    expect(screen.queryByText("Sam's turn")).toBeNull();
+
+    expandRow('Clean the gutters');
+    expect(screen.getByText('6 days late')).toBeOnTheScreen();
+    expect(screen.getByText("Sam's turn")).toBeOnTheScreen();
+  });
+
   it('shows the category rail only where the category has an ink', () => {
     // Deleting the rail outright left every test green. The rail is the whole
     // of Emily's "option B", so something has to hold it in place.
@@ -507,12 +538,14 @@ describe('a chore that keeps getting missed', () => {
    */
   it('says how many, not just that it happened', async () => {
     await renderScreen();
+    expandRow('Dishes');
     expect(screen.getByText(/missed last \d+ times/)).toBeOnTheScreen();
   });
 
   it('never renders the ungrammatical "last 1 times"', async () => {
     // Guards the plural at the point it is read, not just in the helper.
     await renderScreen();
+    expandRow('Dishes');
     expect(screen.queryByText(/missed last 1 times/)).toBeNull();
   });
 });
@@ -520,8 +553,10 @@ describe('a chore that keeps getting missed', () => {
 describe('a chore with a note', () => {
   it('shows it on the row, not only in the editor', async () => {
     // The complaint: details written into a note were invisible everywhere a
-    // chore is actually read.
+    // chore is actually read. Still true, but one tap in rather than zero —
+    // slim rows fold it away, and the editor is still two screens away.
     await renderScreen();
+    expandRow('Dishes');
     expect(screen.getByText('Rinse the pans first')).toBeOnTheScreen();
   });
 });
@@ -550,9 +585,10 @@ describe('the steps inside a chore', () => {
     ]);
   };
 
-  it('draws them under the chore, expanded, without opening anything', async () => {
+  it('draws them under the chore, without opening anything', async () => {
     withSteps();
     await renderScreen();
+    expandRow('Dishes');
 
     expect(screen.getByText('Rinse')).toBeOnTheScreen();
     expect(screen.getByText('Load the machine')).toBeOnTheScreen();
@@ -563,6 +599,7 @@ describe('the steps inside a chore', () => {
     const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
     mockTicks = new Map([[key, new Set(['s1'])]]);
     await renderScreen();
+    expandRow('Dishes');
 
     expect(screen.getByText(/1 of 2 steps/)).toBeOnTheScreen();
   });
@@ -571,6 +608,7 @@ describe('the steps inside a chore', () => {
     withSteps();
     const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
     await renderScreen();
+    expandRow('Dishes');
     await fireEvent.press(screen.getByLabelText('Mark Rinse done'));
 
     expect(mockToggleSubtask).toHaveBeenCalledWith({
@@ -586,7 +624,7 @@ describe('the steps inside a chore', () => {
     withSteps();
     await renderScreen();
 
-    const disclosure = screen.getByLabelText(/steps done\. Hide them\./);
+    const disclosure = screen.getByLabelText('Dishes. Show details.');
     expect(disclosure.props.style).toEqual(expect.objectContaining({ width: 44, height: 44 }));
   });
 
@@ -594,10 +632,16 @@ describe('the steps inside a chore', () => {
     withSteps();
     await renderScreen();
 
-    await fireEvent.press(screen.getByLabelText(/steps done\. Hide them\./));
+    // Closed to begin with, which is the change: a slim row is one line until
+    // asked otherwise.
+    expect(screen.queryByText('Rinse')).toBeNull();
+    expandRow('Dishes');
+    expect(screen.getByText('Rinse')).toBeOnTheScreen();
+
+    await fireEvent.press(screen.getByLabelText('Dishes. Hide details.'));
     expect(screen.queryByText('Rinse')).toBeNull();
 
-    await fireEvent.press(screen.getByLabelText(/steps done\. Show them\./));
+    await fireEvent.press(screen.getByLabelText('Dishes. Show details.'));
     expect(screen.getByText('Rinse')).toBeOnTheScreen();
   });
 
