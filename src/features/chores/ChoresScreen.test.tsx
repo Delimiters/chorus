@@ -55,15 +55,12 @@ jest.mock('@/data/hooks/useHousehold', () => ({
   useMembers: () => ({ data: [{ userId: 'me', displayName: 'Jake', accent: 'blue' }] }),
 }));
 
-jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => [] }));
+// Mutable: the library groups by category, so what happens with none is a
+// behaviour of its own rather than a detail of the fixture.
+let mockCategories: { id: string; name: string; ink: string | null; position: number }[] = [];
+jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => mockCategories }));
 jest.mock('@/data/today', () => ({ useToday: () => '2026-03-15' }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
-jest.mock('@/stores/viewStore', () => ({
-  useViewPreference: () => ({ groupBy: 'none', sortBy: 'title' }),
-  useViewStore: (selector: (s: unknown) => unknown) =>
-    selector({ setGroupBy: jest.fn(), setSortBy: jest.fn() }),
-}));
-
 const renderScreen = () =>
   render(
     <ThemeProvider>
@@ -74,6 +71,30 @@ const renderScreen = () =>
 beforeEach(() => {
   mockChores = [];
   mockCompletions = [];
+  mockCategories = [];
+});
+
+describe('the library before anyone has made a category', () => {
+  it('does not head the whole shelf "Other"', () => {
+    // Grouping by category with no categories sends every chore to the
+    // uncategorised bucket, which renders one heading reading "Other" over the
+    // entire library — a line that says nothing. Today used to carry this
+    // guard; the grouping moved here without it.
+    mockChores = [chore({ id: 'dishes', title: 'Dishes' })];
+    renderScreen();
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.queryByRole('header', { name: /Other/ })).toBeNull();
+  });
+
+  it('still heads each category once there is one', () => {
+    // The other half, so the fix cannot be "never group at all".
+    mockCategories = [{ id: 'c-kitchen', name: 'Kitchen', ink: 'teal', position: 0 }];
+    mockChores = [chore({ id: 'dishes', title: 'Dishes', categoryId: 'c-kitchen' })];
+    renderScreen();
+
+    expect(screen.getByRole('header', { name: /Kitchen/ })).toBeOnTheScreen();
+  });
 });
 
 describe('a one-time chore that has been done', () => {
