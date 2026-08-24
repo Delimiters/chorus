@@ -267,14 +267,19 @@ export function ChoreRow({
       style={[
         {
           paddingHorizontal: space.md,
-          paddingVertical: compact ? 8 : 11,
+          paddingVertical: slim ? 7 : compact ? 8 : 11,
           borderRadius: radius.md,
           // Only when there is a rail to clip. Unconditional `hidden` also
           // clips touch dispatch to the container's bounds on Android, and
           // compact's tighter padding pushes 3px of the checkbox's hitSlop
           // past the top edge — the most-tapped target in the app.
           overflow: compact ? 'hidden' : 'visible',
-          minHeight: MIN_TARGET,
+          // A slim row is as tall as its contents. `minHeight: 44` was holding
+          // every row open to a control's height around a single line of text,
+          // which is where the empty band under each chore came from; the
+          // checkbox keeps its 44pt target through `hitSlop`, not through the
+          // row's geometry.
+          ...(slim ? {} : { minHeight: MIN_TARGET }),
           // Overdue is an outline, not a red wash. A red list makes an ordinary
           // Tuesday feel like an incident.
           backgroundColor: overdue ? 'transparent' : colors.sunken,
@@ -321,21 +326,32 @@ export function ChoreRow({
           accessibilityLabel={`${item.choreTitle}, ${turnLabel ?? 'anyone can do it'}. Open options.`}
           style={{ flex: 1, gap: 4 }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              // Top-aligned, so a two-line title keeps its category and
+              // lateness beside the *first* line rather than floating them to
+              // the vertical middle of the row.
+              alignItems: slim ? 'flex-start' : 'center',
+              gap: space.xs,
+            }}
+          >
             {icon === null ? null : (
               <View accessibilityElementsHidden importantForAccessibility="no">
                 <MaterialCommunityIcons name={icon as never} size={16} color={colors.textMuted} />
               </View>
             )}
             {/*
+              Never truncated. A slim row is about not wasting space, not about
+              fitting on one line at any cost — "Resubmit penelope appe…" tells
+              you less than the extra line costs, and a chore whose name really
+              needs two lines is allowed to be the taller row.
+
               `flex: 1` rather than `flexShrink`, so the title claims the space
-              first and the category name takes what is left. The other way
-              round, a five-word chore name was being clipped to make room for
-              "Maintenance".
+              first and the category name takes what is left.
             */}
             <Txt
               variant="bodyStrong"
-              {...(slim ? { numberOfLines: 1 } : {})}
               style={[
                 slim ? { flex: 1 } : null,
                 done || skipped ? { textDecorationLine: 'line-through' } : null,
@@ -360,7 +376,7 @@ export function ChoreRow({
                 numberOfLines={1}
                 // Capped, and never at the title's expense: the category is
                 // context, the name is the thing being read.
-                style={{ marginLeft: 'auto', paddingLeft: space.xs, maxWidth: '32%' }}
+                style={{ marginLeft: 'auto', paddingLeft: space.xs, maxWidth: '32%', marginTop: 2 }}
               >
                 {category.name}
               </Txt>
@@ -438,7 +454,14 @@ export function ChoreRow({
           The disclosure, on the right of the cell and sized like a control.
           It began as a chevron inside the steps line — sixteen points, faint,
           with a text glyph for an arrow — which read as decoration and was
-          barely tappable. This one is a full 44pt target with a real icon.
+          barely tappable.
+
+          On a slim row it keeps the 44pt target and gives up the 44pt *box*.
+          A laid-out 44 square was setting the height of every row on Today —
+          the content is one line of about twenty-two points, so the rest was
+          empty space under every chore — and taking 44 points of width from
+          the title, which is what was clipping the long ones. `hitSlop` buys
+          the target back without the geometry.
         */}
         {subtasks.length > 0 || compact ? (
           <Pressable
@@ -452,21 +475,26 @@ export function ChoreRow({
                     stepsOpen ? 'Hide them' : 'Show them'
                   }.`
             }
+            // 20 laid out, 44 tappable. `hitSlop` grows the target without
+            // growing the box, which is the only way to have both on a row
+            // this tight — the gap either side is real space, not padding
+            // inside a button, so the words stop short of it.
+            hitSlop={slim ? { top: 14, bottom: 14, left: 12, right: 12 } : undefined}
             style={{
-              width: MIN_TARGET,
-              height: MIN_TARGET,
+              width: slim ? 20 : MIN_TARGET,
+              height: slim ? 20 : MIN_TARGET,
               alignItems: 'center',
               justifyContent: 'center',
               // Pulled into the row's own padding so the icon sits on the
               // edge of the cell rather than inset from it.
-              marginTop: -8,
-              marginRight: -space.sm,
+              marginTop: slim ? 1 : -8,
+              marginRight: slim ? 0 : -space.sm,
             }}
           >
             <MaterialCommunityIcons
               name={stepsOpen ? 'chevron-up' : 'chevron-down'}
-              size={26}
-              color={colors.textMuted}
+              size={slim ? 20 : 26}
+              color={colors.textFaint}
             />
           </Pressable>
         ) : null}

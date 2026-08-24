@@ -621,11 +621,25 @@ describe('the steps inside a chore', () => {
   it('offers a disclosure big enough to hit', async () => {
     // The first version was a chevron inside the count line at sixteen points
     // in faint text; it read as decoration and was hard to press.
+    //
+    // Asserted on the *target* rather than the box. On a slim row the box is
+    // 20pt — a laid-out 44 square was setting the height of every row and
+    // taking that width from the title — so the 44 comes from `hitSlop`, and
+    // measuring the box would now fail a row that is perfectly tappable.
     withSteps();
     await renderScreen();
 
     const disclosure = screen.getByLabelText('Dishes. Show details.');
-    expect(disclosure.props.style).toEqual(expect.objectContaining({ width: 44, height: 44 }));
+    const { width, height } = disclosure.props.style as { width: number; height: number };
+    const slop = disclosure.props.hitSlop as {
+      top: number;
+      bottom: number;
+      left: number;
+      right: number;
+    };
+
+    expect(width + slop.left + slop.right).toBeGreaterThanOrEqual(44);
+    expect(height + slop.top + slop.bottom).toBeGreaterThanOrEqual(44);
   });
 
   it('collapses and expands', async () => {
