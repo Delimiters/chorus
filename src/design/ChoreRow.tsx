@@ -347,18 +347,22 @@ export function ChoreRow({
               you less than the extra line costs, and a chore whose name really
               needs two lines is allowed to be the taller row.
 
-              `flex: 1` rather than `flexShrink`, so the title claims the space
-              first and the category name takes what is left.
+              The wrapper carries `minWidth: 0`, and that is the whole fix for
+              the overflow. Yoga will not shrink a box below its own min-content
+              width — for text, the longest word — unless told it may, so
+              "Find cardiologist and schedule" stayed one long line and shoved
+              the category, the lateness and the chevron past the right edge,
+              where `overflow: hidden` made them invisible but still tappable.
+              `flex: 1` alone does not lift that floor; `minWidth: 0` does.
             */}
-            <Txt
-              variant="bodyStrong"
-              style={[
-                slim ? { flex: 1 } : null,
-                done || skipped ? { textDecorationLine: 'line-through' } : null,
-              ]}
-            >
-              {item.choreTitle}
-            </Txt>
+            <View testID="title-column" style={slim ? { flex: 1, minWidth: 0 } : { flexShrink: 1 }}>
+              <Txt
+                variant="bodyStrong"
+                style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
+              >
+                {item.choreTitle}
+              </Txt>
+            </View>
 
             {/*
               The name as well as the rail. A colour alone is a legend you have
@@ -366,47 +370,57 @@ export function ChoreRow({
               cannot tell these two greens apart. Faint and right-aligned, so it
               is there when looked for and out of the way when not.
             */}
-            {compact && category !== null ? (
-              // Muted, not faint. 13pt faint is 3.75:1 against paper — below
-              // AA — and this is now the category's only textual carrier,
-              // where the chip it replaced was ink on a tinted ground.
-              //
-              // Its natural width, uncapped. It was held to 32% of the row so
-              // it could never crowd the title, which turned "Entertainment"
-              // into "Entertain…" — a truncation that helps nobody. Now that a
-              // title wraps rather than clipping, the two can share: the
-              // category takes what it needs and the title flows around it.
-              <Txt
-                variant="small"
-                tone="muted"
+            {/*
+              One column, not two loose siblings.
+
+              Grouped so the pair has a single measured width that the title
+              wraps around. Loose, each was negotiating with the title on its
+              own and the arithmetic only worked while the title happened to
+              fit — which is why this looked fine until a long one appeared,
+              and why expanding and recollapsing a row could change it.
+
+              `flexShrink: 0`: the title yields space, this does not. Shrinking
+              here is what turned "Entertainment" into "Entertain…".
+            */}
+            {(compact && category !== null) || (slim && overdue) ? (
+              <View
                 style={{
+                  flexDirection: 'row',
+                  alignItems: 'flex-start',
+                  gap: 5,
+                  flexShrink: 0,
                   marginLeft: 'auto',
                   paddingLeft: space.xs,
                   marginTop: 2,
-                  flexShrink: 0,
                 }}
               >
-                {category.name}
-              </Txt>
-            ) : null}
+                {/*
+                  The name as well as the rail. A colour alone is a legend you
+                  have to have learnt — and one that says nothing at all to
+                  anyone who cannot tell these two greens apart.
 
-            {/*
-              How late, shortened to `6d`, and only on a slim row.
+                  Muted, not faint: 13pt faint is 3.75:1 against paper, below
+                  AA, and this is the category's only textual carrier now that
+                  the chip has gone.
+                */}
+                {compact && category !== null ? (
+                  <Txt variant="small" tone="muted">
+                    {category.name}
+                  </Txt>
+                ) : null}
 
-              Lateness is the one thing that cannot fold away — it is why a row
-              is worth looking at at all — but "6 days late" is a chip's worth
-              of width for one number. Expanded, the full chip returns.
-            */}
-            {slim && overdue ? (
-              <Txt
-                variant="small"
-                tone="danger"
-                style={
-                  category === null ? { marginLeft: 'auto', paddingLeft: space.xs } : undefined
-                }
-              >
-                {`${item.daysOverdue}d`}
-              </Txt>
+                {/*
+                  How late, shortened to `6d`. Lateness is the one thing that
+                  cannot fold away — it is why a row is worth looking at at all
+                  — but "6 days late" is a chip's worth of width for one
+                  number. Expanded, the full chip returns.
+                */}
+                {slim && overdue ? (
+                  <Txt variant="small" tone="danger">
+                    {`${item.daysOverdue}d`}
+                  </Txt>
+                ) : null}
+              </View>
             ) : null}
           </View>
 
