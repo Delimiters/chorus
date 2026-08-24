@@ -260,7 +260,11 @@ export function ChoreRow({
           paddingHorizontal: space.md,
           paddingVertical: compact ? 8 : 11,
           borderRadius: radius.md,
-          overflow: 'hidden',
+          // Only when there is a rail to clip. Unconditional `hidden` also
+          // clips touch dispatch to the container's bounds on Android, and
+          // compact's tighter padding pushes 3px of the checkbox's hitSlop
+          // past the top edge — the most-tapped target in the app.
+          overflow: compact ? 'hidden' : 'visible',
           minHeight: MIN_TARGET,
           // Overdue is an outline, not a red wash. A red list makes an ordinary
           // Tuesday feel like an incident.
@@ -280,6 +284,7 @@ export function ChoreRow({
       */}
       {rail === null ? null : (
         <View
+          testID="category-rail"
           accessibilityElementsHidden
           importantForAccessibility="no"
           style={{
@@ -331,9 +336,12 @@ export function ChoreRow({
               is there when looked for and out of the way when not.
             */}
             {compact && category !== null ? (
+              // Muted, not faint. 13pt faint is 3.75:1 against paper — below
+              // AA — and this is now the category's only textual carrier,
+              // where the chip it replaced was ink on a tinted ground.
               <Txt
                 variant="small"
-                tone="faint"
+                tone="muted"
                 numberOfLines={1}
                 style={{ marginLeft: 'auto', paddingLeft: space.xs }}
               >

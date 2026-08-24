@@ -388,7 +388,7 @@ export function buildTodayView(
 export interface UrgencySplit {
   /** Past its due date. */
   readonly late: readonly AgendaItem[];
-  /** Due today, or earlier but not yet overdue. */
+  /** Due today. Dated earlier and not overdue is unreachable for these. */
   readonly dueToday: readonly AgendaItem[];
   /** Visible early, due later. Collapsed on screen. */
   readonly comingUp: readonly AgendaItem[];

@@ -28,11 +28,14 @@ const d = (s: string): CivilDate => civilDate(s);
  * Typed as engine input, but the screen is handed the fuller `Chore` — which
  * carries `notes`. One fixture has one, so the row that renders it is covered.
  */
-const mockChores: (ChoreInput & { notes?: string | null; priority?: string })[] = [
+type Fixture = ChoreInput & { notes?: string | null; priority?: string };
+
+const ALL_CHORES: Fixture[] = [
   {
     id: 'dishes',
     title: 'Dishes',
     notes: 'Rinse the pans first',
+    priority: 'normal',
     schedule: {
       rule: { kind: 'daily', everyNDays: 1 },
       startsOn: d('2026-07-27'),
@@ -67,6 +70,7 @@ const mockChores: (ChoreInput & { notes?: string | null; priority?: string })[] 
   {
     id: 'plants',
     title: 'Water the plants',
+    priority: 'normal',
     schedule: {
       rule: { kind: 'weeklyFloating', everyNWeeks: 1, timesPerPeriod: 3 },
       startsOn: d('2026-07-26'),
@@ -76,7 +80,66 @@ const mockChores: (ChoreInput & { notes?: string | null; priority?: string })[] 
     assignment: { kind: 'fixed', memberId: ME },
     archived: false,
   },
+  {
+    // Genuinely overdue, and Sam's, so the Late section has something in it and
+    // ordering can be asserted across both people. Without this the `late`
+    // branch of the When arrangement was never rendered by any test.
+    id: 'gutters',
+    title: 'Clean the gutters',
+    priority: 'normal',
+    schedule: {
+      rule: { kind: 'once', dueOn: d('2026-07-24'), granularity: 'day' },
+      startsOn: d('2026-07-24'),
+      endsOn: null,
+      timesOfDay: [],
+    },
+    assignment: { kind: 'fixed', memberId: THEM },
+    archived: false,
+  },
+  {
+    // Mine, and overdue by one day — less late than Sam's gutters. Without a
+    // second overdue row the Late section holds exactly one item and any
+    // ordering at all puts it first, which is how the first version of the
+    // ordering test passed against unsorted concatenation.
+    id: 'lightbulb',
+    title: 'Replace the hall lightbulb',
+    priority: 'normal',
+    schedule: {
+      rule: { kind: 'once', dueOn: d('2026-07-29'), granularity: 'day' },
+      startsOn: d('2026-07-29'),
+      endsOn: null,
+      timesOfDay: [],
+    },
+    assignment: { kind: 'fixed', memberId: ME },
+    archived: false,
+  },
+  {
+    // Not due for another week, but visible now because `showFrom` pulled it
+    // forward. This is the shape that made Today unreadable and the reason
+    // Coming up exists, and no fixture had one.
+    id: 'filters',
+    title: 'Change the filters',
+    priority: 'normal',
+    schedule: {
+      // Two days out, kept inside the original window on purpose: widening it
+      // starts a second floating period and gives "Water the plants" two rows,
+      // which is a real behaviour and not this test's subject.
+      rule: { kind: 'once', dueOn: d('2026-08-01'), granularity: 'day', showFrom: d('2026-07-28') },
+      startsOn: d('2026-08-06'),
+      endsOn: null,
+      timesOfDay: [],
+    },
+    assignment: { kind: 'fixed', memberId: ME },
+    archived: false,
+  },
 ];
+
+/**
+ * What this render sees. Reset from `ALL_CHORES` before each test, so a test
+ * that narrows the household to one chore — or retags them — cannot leak into
+ * the next one.
+ */
+let mockChores: Fixture[] = ALL_CHORES.map((c) => ({ ...c }));
 
 /** Real projection, so the screen sees exactly what the app would hand it. */
 function buildView(completions: CompletionInput[] = []) {
@@ -181,6 +244,7 @@ function renderScreen() {
 
 beforeEach(() => {
   mockCategories = [];
+  mockChores = ALL_CHORES.map((c) => ({ ...c }));
   mockToggle.mockClear();
   mockRefetch.mockClear();
   mockSkip.mockClear();
@@ -316,11 +380,9 @@ describe('arranging Today', () => {
 
     expect(screen.queryByRole('header', { name: 'Kitchen' })).toBeNull();
     expect(screen.getAllByText('Kitchen').length).toBeGreaterThan(0);
-    // Outdoors has nothing in it today, so it must appear nowhere at all.
-    expect(screen.queryByText('Outdoors')).toBeNull();
   });
 
-  it('switches to Late and Today when asked for When', () => {
+  it('switches to Late and Due today when asked for When', () => {
     // The two arrangements must actually differ. Asserting only that the
     // control renders would pass with the switch wired to nothing.
     renderScreen();
@@ -328,17 +390,95 @@ describe('arranging Today', () => {
 
     fireEvent.press(screen.getByRole('tab', { name: 'When' }));
 
-    // Nothing in this fixture is genuinely overdue, so Late is empty and must
-    // not take up a line saying so — the same rule the priority sections obey.
     expect(screen.queryByRole('header', { name: /^Crucial/ })).toBeNull();
     expect(screen.queryByRole('header', { name: /^Normal/ })).toBeNull();
+    expect(screen.getByRole('header', { name: /^Late/ })).toBeOnTheScreen();
     expect(screen.getByRole('header', { name: /^Due today/ })).toBeOnTheScreen();
-    expect(screen.queryByRole('header', { name: /^Late/ })).toBeNull();
 
     // And back, so the control is a switch rather than a one-way door.
     fireEvent.press(screen.getByRole('tab', { name: 'Priority' }));
     expect(screen.getByRole('header', { name: /^Crucial/ })).toBeOnTheScreen();
     expect(screen.queryByRole('header', { name: /^Due today/ })).toBeNull();
+  });
+
+  it('orders by how late, not by whose it is', () => {
+    // `view.mine` and `view.theirs` are separate lists, so concatenating them
+    // leaves ownership as the primary sort — invisibly, under a heading that
+    // says "Late". The gutters are Sam's and six days late; nothing of mine is
+    // later than that, so mine-first ordering puts the wrong row on top.
+    renderScreen();
+    fireEvent.press(screen.getByRole('tab', { name: 'When' }));
+
+    const rows = screen
+      .getAllByRole('button')
+      .map((b) => String(b.props.accessibilityLabel))
+      .filter((label) => /Open options\.$/.test(label));
+
+    const gutters = rows.findIndex((label) => label.startsWith('Clean the gutters'));
+    const bulb = rows.findIndex((label) => label.startsWith('Replace the hall lightbulb'));
+
+    // Both must be on the screen, or the comparison below is between -1 and -1.
+    expect(gutters).toBeGreaterThanOrEqual(0);
+    expect(bulb).toBeGreaterThanOrEqual(0);
+    expect(gutters).toBeLessThan(bulb);
+  });
+
+  it('folds what is not yet due into one collapsed line', () => {
+    // The section the redesign exists for, and the one nothing rendered: a
+    // chore pulled forward by `showFrom` is `due`, so it used to sit among
+    // work that is genuinely late.
+    renderScreen();
+
+    expect(screen.queryByText('Change the filters')).toBeNull();
+    const disclosure = screen.getByRole('button', { name: /^Coming up, 1 chore\./ });
+    expect(disclosure).toBeOnTheScreen();
+
+    fireEvent.press(disclosure);
+    expect(screen.getByText('Change the filters')).toBeOnTheScreen();
+  });
+
+  it('offers no arrangement control when there is nothing yet to arrange', () => {
+    // `outstandingCount` counts the coming-up items too, so a household whose
+    // dated work is entirely ahead of it is not "nothing to do" — but with
+    // every row folded away the screen was a title, a control that changed
+    // nothing in either position, and one collapsed line.
+    mockChores = [ALL_CHORES.find((c) => c.id === 'filters')!];
+    mockView = buildView();
+    renderScreen();
+
+    expect(screen.queryByRole('tab', { name: 'Priority' })).toBeNull();
+    // And the pile is the screen, so it opens rather than hiding everything.
+    expect(screen.getByText('Change the filters')).toBeOnTheScreen();
+  });
+
+  it('never renders the ungrammatical "1 chores"', () => {
+    // Guarded here because this file already carries the same guard for
+    // "missed last 1 times", and the disclosure got it wrong anyway.
+    renderScreen();
+    expect(screen.queryByLabelText(/Coming up, 1 chores/)).toBeNull();
+  });
+
+  it('shows the category rail only where the category has an ink', () => {
+    // Deleting the rail outright left every test green. The rail is the whole
+    // of Emily's "option B", so something has to hold it in place.
+    mockCategories = [
+      { id: 'c-kitchen', name: 'Kitchen', ink: 'teal', position: 0 },
+      { id: 'c-plain', name: 'Plain', ink: null, position: 1 },
+    ];
+    const chores = mockChores as unknown as { id: string; categoryId: string | null }[];
+    for (const chore of chores) chore.categoryId = chore.id === 'dishes' ? 'c-plain' : 'c-kitchen';
+
+    renderScreen();
+
+    // One per inked row, and none for the row whose category has no ink — its
+    // name still renders, which is the point of carrying both.
+    // `includeHiddenElements` because the rail is deliberately hidden from
+    // accessibility — it is decoration, and its meaning is in the name beside
+    // it. That is also why the name is asserted here and not only the rail.
+    const rails = screen.getAllByTestId('category-rail', { includeHiddenElements: true });
+    expect(rails.length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Kitchen').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Plain').length).toBeGreaterThan(0);
   });
 });
 

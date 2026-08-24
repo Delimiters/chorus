@@ -981,8 +981,15 @@ describe('splitting Today by how soon it matters', () => {
     ({ choreId: dueOn + status, dueOn: d(dueOn), status }) as AgendaItem;
 
   it('puts overdue work first, by status not by date', () => {
-    const { late } = splitByUrgency([at('2026-08-16', 'overdue')], today);
-    expect(late).toHaveLength(1);
+    // Two items dated identically in the past, differing only in status. A
+    // date-only implementation puts both in `late` and passes the one-item
+    // version of this test, which is what it used to be.
+    const { late, dueToday } = splitByUrgency(
+      [at('2026-08-16', 'overdue'), at('2026-08-16', 'due')],
+      today,
+    );
+    expect(late.map((i) => i.status)).toEqual(['overdue']);
+    expect(dueToday.map((i) => i.status)).toEqual(['due']);
   });
 
   it('counts today as due today', () => {
@@ -1011,6 +1018,10 @@ describe('splitting Today by how soon it matters', () => {
   it('keeps every item, so nothing falls between the sections', () => {
     const items = [at('2026-08-16', 'overdue'), at('2026-08-24', 'due'), at('2026-08-31', 'due')];
     const split = splitByUrgency(items, today);
-    expect(split.late.length + split.dueToday.length + split.comingUp.length).toBe(items.length);
+
+    // Identity, not cardinality. Three lengths summing to three also holds for
+    // an implementation that files one item twice and drops another.
+    const out = [...split.late, ...split.dueToday, ...split.comingUp].map((i) => i.choreId);
+    expect(out.sort()).toEqual(items.map((i) => i.choreId).sort());
   });
 });

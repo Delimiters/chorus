@@ -69,6 +69,10 @@ export const useViewStore = create<ViewState>((set, get) => ({
 
   hydrate: async () => {
     try {
+      // The v1 blob is never read, so sweep it rather than leaving it in
+      // storage forever. Fire and forget: failing to tidy is not worth a throw.
+      void AsyncStorage.removeItem('chorus.view.v1');
+
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (raw !== null) {
         const stored = JSON.parse(raw) as Partial<ViewPreference>;

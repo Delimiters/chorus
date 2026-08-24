@@ -2,13 +2,17 @@
  * Today.
  *
  * Nine times out of ten this is the only screen either person opens. It answers
- * one question — what needs doing, and is it mine — and gets out of the way.
+ * one question — what needs doing — and gets out of the way.
  *
- * Yours first, then everyone else's, then what is due merely sometime this
- * week, then what has already been done. Dated before floating, because a
- * chore due today is a stronger claim on the next ten minutes than one due by
- * Sunday. Seeing what your housemate did is half the reason to share a list,
- * and it's the thing that stops you having to ask.
+ * Outstanding work first, arranged by priority or by urgency; then what is not
+ * yet due, folded away; then what is due merely sometime this week; then what
+ * has already been done. Dated before floating, because a chore due today is a
+ * stronger claim on the next ten minutes than one due by Sunday.
+ *
+ * Ownership is no longer the top-level split. "Whose is it" was being answered
+ * before "does it matter", which put a crucial chore of hers below every minor
+ * one of mine; whose turn it is is on the row instead. Seeing what your
+ * housemate did is still half the reason to share a list, so Done stays.
  */
 
 import { useRouter } from 'expo-router';
@@ -33,6 +37,7 @@ import {
 } from '@/data/hooks/useOccurrences';
 import { ChoreRow, FloatingRow, SectionHeader } from '@/design/ChoreRow';
 import { groupItems } from '@/core/occurrence/grouping';
+import { toPriority } from '@/core/chore/priority';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
@@ -82,7 +87,10 @@ export function TodayScreen() {
       new Map(
         chores.map((c) => [
           c.id,
-          { categoryId: c.categoryId, priority: c.priority, notes: c.notes },
+          // Normalised here, not trusted. An unrecognised value would sort
+          // above `crucial` (`indexOf` returns -1) under a section header whose
+          // title is `undefined` — a blank heading over the top of the screen.
+          { categoryId: c.categoryId, priority: toPriority(c.priority), notes: c.notes },
         ]),
       ),
     [chores],
@@ -206,7 +214,20 @@ export function TodayScreen() {
    * Category grouping is gone: every row now carries its category as a colour
    * and a name, so a heading said the same thing twice and cost a line.
    */
-  const outstanding = useMemo(() => [...view.mine, ...view.theirs], [view.mine, view.theirs]);
+  const outstanding = useMemo(() => {
+    // Sorted *before* splitting, and this line is load-bearing. `view.mine` and
+    // `view.theirs` are two lists, so concatenating them leaves ownership as
+    // the primary order — which would put a chore of mine one day late above
+    // one of Sam's six days late, under a heading that says "Late". Ownership
+    // was supposed to stop deciding the order; unsorted concatenation kept it
+    // deciding, invisibly, which is worse than the headings it replaced.
+    const merged = [...view.mine, ...view.theirs];
+    const [all] = groupItems(merged, choreMeta, categories, {
+      groupBy: 'none',
+      sortBy: 'due',
+    });
+    return all?.items ?? [];
+  }, [view.mine, view.theirs, choreMeta, categories]);
   const urgency = useMemo(() => splitByUrgency(outstanding, today), [outstanding, today]);
 
   const byPriority = useMemo(() => {
@@ -259,6 +280,18 @@ export function TodayScreen() {
 
   const nothingToDo = view.outstandingCount === 0;
 
+  /*
+   * When the only outstanding work is not yet due, the pile *is* the screen.
+   *
+   * `outstandingCount` counts the coming-up items too, so a household whose
+   * dated work is entirely ahead of it is not "nothing to do" — but with every
+   * row folded away it rendered as a title, a control that changed nothing in
+   * either position, and one collapsed line. Opened by default in that case,
+   * and the arrangement control hidden, since there is nothing to arrange.
+   */
+  const nothingDueNow = sections.every((section) => section.items.length === 0);
+  const showComingUp = comingUpOpen || nothingDueNow;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <ScrollView
@@ -308,7 +341,7 @@ export function TodayScreen() {
 
         {/* Only when there is something to arrange. Controls above an empty
             screen are furniture. */}
-        {nothingToDo ? null : (
+        {nothingToDo || nothingDueNow ? null : (
           <View style={{ paddingHorizontal: space.sm, paddingBottom: space.md }}>
             <ArrangementControl arrangement={viewPref.arrangement} onChange={setArrangement} />
           </View>
@@ -336,23 +369,25 @@ export function TodayScreen() {
             <Pressable
               onPress={() => setComingUpOpen((open: boolean) => !open)}
               accessibilityRole="button"
-              accessibilityState={{ expanded: comingUpOpen }}
-              accessibilityLabel={`Coming up, ${urgency.comingUp.length} chores. ${
-                comingUpOpen ? 'Hide them' : 'Show them'
-              }.`}
+              accessibilityState={{ expanded: showComingUp }}
+              accessibilityLabel={`Coming up, ${urgency.comingUp.length} chore${
+                urgency.comingUp.length === 1 ? '' : 's'
+              }. ${showComingUp ? 'Hide them' : 'Show them'}.`}
               style={{ flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: MIN_TARGET }}
             >
               <MaterialCommunityIcons
-                name={comingUpOpen ? 'chevron-up' : 'chevron-down'}
+                name={showComingUp ? 'chevron-up' : 'chevron-down'}
                 size={22}
                 color={colors.textMuted}
               />
-              <Txt variant="label" tone="faint">
+              {/* Muted rather than faint: 11pt faint is 3.75:1, below AA, and
+                  this is the only door to the folded rows. */}
+              <Txt variant="label" tone="muted">
                 {`COMING UP · ${urgency.comingUp.length}`}
               </Txt>
             </Pressable>
 
-            {comingUpOpen ? <Stack gap={space.xs}>{urgency.comingUp.map(renderRow)}</Stack> : null}
+            {showComingUp ? <Stack gap={space.xs}>{urgency.comingUp.map(renderRow)}</Stack> : null}
           </View>
         ) : null}
 

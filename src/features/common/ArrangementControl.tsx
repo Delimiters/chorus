@@ -10,8 +10,6 @@
  * colour and a name, so a heading repeated what the row already said.
  */
 
-import { View } from 'react-native';
-
 import { SegmentedControl } from '@/design/controls';
 import type { TodayArrangement } from '@/stores/viewStore';
 
@@ -27,14 +25,14 @@ export function ArrangementControl({
   arrangement: TodayArrangement;
   onChange: (arrangement: TodayArrangement) => void;
 }) {
+  // `SegmentedControl` is generic over the segment type, so `onChange` passes
+  // through with its real type rather than through a `string` cast.
   return (
-    <View>
-      <SegmentedControl
-        segments={SEGMENTS}
-        value={arrangement}
-        onChange={(value: string) => onChange(value as TodayArrangement)}
-        label="Arrange by"
-      />
-    </View>
+    <SegmentedControl
+      segments={SEGMENTS}
+      value={arrangement}
+      onChange={onChange}
+      label="Arrange by"
+    />
   );
 }

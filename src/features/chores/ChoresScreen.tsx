@@ -115,7 +115,13 @@ export function ChoresScreen() {
      * urgency belongs on Today. The controls that used to sit here moved with
      * it.
      */
-    return groupItems(groupable, meta, categories, { groupBy: 'category', sortBy: 'priority' });
+    return groupItems(groupable, meta, categories, {
+      // Unless there are none, in which case every chore lands under one
+      // heading reading "Other" — which says nothing, over the entire library.
+      // Today used to carry this guard; it moved here with the grouping.
+      groupBy: categories.length === 0 ? 'none' : 'category',
+      sortBy: 'priority',
+    });
   }, [active, categories]);
 
   const byId = useMemo(() => new Map(active.map((c) => [c.id, c])), [active]);
