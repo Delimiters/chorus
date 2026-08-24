@@ -212,6 +212,16 @@ interface ChoreRowProps {
   onToggleSubtask?: (subtaskId: string, ticked: boolean) => void;
   onToggle: () => void;
   onOpen: () => void;
+  /**
+   * Tighter, and the category becomes a colour rather than a chip.
+   *
+   * Today runs to a hundred rows on a bad week, and the category chip was the
+   * widest thing on the meta line while being the least likely to change what
+   * you do next. Compact keeps the information and spends fewer pixels on it:
+   * the category's ink is a rail down the left edge, its name sits faint at the
+   * right of the title line, and the chip goes.
+   */
+  compact?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -229,9 +239,12 @@ export function ChoreRow({
   onToggleSubtask,
   onToggle,
   onOpen,
+  compact = false,
   style,
 }: ChoreRowProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const rail =
+    compact && category !== null && category.ink !== null ? inkColor(category.ink, isDark) : null;
   const note = notes === null ? '' : notes.trim();
   const [stepsOpen, setStepsOpen] = useState(true);
   const ticked = tickedSubtasks ?? EMPTY_TICKS;
@@ -245,8 +258,9 @@ export function ChoreRow({
       style={[
         {
           paddingHorizontal: space.md,
-          paddingVertical: 11,
+          paddingVertical: compact ? 8 : 11,
           borderRadius: radius.md,
+          overflow: 'hidden',
           minHeight: MIN_TARGET,
           // Overdue is an outline, not a red wash. A red list makes an ordinary
           // Tuesday feel like an incident.
@@ -258,6 +272,27 @@ export function ChoreRow({
         style,
       ]}
     >
+      {/*
+        The category, as a colour on the edge of the cell. Not a border: a
+        border would have to run all four sides, and an outline in the category
+        ink would compete with the overdue outline, which is the one thing on
+        this screen that must stay unambiguous.
+      */}
+      {rail === null ? null : (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            backgroundColor: rail,
+          }}
+        />
+      )}
+
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.md }}>
         <Checkbox
           checked={done}
@@ -280,10 +315,31 @@ export function ChoreRow({
             )}
             <Txt
               variant="bodyStrong"
-              style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
+              {...(compact ? { numberOfLines: 1 } : {})}
+              style={[
+                compact ? { flexShrink: 1 } : null,
+                done || skipped ? { textDecorationLine: 'line-through' } : null,
+              ]}
             >
               {item.choreTitle}
             </Txt>
+
+            {/*
+              The name as well as the rail. A colour alone is a legend you have
+              to have learnt — and one that says nothing at all to anyone who
+              cannot tell these two greens apart. Faint and right-aligned, so it
+              is there when looked for and out of the way when not.
+            */}
+            {compact && category !== null ? (
+              <Txt
+                variant="small"
+                tone="faint"
+                numberOfLines={1}
+                style={{ marginLeft: 'auto', paddingLeft: space.xs }}
+              >
+                {category.name}
+              </Txt>
+            ) : null}
           </View>
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
@@ -291,7 +347,7 @@ export function ChoreRow({
 
             {priority === 'crucial' ? <Chip tone="overdue">Crucial</Chip> : null}
 
-            {category === null ? null : (
+            {category === null || compact ? null : (
               <Chip tone={category.ink === null ? 'quiet' : 'ink'} ink={category.ink}>
                 {category.name}
               </Chip>

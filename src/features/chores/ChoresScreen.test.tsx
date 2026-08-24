@@ -58,12 +58,6 @@ jest.mock('@/data/hooks/useHousehold', () => ({
 jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => [] }));
 jest.mock('@/data/today', () => ({ useToday: () => '2026-03-15' }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
-jest.mock('@/stores/viewStore', () => ({
-  useViewPreference: () => ({ groupBy: 'none', sortBy: 'title' }),
-  useViewStore: (selector: (s: unknown) => unknown) =>
-    selector({ setGroupBy: jest.fn(), setSortBy: jest.fn() }),
-}));
-
 const renderScreen = () =>
   render(
     <ThemeProvider>

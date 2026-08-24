@@ -28,7 +28,7 @@ const d = (s: string): CivilDate => civilDate(s);
  * Typed as engine input, but the screen is handed the fuller `Chore` — which
  * carries `notes`. One fixture has one, so the row that renders it is covered.
  */
-const mockChores: (ChoreInput & { notes?: string | null })[] = [
+const mockChores: (ChoreInput & { notes?: string | null; priority?: string })[] = [
   {
     id: 'dishes',
     title: 'Dishes',
@@ -45,6 +45,11 @@ const mockChores: (ChoreInput & { notes?: string | null })[] = [
   {
     id: 'trash',
     title: 'Take out the trash',
+    // The one crucial chore in the fixture, and Sam's — so priority grouping
+    // has more than one section to make, and the top section holds work that
+    // is not mine. A fixture where everything is `normal` would put every row
+    // under one heading and prove nothing about the grouping.
+    priority: 'crucial',
     schedule: {
       rule: { kind: 'weekly', everyNWeeks: 1, weekdays: [4] },
       startsOn: d('2026-07-02'),
@@ -193,10 +198,21 @@ describe('Today', () => {
     expect(screen.getByText('THURSDAY 30 JULY')).toBeOnTheScreen();
   });
 
-  it('separates what is yours from what is theirs', async () => {
+  it('arranges outstanding work by priority, both people in one list', async () => {
+    // Ownership used to be the top-level split — Yours, then Everyone else —
+    // which answered "whose is it" before "does it matter", and put a crucial
+    // chore of Sam's below every minor one of mine. Whose turn it is is now on
+    // the row, where it costs no heading.
     await renderScreen();
-    expect(screen.getByRole('header', { name: 'Yours' })).toBeOnTheScreen();
-    expect(screen.getByRole('header', { name: 'Everyone else' })).toBeOnTheScreen();
+    expect(screen.getByRole('header', { name: /^Crucial/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('header', { name: 'Yours' })).toBeNull();
+    expect(screen.queryByRole('header', { name: 'Everyone else' })).toBeNull();
+
+    // Sam's crucial chore and my normal one are both on the screen, under the
+    // heading each belongs to rather than under whose it is.
+    expect(
+      screen.getByRole('button', { name: /Take out the trash, Sam's turn/ }),
+    ).toBeOnTheScreen();
   });
 
   it('names whose turn it is, in words and not only in colour', async () => {
@@ -223,16 +239,16 @@ describe('Today', () => {
 
   it('puts what is due today above what is merely due this week', async () => {
     // Order is the whole point of this screen and nothing asserted it, so the
-    // floating section sat above Yours — leading with the loosest commitment
-    // and pushing "what should I do now" below the fold.
+    // floating section once sat above the dated ones — leading with the
+    // loosest commitment and pushing "what should I do now" below the fold.
     await renderScreen();
-    const headers = screen.getAllByRole('header').map((h) => h.props.children);
-    const yours = headers.findIndex((t) => String(t).startsWith('Yours'));
-    const week = headers.findIndex((t) => String(t) === 'Sometime this week');
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    const dated = headers.findIndex((t) => t.startsWith('Crucial') || t.startsWith('Normal'));
+    const week = headers.findIndex((t) => t === 'Sometime this week');
 
-    expect(yours).toBeGreaterThanOrEqual(0);
+    expect(dated).toBeGreaterThanOrEqual(0);
     expect(week).toBeGreaterThanOrEqual(0);
-    expect(yours).toBeLessThan(week);
+    expect(dated).toBeLessThan(week);
   });
 
   it('completes an occurrence when its checkbox is pressed', async () => {
@@ -283,11 +299,11 @@ describe('Today', () => {
   });
 });
 
-describe('grouping by category', () => {
-  it('shows a heading per category, not just a tag on each row', () => {
-    // The behaviour asked for directly: categories should be *headings*. An
-    // earlier version put them only on the row as a chip, which reads as a
-    // weaker signal than a section when the question is "what is left today".
+describe('arranging Today', () => {
+  it('carries the category on the row rather than in a heading', () => {
+    // Categories were headings, nested under ownership. With priority as the
+    // top-level cut a second axis of headings would multiply them, so the
+    // category is a colour rail and a faint name on the row instead.
     mockCategories = [
       { id: 'c-kitchen', name: 'Kitchen', ink: 'teal', position: 0 },
       { id: 'c-outdoors', name: 'Outdoors', ink: null, position: 1 },
@@ -298,19 +314,31 @@ describe('grouping by category', () => {
 
     renderScreen();
 
-    // Both levels: ownership first, category nested beneath it.
-    expect(screen.getByRole('header', { name: 'Yours' })).toBeTruthy();
-    expect(screen.getAllByRole('header', { name: 'Kitchen' }).length).toBeGreaterThan(0);
-    // Outdoors has nothing in it today, so it must not take up a line saying so.
-    expect(screen.queryByRole('header', { name: 'Outdoors' })).toBeNull();
+    expect(screen.queryByRole('header', { name: 'Kitchen' })).toBeNull();
+    expect(screen.getAllByText('Kitchen').length).toBeGreaterThan(0);
+    // Outdoors has nothing in it today, so it must appear nowhere at all.
+    expect(screen.queryByText('Outdoors')).toBeNull();
   });
 
-  it('falls back to Yours when the household has no categories at all', () => {
-    // Grouping by category before any exists would put every row under a
-    // single "Other" heading, which says nothing.
-    mockCategories = [];
+  it('switches to Late and Today when asked for When', () => {
+    // The two arrangements must actually differ. Asserting only that the
+    // control renders would pass with the switch wired to nothing.
     renderScreen();
-    expect(screen.getByRole('header', { name: 'Yours' })).toBeTruthy();
+    expect(screen.queryByRole('header', { name: /^Late/ })).toBeNull();
+
+    fireEvent.press(screen.getByRole('tab', { name: 'When' }));
+
+    // Nothing in this fixture is genuinely overdue, so Late is empty and must
+    // not take up a line saying so — the same rule the priority sections obey.
+    expect(screen.queryByRole('header', { name: /^Crucial/ })).toBeNull();
+    expect(screen.queryByRole('header', { name: /^Normal/ })).toBeNull();
+    expect(screen.getByRole('header', { name: /^Due today/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('header', { name: /^Late/ })).toBeNull();
+
+    // And back, so the control is a switch rather than a one-way door.
+    fireEvent.press(screen.getByRole('tab', { name: 'Priority' }));
+    expect(screen.getByRole('header', { name: /^Crucial/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('header', { name: /^Due today/ })).toBeNull();
   });
 });
 

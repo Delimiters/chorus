@@ -1,48 +1,53 @@
 /**
- * How this device arranges the chore list.
+ * How this device arranges Today.
  *
- * On the device, not in the database, and for the same reason as reminder
- * preferences: this is a fact about how *you* like to read the list, not about
- * the household. Two people sharing chores should be able to look at them
- * differently — one grouping by category, the other by priority — without
- * either silently changing the other's screen.
+ * On the device rather than in the household, like the other view preferences:
+ * two people looking at the same list may want it organised differently, and
+ * neither should be able to rearrange the other's screen.
  *
- * The cost is that it does not follow you to a second device. That is a
- * preference you set roughly once, so a `profiles` column and a write on every
- * toggle would be a poor trade.
+ * The storage key is versioned. `v1` held `groupBy` and `sortBy`, which have
+ * both gone — grouping by category is now carried by the colour on each row,
+ * and sorting was a second control doing very little beside the first. A `v1`
+ * blob is simply not read.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
-import type { GroupBy, SortBy } from '@/core/occurrence/grouping';
+const STORAGE_KEY = 'chorus.view.v2';
 
-const STORAGE_KEY = 'chorus.view.v1';
+/**
+ * The two ways of arranging today's outstanding work.
+ *
+ * `priority` — Crucial, Normal, Minor. What matters most, first.
+ * `when` — Late, then due today. What is most urgent, first.
+ *
+ * They are two answers to the same question, which is why they are one control
+ * rather than two. Whichever is chosen, anything not yet due is collapsed into
+ * "Coming up" underneath: that is a property of the screen, not of the mode.
+ */
+export type TodayArrangement = 'priority' | 'when';
 
-const GROUP_BY: readonly GroupBy[] = ['category', 'priority', 'none'];
-const SORT_BY: readonly SortBy[] = ['priority', 'due'];
+const ARRANGEMENTS: readonly TodayArrangement[] = ['priority', 'when'];
 
 export interface ViewPreference {
-  readonly groupBy: GroupBy;
-  readonly sortBy: SortBy;
+  readonly arrangement: TodayArrangement;
 }
 
 /**
- * Grouped by category, sorted by priority within each.
+ * Priority first.
  *
- * Chosen as the default because it answers the two questions people actually
- * ask in order — "what kind of thing is this" then "what matters most" — and
- * because a household that never touches these controls still gets something
- * more useful than a flat list.
+ * Chosen by Emily from the mockups: with a hundred-odd chores, "what matters
+ * most" turned out to be a more useful first cut than "what kind of thing is
+ * this". `when` is one tap away for the days that question changes.
  */
-export const DEFAULT_VIEW: ViewPreference = { groupBy: 'category', sortBy: 'priority' };
+export const DEFAULT_VIEW: ViewPreference = { arrangement: 'priority' };
 
 interface ViewState {
   readonly view: ViewPreference;
   /** False until the stored value has been read, so nothing is written over it. */
   readonly hydrated: boolean;
-  readonly setGroupBy: (groupBy: GroupBy) => void;
-  readonly setSortBy: (sortBy: SortBy) => void;
+  readonly setArrangement: (arrangement: TodayArrangement) => void;
   readonly hydrate: () => Promise<void>;
 }
 
@@ -56,14 +61,8 @@ export const useViewStore = create<ViewState>((set, get) => ({
   view: DEFAULT_VIEW,
   hydrated: false,
 
-  setGroupBy: (groupBy) => {
-    const view = { ...get().view, groupBy };
-    set({ view });
-    persist(view);
-  },
-
-  setSortBy: (sortBy) => {
-    const view = { ...get().view, sortBy };
+  setArrangement: (arrangement) => {
+    const view = { ...get().view, arrangement };
     set({ view });
     persist(view);
   },
@@ -76,15 +75,12 @@ export const useViewStore = create<ViewState>((set, get) => ({
         set({
           view: {
             ...DEFAULT_VIEW,
-            // Each field checked against the known values rather than merely
-            // for type. A stored 'nested' from some future version must fall
-            // back to the default instead of reaching the grouping function,
-            // where it would match no branch and silently return categories.
-            ...(GROUP_BY.includes(stored.groupBy as GroupBy)
-              ? { groupBy: stored.groupBy as GroupBy }
-              : {}),
-            ...(SORT_BY.includes(stored.sortBy as SortBy)
-              ? { sortBy: stored.sortBy as SortBy }
+            // Checked against the known values rather than merely for type. A
+            // stored arrangement from some future version must fall back to
+            // the default instead of reaching the screen, where it would match
+            // no branch and render nothing.
+            ...(ARRANGEMENTS.includes(stored.arrangement as TodayArrangement)
+              ? { arrangement: stored.arrangement as TodayArrangement }
               : {}),
           },
         });

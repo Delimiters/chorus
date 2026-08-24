@@ -13,16 +13,17 @@
 
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { useSubtaskTicksFor, useSubtasksByChore, useToggleSubtask } from '@/data/hooks/useSubtasks';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
 import { useRoutineStore } from '@/stores/routineStore';
 import { useMyRoutineItems } from '@/data/hooks/useRoutines';
 
-import type { AgendaItem, FloatingGroup } from '@/core/occurrence/agenda';
+import { splitByUrgency, type AgendaItem, type FloatingGroup } from '@/core/occurrence/agenda';
 import { describeRule } from '@/core/recurrence/describe';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import {
@@ -30,15 +31,15 @@ import {
   useToday_View,
   useToggleCompletion,
 } from '@/data/hooks/useOccurrences';
-import { ChoreRow, FloatingRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
+import { ChoreRow, FloatingRow, SectionHeader } from '@/design/ChoreRow';
 import { groupItems } from '@/core/occurrence/grouping';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
-import { ViewControls } from '@/features/common/ViewControls';
+import { ArrangementControl } from '@/features/common/ArrangementControl';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
-import { space } from '@/design/tokens';
+import { MIN_TARGET, space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
 import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
@@ -61,8 +62,8 @@ export function TodayScreen() {
   const { view, chores, today, isLoading, error, unreadable, refetch } = useToday_View();
   const categories = useCategoryList();
   const viewPref = useViewPreference();
-  const setGroupBy = useViewStore((s) => s.setGroupBy);
-  const setSortBy = useViewStore((s) => s.setSortBy);
+  const setArrangement = useViewStore((s) => s.setArrangement);
+  const [comingUpOpen, setComingUpOpen] = useState(false);
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
 
   /**
@@ -175,6 +176,10 @@ export function TodayScreen() {
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={meta?.priority ?? 'normal'}
         icon={choreIcons.get(item.choreId) ?? null}
+        // A property of this screen rather than of the arrangement: Today is
+        // the long list either way, and the rail has to mean the same thing in
+        // both modes or it teaches nothing.
+        compact
         onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
         onOpen={() => setOpen(item)}
       />
@@ -182,59 +187,52 @@ export function TodayScreen() {
   };
 
   /**
-   * Today's outstanding work, arranged by the chosen axis.
+   * Today's outstanding work, arranged, with what is not yet due folded away.
    *
-   * An earlier version kept Yours / Everyone else here and refused to group by
-   * category, on the grounds that ownership is what a two-person household
-   * looks for. That reasoning does not survive contact with the screen: every
-   * row already carries a "Your turn" / "Sam's turn" chip, so category headers
-   * cost no ownership information at all. And a chip is a weaker signal than a
-   * heading when the question is "what kind of thing is left today".
+   * Two things are happening and they are deliberately separate.
    *
-   * So the control means what it says. Group by Category or Priority and the
-   * headings change; Group by None falls back to Yours / Everyone else, which
-   * is the right shape when there is no other axis to organise by.
+   * **Coming up is always collapsed.** A chore made visible early by `showFrom`
+   * is `due`, so it used to render as a peer of work that is genuinely late —
+   * and on this household's list thirty-two of about fifty rows were of that
+   * kind. The largest block on the screen was the least urgent thing on it.
+   * Folding those into one line is what actually shortens the list, so it is a
+   * property of the screen rather than of either arrangement.
+   *
+   * **The arrangement decides the rest.** Priority answers "what matters most",
+   * When answers "what is most overdue". They are two cuts of the same
+   * remaining work, which is why one control switches between them instead of
+   * two controls combining.
+   *
+   * Category grouping is gone: every row now carries its category as a colour
+   * and a name, so a heading said the same thing twice and cost a line.
    */
-  const grouped = (items: readonly AgendaItem[]) =>
-    groupItems(items, choreMeta, categories, viewPref);
+  const outstanding = useMemo(() => [...view.mine, ...view.theirs], [view.mine, view.theirs]);
+  const urgency = useMemo(() => splitByUrgency(outstanding, today), [outstanding, today]);
 
-  const sorted = (items: readonly AgendaItem[]): readonly AgendaItem[] =>
-    grouped(items)[0]?.items ?? [];
+  const byPriority = useMemo(() => {
+    // `groupItems` is generic over `Groupable`, and an `AgendaItem` is one — so
+    // the rows travel through it and come back out unchanged rather than being
+    // mapped to keys and rejoined.
+    const now = [...urgency.late, ...urgency.dueToday];
+    return groupItems(now, choreMeta, categories, {
+      groupBy: 'priority',
+      sortBy: 'due',
+    }).map((section) => ({
+      key: section.key,
+      title: section.title,
+      items: section.items,
+    }));
+  }, [urgency.late, urgency.dueToday, choreMeta, categories]);
 
-  /**
-   * Mine and theirs together, for the grouped views.
-   *
-   * Grouping by category and *also* splitting by owner would nest, which is the
-   * header explosion this design exists to avoid.
-   */
-  /**
-   * The two ownership groups, each then split by the chosen axis.
-   *
-   * Nesting, which this design otherwise avoids — but the objection was
-   * calibrated to three priorities inside five categories, and ownership is
-   * two groups. Two times a handful stays readable, and it keeps "is this
-   * mine" as the first question the screen answers while still giving
-   * categories real headings rather than a chip.
-   */
-  const ownershipGroups = useMemo(
-    () => [
-      { title: 'Yours', items: view.mine },
-      { title: 'Everyone else', items: view.theirs },
-    ],
-    [view.mine, view.theirs],
-  );
-
-  /**
-   * Whether to fall back to Yours / Everyone else.
-   *
-   * Grouping by category before any category exists puts every row under a
-   * single "Other" heading, which says nothing and is strictly worse than the
-   * ownership split it replaced. A household that has not used the feature
-   * should not be punished for the default. Caught by a test that expected
-   * "Yours" and found "Other".
-   */
-  const byOwnership =
-    viewPref.groupBy === 'none' || (viewPref.groupBy === 'category' && categories.length === 0);
+  const sections =
+    viewPref.arrangement === 'priority'
+      ? byPriority
+      : [
+          { key: 'late', title: 'Late', items: urgency.late },
+          // "Due today" rather than "Today", which is the page's own title —
+          // a section heading repeating the screen name reads as a mistake.
+          { key: 'today', title: 'Due today', items: urgency.dueToday },
+        ];
 
   const renderFloating = (group: FloatingGroup) => {
     const next = group.nextSlot;
@@ -312,59 +310,56 @@ export function TodayScreen() {
             screen are furniture. */}
         {nothingToDo ? null : (
           <View style={{ paddingHorizontal: space.sm, paddingBottom: space.md }}>
-            <ViewControls
-              groupBy={viewPref.groupBy}
-              sortBy={viewPref.sortBy}
-              onChangeGroupBy={setGroupBy}
-              onChangeSortBy={setSortBy}
-            />
+            <ArrangementControl arrangement={viewPref.arrangement} onChange={setArrangement} />
           </View>
         )}
 
-        {byOwnership ? (
-          <>
-            {view.mine.length > 0 ? (
-              <>
-                <SectionHeader title="Yours" count={view.mine.length} />
-                <Stack gap={space.xs}>{sorted(view.mine).map(renderRow)}</Stack>
-              </>
-            ) : null}
-
-            {view.theirs.length > 0 ? (
-              <>
-                <SectionHeader title="Everyone else" count={view.theirs.length} />
-                <Stack gap={space.xs}>{sorted(view.theirs).map(renderRow)}</Stack>
-              </>
-            ) : null}
-          </>
-        ) : (
-          <>
-            {ownershipGroups.map(({ title, items }) =>
-              items.length === 0 ? null : (
-                <View key={title}>
-                  <SectionHeader title={title} count={items.length} />
-                  {grouped(items).map((section) => (
-                    <View key={section.key}>
-                      <SubHeader
-                        title={section.title}
-                        ink={section.ink}
-                        count={section.items.length}
-                      />
-                      <Stack gap={space.xs}>{section.items.map(renderRow)}</Stack>
-                    </View>
-                  ))}
-                </View>
-              ),
-            )}
-          </>
+        {sections.map((section) =>
+          section.items.length === 0 ? null : (
+            <View key={section.key}>
+              <SectionHeader title={section.title} count={section.items.length} />
+              <Stack gap={space.xs}>{section.items.map(renderRow)}</Stack>
+            </View>
+          ),
         )}
 
         {/*
-          Below the dated sections, not above them.
-          
-          A floating chore is due *sometime* this week; the things in Yours are
-          due today. Leading with the looser commitment pushed the actual
-          answer to "what should I do now" below the fold on a phone.
+          Not yet due, and folded away.
+
+          These are on the screen at all because `showFrom` brought them
+          forward; leaving them expanded is what made the list unreadable. The
+          count is on the header, so the size of the pile is visible without
+          the pile being.
+        */}
+        {urgency.comingUp.length > 0 ? (
+          <View>
+            <Pressable
+              onPress={() => setComingUpOpen((open: boolean) => !open)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: comingUpOpen }}
+              accessibilityLabel={`Coming up, ${urgency.comingUp.length} chores. ${
+                comingUpOpen ? 'Hide them' : 'Show them'
+              }.`}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: MIN_TARGET }}
+            >
+              <MaterialCommunityIcons
+                name={comingUpOpen ? 'chevron-up' : 'chevron-down'}
+                size={22}
+                color={colors.textMuted}
+              />
+              <Txt variant="label" tone="faint">
+                {`COMING UP · ${urgency.comingUp.length}`}
+              </Txt>
+            </Pressable>
+
+            {comingUpOpen ? <Stack gap={space.xs}>{urgency.comingUp.map(renderRow)}</Stack> : null}
+          </View>
+        ) : null}
+
+        {/*
+          Below the dated sections, and below Coming up, because it is the
+          loosest commitment on the screen: due *sometime* this week rather
+          than on any particular day.
         */}
         {view.floating.length > 0 ? (
           <>

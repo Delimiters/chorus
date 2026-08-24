@@ -12,6 +12,8 @@ import type { Schedule } from '../recurrence/types';
 import {
   buildTodayView,
   collapseSupersededMisses,
+  splitByUrgency,
+  type AgendaItem,
   groupFloating,
   isFloatingItem,
   toAgendaItems,
@@ -965,5 +967,50 @@ describe('how many times in a row it was missed', () => {
     const after = survivorAfter([d('2026-01-09')])?.missedBefore;
     expect(before).toBe(4);
     expect(after).toBe(0);
+  });
+});
+
+describe('splitting Today by how soon it matters', () => {
+  /*
+   * The complaint this answers: about fifty rows, thirty-two of which are not
+   * due. They are `due` because `showFrom` made them visible early, so they
+   * rendered as peers of genuinely late work.
+   */
+  const today = d('2026-08-24');
+  const at = (dueOn: string, status: AgendaItem['status']): AgendaItem =>
+    ({ choreId: dueOn + status, dueOn: d(dueOn), status }) as AgendaItem;
+
+  it('puts overdue work first, by status not by date', () => {
+    const { late } = splitByUrgency([at('2026-08-16', 'overdue')], today);
+    expect(late).toHaveLength(1);
+  });
+
+  it('counts today as due today', () => {
+    const { dueToday } = splitByUrgency([at('2026-08-24', 'due')], today);
+    expect(dueToday).toHaveLength(1);
+  });
+
+  it('files anything dated later as coming up', () => {
+    // The thirty-two. Visible, but not the answer to "what now".
+    const { comingUp } = splitByUrgency([at('2026-08-31', 'due')], today);
+    expect(comingUp).toHaveLength(1);
+  });
+
+  it('splits on the occurrence date, not on what made it visible', () => {
+    // Non-vacuity: all three of these are status `due`, so a split that keyed
+    // on status alone would put them in one bucket.
+    const split = splitByUrgency(
+      [at('2026-08-20', 'due'), at('2026-08-24', 'due'), at('2026-08-31', 'due')],
+      today,
+    );
+    expect(split.dueToday).toHaveLength(2);
+    expect(split.comingUp).toHaveLength(1);
+    expect(split.late).toHaveLength(0);
+  });
+
+  it('keeps every item, so nothing falls between the sections', () => {
+    const items = [at('2026-08-16', 'overdue'), at('2026-08-24', 'due'), at('2026-08-31', 'due')];
+    const split = splitByUrgency(items, today);
+    expect(split.late.length + split.dueToday.length + split.comingUp.length).toBe(items.length);
   });
 });

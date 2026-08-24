@@ -372,3 +372,38 @@ export function buildTodayView(
     doneCount: done.length + floatingDoneToday,
   };
 }
+
+/**
+ * Outstanding work split by how soon it matters.
+ *
+ * `showFrom` lets a chore appear on Today before it is due, which stopped
+ * deadlines ambushing anybody and then created a worse problem: those chores
+ * are `due`, so they render as peers of work that is genuinely late. Thirty-two
+ * of about fifty rows on this household's Today are not due — the largest block
+ * on the screen is the least urgent thing on it.
+ *
+ * Splitting on the occurrence's own date rather than on `showFrom` keeps this
+ * honest: "coming up" means the day has not arrived, whatever made it visible.
+ */
+export interface UrgencySplit {
+  /** Past its due date. */
+  readonly late: readonly AgendaItem[];
+  /** Due today, or earlier but not yet overdue. */
+  readonly dueToday: readonly AgendaItem[];
+  /** Visible early, due later. Collapsed on screen. */
+  readonly comingUp: readonly AgendaItem[];
+}
+
+export function splitByUrgency(items: readonly AgendaItem[], today: CivilDate): UrgencySplit {
+  const late: AgendaItem[] = [];
+  const dueToday: AgendaItem[] = [];
+  const comingUp: AgendaItem[] = [];
+
+  for (const item of items) {
+    if (item.status === 'overdue') late.push(item);
+    else if (compareCivil(item.dueOn, today) > 0) comingUp.push(item);
+    else dueToday.push(item);
+  }
+
+  return { late, dueToday, comingUp };
+}

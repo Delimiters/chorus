@@ -24,8 +24,6 @@ import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { formatDayShort } from '@/features/common/format';
 import { groupItems, type Groupable } from '@/core/occurrence/grouping';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import { useViewPreference, useViewStore } from '@/stores/viewStore';
-import { ViewControls } from '@/features/common/ViewControls';
 import { inkColor } from '@/design/inks';
 import { toIconName } from '@/design/icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -47,9 +45,6 @@ export function ChoresScreen() {
   const household = useHousehold();
   const today = useToday(household.data?.timeZone ?? 'UTC');
   const categories = useCategoryList();
-  const view = useViewPreference();
-  const setGroupBy = useViewStore((s) => s.setGroupBy);
-  const setSortBy = useViewStore((s) => s.setSortBy);
 
   /** When each one-off chore was ticked off, if it was. */
   const doneByChore = useMemo(() => {
@@ -112,8 +107,16 @@ export function ChoresScreen() {
     const meta = new Map(
       active.map((c) => [c.id, { categoryId: c.categoryId, priority: c.priority }]),
     );
-    return groupItems(groupable, meta, categories, view);
-  }, [active, categories, view]);
+    /*
+     * The library groups by category, always.
+     *
+     * It is the shelf rather than the day: "what kind of thing is this" is the
+     * only question worth asking of a hundred chores you are browsing, and
+     * urgency belongs on Today. The controls that used to sit here moved with
+     * it.
+     */
+    return groupItems(groupable, meta, categories, { groupBy: 'category', sortBy: 'priority' });
+  }, [active, categories]);
 
   const byId = useMemo(() => new Map(active.map((c) => [c.id, c])), [active]);
 
@@ -232,14 +235,6 @@ export function ChoresScreen() {
 
         {active.length > 0 ? (
           <>
-            <View style={{ paddingHorizontal: space.sm, paddingBottom: space.md }}>
-              <ViewControls
-                groupBy={view.groupBy}
-                sortBy={view.sortBy}
-                onChangeGroupBy={setGroupBy}
-                onChangeSortBy={setSortBy}
-              />
-            </View>
             {activeSections.map((section) => (
               <View key={section.key}>
                 {/* Grouping off produces one untitled section, and a blank
