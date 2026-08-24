@@ -8,6 +8,7 @@
  */
 
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilDate } from '@/core/civil/types';
@@ -435,18 +436,18 @@ describe('arranging Today', () => {
     expect(gutters).toBeLessThan(bulb);
   });
 
-  it('folds what is not yet due into one collapsed line', () => {
-    // The section the redesign exists for, and the one nothing rendered: a
-    // chore pulled forward by `showFrom` is `due`, so it used to sit among
-    // work that is genuinely late.
+  it('gathers what is not yet due under its own heading, and folds on demand', () => {
+    // A chore pulled forward by `showFrom` is `due`, so it used to sit among
+    // work that is genuinely late. It is separated but not hidden: the section
+    // starts open, and collapsing it is the choice rather than the default.
     renderScreen();
 
-    expect(screen.queryByText('Change the filters')).toBeNull();
     const disclosure = screen.getByRole('button', { name: /^Coming up, 1 chore\./ });
     expect(disclosure).toBeOnTheScreen();
+    expect(screen.getByText('Change the filters')).toBeOnTheScreen();
 
     fireEvent.press(disclosure);
-    expect(screen.getByText('Change the filters')).toBeOnTheScreen();
+    expect(screen.queryByText('Change the filters')).toBeNull();
   });
 
   it('offers no arrangement control when there is nothing yet to arrange', () => {
@@ -487,6 +488,33 @@ describe('arranging Today', () => {
     expandRow('Clean the gutters');
     expect(screen.getByText('6 days late')).toBeOnTheScreen();
     expect(screen.getByText("Sam's turn")).toBeOnTheScreen();
+  });
+
+  it('never truncates a long category name', () => {
+    // "Entertainment" was rendering as "Entertain…" against a 32% cap that
+    // existed to protect the title. The title wraps now, so the cap bought
+    // nothing and cost the one word that identifies the category.
+    mockCategories = [{ id: 'c-long', name: 'Entertainment', ink: 'plum', position: 0 }];
+    const chores = mockChores as unknown as { categoryId: string | null }[];
+    for (const chore of chores) chore.categoryId = 'c-long';
+
+    renderScreen();
+
+    /*
+     * Asserted on the style, not on the text.
+     *
+     * Truncation is a layout outcome and jest-expo does no layout: the text
+     * node holds "Entertainment" whether or not it fits, so `getByText` finds
+     * it either way and passes with the bug present. Checked that it does —
+     * putting the cap back leaves a text assertion green. The width cap and
+     * `numberOfLines` are the two things that can clip it, so those are what
+     * this guards.
+     */
+    const label = screen.getAllByText('Entertainment')[0];
+    const style = StyleSheet.flatten(label?.props.style) as { maxWidth?: unknown };
+
+    expect(style.maxWidth).toBeUndefined();
+    expect(label?.props.numberOfLines).toBeUndefined();
   });
 
   it('shows the category rail only where the category has an ink', () => {
