@@ -16,11 +16,14 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { planFor, progressOf } from '@/core/plan/plan';
+import { celebrationFor } from '@/core/plan/celebrate';
+import { Confetti } from '@/design/Confetti';
+import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ADD_BUTTON_CLEARANCE } from '@/design/AddButton';
 import { ChoreRow, SectionHeader } from '@/design/ChoreRow';
@@ -32,7 +35,12 @@ import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { useMembers } from '@/data/hooks/useHousehold';
 import { useToggleCompletion } from '@/data/hooks/useOccurrences';
-import { useMyPlanEntries, useRemoveFromPlan, useTheirPlanCount } from '@/data/hooks/usePlan';
+import {
+  useMyPlanEntries,
+  useRemoveFromPlan,
+  useTheirPlanCount,
+  useTheirPlanTotal,
+} from '@/data/hooks/usePlan';
 import { toPriority } from '@/core/chore/priority';
 import { useUserId } from '@/stores/sessionStore';
 import { formatDayLong } from '@/features/common/format';
@@ -66,6 +74,7 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
 
   const entries = useMyPlanEntries(today as never);
   const theirCount = useTheirPlanCount(today as never, available);
+  const theirTotal = useTheirPlanTotal(today as never);
   const toggle = useToggleCompletion();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -85,6 +94,50 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
     [entries, today, available],
   );
   const progress = useMemo(() => progressOf(planned), [planned]);
+
+  /** What the day was, for the copy and the tier. */
+  const day = useMemo(() => {
+    const done = planned
+      .map((p) => p.item)
+      .filter((i) => i.status === 'completed' || i.status === 'skipped');
+    const worst = done.reduce(
+      (worstSoFar, item) => (item.daysOverdue > worstSoFar.daysOverdue ? item : worstSoFar),
+      { daysOverdue: 0, choreTitle: null as string | null },
+    );
+    return {
+      planned: planned.length,
+      titles: done.map((i) => i.choreTitle),
+      worstLateness: worst.daysOverdue,
+      latestTitle: worst.daysOverdue > 0 ? worst.choreTitle : null,
+      bothFinished: theirTotal > 0 && theirCount === 0,
+      theirCount: theirTotal,
+    };
+  }, [planned, theirTotal, theirCount]);
+
+  /**
+   * The celebration, and firing it exactly once.
+   *
+   * Keyed on the transition into `finished` rather than on the boolean itself:
+   * a re-render while the day is already done must not buzz the phone again,
+   * and coming back to a finished day later should be quiet — you already had
+   * the moment.
+   */
+  const celebration = useMemo(
+    () => (progress.finished ? celebrationFor(day) : null),
+    [progress.finished, day],
+  );
+  const [marked, setMarked] = useState(false);
+
+  useEffect(() => {
+    if (celebration === null) {
+      setMarked(false);
+      return;
+    }
+    if (marked) return;
+    setMarked(true);
+    if (celebration.tone === 'loud') celebrated();
+    else finishedHaptic();
+  }, [celebration, marked]);
 
   const choreMeta = useMemo(() => new Map(chores.map((c) => [c.id, c])), [chores]);
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
@@ -117,7 +170,10 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
             ? null
             : (nameById.get(item.completedBy) ?? null)
         }
-        onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
+        onToggle={() => {
+          tapped();
+          toggle.mutate({ item, complete: item.status !== 'completed' });
+        }}
         onOpen={() => setRemoving(item)}
       />
     );
@@ -190,13 +246,13 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
               ✓
             </Txt>
             <Txt variant="bodyStrong" accessibilityRole="header">
-              That&apos;s today.
+              {celebration?.headline ?? "That's today."}
             </Txt>
-            <Txt variant="small" tone="muted" style={{ textAlign: 'center' }}>
-              {progress.total === 1
-                ? 'One thing, done.'
-                : `All ${progress.total}, done. Nothing else is planned.`}
-            </Txt>
+            {celebration?.detail === null || celebration === null ? null : (
+              <Txt variant="small" tone="muted" style={{ textAlign: 'center' }}>
+                {celebration.detail}
+              </Txt>
+            )}
             <View style={{ paddingTop: space.md }}>
               <Button label="Add something anyway" variant="ghost" onPress={onAdd} />
             </View>
@@ -255,6 +311,8 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
           </>
         )}
       </ScrollView>
+
+      <Confetti running={celebration?.tone === 'loud'} />
 
       {/*
         Taking something off the day.

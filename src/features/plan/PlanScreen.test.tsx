@@ -21,6 +21,7 @@ const YESTERDAY = civilDate('2026-08-26');
 
 let mockEntries: PlanEntry[] = [];
 let mockTheirCount = 0;
+let mockTheirTotal = 0;
 const mockRemove = jest.fn();
 const mockToggle = jest.fn();
 const mockSetMode = jest.fn();
@@ -29,6 +30,7 @@ const mockPush = jest.fn();
 jest.mock('@/data/hooks/usePlan', () => ({
   useMyPlanEntries: () => mockEntries,
   useTheirPlanCount: () => mockTheirCount,
+  useTheirPlanTotal: () => mockTheirTotal,
   useRemoveFromPlan: () => ({ mutate: mockRemove }),
 }));
 
@@ -45,6 +47,15 @@ jest.mock('@/data/hooks/useHousehold', () => ({
       { userId: THEM, displayName: 'Sam', accent: 'pink' },
     ],
   }),
+}));
+
+const mockTapped = jest.fn();
+const mockFinished = jest.fn();
+const mockCelebrated = jest.fn();
+jest.mock('@/design/haptics', () => ({
+  tapped: () => mockTapped(),
+  finished: () => mockFinished(),
+  celebrated: () => mockCelebrated(),
 }));
 
 jest.mock('@/stores/sessionStore', () => ({ useUserId: () => ME }));
@@ -101,6 +112,10 @@ function renderScreen(available: AgendaItem[]) {
 beforeEach(() => {
   mockEntries = [];
   mockTheirCount = 0;
+  mockTheirTotal = 0;
+  mockTapped.mockClear();
+  mockFinished.mockClear();
+  mockCelebrated.mockClear();
   mockRemove.mockClear();
   mockToggle.mockClear();
   onAdd.mockClear();
@@ -172,6 +187,7 @@ describe('a plan in progress', () => {
 
   it('says what the other person has taken on', () => {
     mockTheirCount = 3;
+    mockTheirTotal = 3;
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
 
@@ -183,6 +199,7 @@ describe('a plan in progress', () => {
     // after Sam had done all three — a number meaning something different from
     // the identical-looking one directly above it.
     mockTheirCount = 0;
+    mockTheirTotal = 0;
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
 
@@ -266,6 +283,75 @@ describe("yesterday's plan", () => {
     expect(screen.getByText('Dishes')).toBeOnTheScreen();
     expect(screen.queryByText('Trash')).toBeNull();
     expect(screen.getByText(/0 OF 1/)).toBeOnTheScreen();
+  });
+});
+
+describe('the finish moment', () => {
+  it('buzzes quietly for an ordinary finished day', () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes', 'completed')]);
+
+    expect(mockFinished).toHaveBeenCalledTimes(1);
+    expect(mockCelebrated).not.toHaveBeenCalled();
+  });
+
+  it('fires once, not on every render', () => {
+    /*
+     * The bug this is really for. Keyed on the boolean rather than the
+     * transition, any re-render while the day is already done would buzz the
+     * phone again — and a plan screen re-renders on every realtime message.
+     */
+    mockEntries = [entry('dishes', 1)];
+    const view = renderScreen([item('dishes', 'Dishes', 'completed')]);
+    view.rerender(
+      <ThemeProvider>
+        <PlanScreen
+          available={[item('dishes', 'Dishes', 'completed')]}
+          chores={[chore('dishes', 'Dishes')]}
+          today={TODAY}
+          refetch={async () => {}}
+          onAdd={onAdd}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(mockFinished).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing at all for a day nobody planned', () => {
+    renderScreen([]);
+    expect(mockFinished).not.toHaveBeenCalled();
+    expect(mockCelebrated).not.toHaveBeenCalled();
+  });
+
+  it('goes loud when you both finished, and says so', () => {
+    // The one trigger a solo to-do list cannot offer.
+    mockTheirTotal = 2;
+    mockTheirCount = 0;
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes', 'completed')]);
+
+    expect(mockCelebrated).toHaveBeenCalledTimes(1);
+    expect(mockFinished).not.toHaveBeenCalled();
+    expect(screen.getByText('You both finished.')).toBeOnTheScreen();
+    expect(screen.getByText('3 things between you.')).toBeOnTheScreen();
+  });
+
+  it('names the badly late thing rather than praising in general', () => {
+    mockEntries = [entry('car', 1)];
+    renderScreen([
+      { ...item('car', 'Get car inspected', 'completed'), daysOverdue: 20 } as AgendaItem,
+    ]);
+
+    expect(screen.getByText('Including Get car inspected — 20 days late.')).toBeOnTheScreen();
+  });
+
+  it('ticks lightly on an ordinary completion', () => {
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    fireEvent.press(screen.getByLabelText('Mark Dishes done'));
+    expect(mockTapped).toHaveBeenCalledTimes(1);
   });
 });
 
