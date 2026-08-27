@@ -20,6 +20,9 @@ import type { TodayMode } from '@/stores/routineStore';
 import { space } from '@/design/tokens';
 
 const SEGMENTS: readonly { value: TodayMode; label: string }[] = [
+  // Plan first, and first for a reason: it is the answer, and the other two are
+  // where the answer comes from.
+  { value: 'plan', label: 'Plan' },
   { value: 'chores', label: 'Chores' },
   { value: 'routines', label: 'Routines' },
 ];

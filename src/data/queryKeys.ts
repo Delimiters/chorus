@@ -35,6 +35,9 @@ export const qk = {
    */
   /** Every subtask in the household; the screens filter by chore themselves. */
   flags: (householdId: string) => [...qk.household(householdId), 'flags'] as const,
+  plan: (householdId: string, from: string, to: string) =>
+    [...qk.household(householdId), 'plan', from, to] as const,
+  planAll: (householdId: string) => [...qk.household(householdId), 'plan'] as const,
   subtasks: (householdId: string) => [...qk.household(householdId), 'subtasks'] as const,
   /** Ticks for one occurrence; a new occurrence simply has none. */
   subtaskTicks: (householdId: string, occurrenceKey: string) =>

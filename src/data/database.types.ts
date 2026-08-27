@@ -557,6 +557,64 @@ export type Database = {
           },
         ]
       }
+      plan_entries: {
+        Row: {
+          chore_id: string
+          created_at: string
+          household_id: string
+          id: string
+          occurrence_key: string
+          planned_for: string
+          position: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          chore_id: string
+          created_at?: string
+          household_id: string
+          id?: string
+          occurrence_key: string
+          planned_for: string
+          position?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          chore_id?: string
+          created_at?: string
+          household_id?: string
+          id?: string
+          occurrence_key?: string
+          planned_for?: string
+          position?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_entries_chore_id_fkey"
+            columns: ["chore_id"]
+            isOneToOne: false
+            referencedRelation: "chores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_entries_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_entries_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
