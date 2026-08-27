@@ -15,7 +15,7 @@
  * housemate did is still half the reason to share a list, so Done stays.
  */
 
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -36,9 +36,12 @@ import {
   useToggleCompletion,
 } from '@/data/hooks/useOccurrences';
 import { ChoreRow, FloatingRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
+import { Toast } from '@/design/Toast';
 import { groupItems } from '@/core/occurrence/grouping';
 import { toPriority } from '@/core/chore/priority';
 import { useCategoryList } from '@/data/hooks/useCategories';
+import { useFlagsByChore, useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
+import { flaggedFirst } from '@/core/chore/flag';
 import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
 import { ArrangementControl } from '@/features/common/ArrangementControl';
@@ -112,12 +115,106 @@ export function TodayScreen() {
     [chores],
   );
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  const nameById = useMemo(
+    () => new Map((members.data ?? []).map((m) => [m.userId, m.displayName])),
+    [members.data],
+  );
+
+  /**
+   * What everyone *else* did today, in one line.
+   *
+   * "and ur not checking it off? or i cant see if you do?" — the app knew the
+   * answer and never said it. Only other people: a tally of your own work is
+   * the progress you have just watched happen, and reads as the app talking
+   * about itself.
+   */
+  const othersDid = useMemo(() => {
+    const tally = new Map<string, number>();
+    for (const item of view.done) {
+      if (item.completedBy === null || item.completedBy === userId) continue;
+      tally.set(item.completedBy, (tally.get(item.completedBy) ?? 0) + 1);
+    }
+    return [...tally.entries()]
+      .map(([id, count]) => `${nameById.get(id) ?? 'Someone'} did ${count}`)
+      .join(' · ');
+  }, [view.done, userId, nameById]);
   const choreIcons = useMemo(
     () => new Map(chores.map((c) => [c.id, toIconName(c.icon)])),
     [chores],
   );
+  const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /*
+   * Two questions, two answers.
+   *
+   * `anyFlags` decides what the row *shows* and how it sorts, because the sheet
+   * promises "both of you can see it" and the RLS policy was written for that —
+   * the point of a flag in a shared house is saying "this is worrying me"
+   * without a conversation. `myFlags` decides what the sheet's action *does*,
+   * because you can only raise or lower your own.
+   *
+   * A review found the shared half unreachable: every consumer used `myFlags`,
+   * so `useFlagsByChore` had no call site at all while the pgTAP suite spent
+   * five of nine assertions proving the visibility it enabled.
+   */
+  const myFlags = useMyFlags(today, weekStartsOn);
+  const flagsByChore = useFlagsByChore(today, weekStartsOn);
+  const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
+  const toggleFlag = useToggleFlag(today, weekStartsOn);
   const toggle = useToggleCompletion();
   const [refreshing, setRefreshing] = useState(false);
+
+  /**
+   * Occurrences ticked since this screen was opened, kept where they were.
+   *
+   * Completing something moves it from `mine` to `done`, which on a sectioned
+   * screen means the row leaves under your finger and reappears at the bottom.
+   * Emily read that as losing the item — *"i accidentally checked something off
+   * and it disappeared"* — and she was right to: a list that rearranges itself
+   * the instant you touch it is one you cannot trust to touch.
+   *
+   * So a tick is held in place, struck through, until the screen is left. The
+   * data is already correct; only the rendering is pinned.
+   */
+  const [held, setHeld] = useState<ReadonlyMap<string, 'mine' | 'theirs'>>(() => new Map());
+  const [undo, setUndo] = useState<{ item: AgendaItem; label: string } | null>(null);
+
+  /*
+   * Let go on the way out, not on a timer.
+   *
+   * The pin exists so nothing moves while you are looking; once you have left
+   * there is nothing to disturb, and Done should read as Done when you come
+   * back. Coming back to a list still pretending yesterday's work is
+   * outstanding would be its own kind of lie.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setHeld(new Map());
+        setUndo(null);
+      };
+    }, []),
+  );
+
+  const completeItem = useCallback(
+    (item: AgendaItem, complete: boolean) => {
+      toggle.mutate({ item, complete });
+      // Which list it came from, recorded now rather than re-derived later.
+      // `assignee` is a resolution rather than a user id, and rotation means
+      // the answer can be a computation; the list it was actually rendered in
+      // is the fact, and it is only knowable before the tick lands.
+      const side = view.mine.some((m) => m.occurrenceKey === item.occurrenceKey)
+        ? 'mine'
+        : 'theirs';
+      setHeld((current) => {
+        const next = new Map(current);
+        if (complete) next.set(item.occurrenceKey, side);
+        else next.delete(item.occurrenceKey);
+        return next;
+      });
+      setUndo(complete ? { item, label: `${item.choreTitle} — done` } : null);
+    },
+    [toggle, view.mine],
+  );
 
   const refresh = async () => {
     setRefreshing(true);
@@ -200,11 +297,17 @@ export function TodayScreen() {
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={meta?.priority ?? 'normal'}
         icon={choreIcons.get(item.choreId) ?? null}
+        flagged={anyFlags.has(item.choreId)}
+        completedByLabel={
+          item.completedBy === null || item.completedBy === userId
+            ? null
+            : (nameById.get(item.completedBy) ?? null)
+        }
         // A property of this screen rather than of the arrangement: Today is
         // the long list either way, and the rail has to mean the same thing in
         // both modes or it teaches nothing.
         compact={viewPref.compactRows}
-        onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
+        onToggle={() => completeItem(item, item.status !== 'completed')}
         onOpen={() => setOpen(item)}
       />
     );
@@ -262,13 +365,52 @@ export function TodayScreen() {
               { key: 'today', title: 'Due today', items: urgency.dueToday },
             ];
 
-      return blocks.filter((block) => block.items.length > 0);
+      return (
+        blocks
+          .filter((block) => block.items.length > 0)
+          // Inside the block rather than in a section of their own. A flag says
+          // "this one first", not "this one belongs somewhere else" — lifting it
+          // out of Crucial into a separate pile would lose the fact that it is
+          // crucial, which is usually why it got flagged.
+          .map((block) => ({ ...block, items: flaggedFirst(block.items, anyFlags) }))
+      );
     },
-    [sortItems, today, viewPref.arrangement, choreMeta, categories],
+    [sortItems, today, viewPref.arrangement, choreMeta, categories, anyFlags],
   );
 
-  const mine = useMemo(() => arrange(view.mine), [arrange, view.mine]);
-  const theirs = useMemo(() => arrange(view.theirs), [arrange, view.theirs]);
+  /**
+   * One person's outstanding work, plus anything they have just ticked.
+   *
+   * The held rows come back from `view.done` carrying `status: 'completed'`, so
+   * they render struck through with a filled box exactly where they were — and
+   * because they are still real `AgendaItem`s, tapping the box un-ticks them
+   * through the ordinary path.
+   */
+  /**
+   * Done, minus whatever is currently pinned upstairs.
+   *
+   * Without this the held row renders twice — once in its own section and once
+   * at the bottom — and two live checkboxes for one occurrence is worse than
+   * the disappearing act it replaced.
+   */
+  const doneElsewhere = useMemo(
+    () => (held.size === 0 ? view.done : view.done.filter((d) => !held.has(d.occurrenceKey))),
+    [held, view.done],
+  );
+
+  const withHeld = useCallback(
+    (items: readonly AgendaItem[], side: 'mine' | 'theirs') =>
+      held.size === 0
+        ? items
+        : [...items, ...view.done.filter((d) => held.get(d.occurrenceKey) === side)],
+    [held, view.done],
+  );
+
+  const mine = useMemo(() => arrange(withHeld(view.mine, 'mine')), [arrange, withHeld, view.mine]);
+  const theirs = useMemo(
+    () => arrange(withHeld(view.theirs, 'theirs')),
+    [arrange, withHeld, view.theirs],
+  );
 
   /**
    * Not yet due, from both people, in one collapsed pile.
@@ -276,9 +418,23 @@ export function TodayScreen() {
    * Split by owner it would be two collapsed lines saying almost nothing; the
    * whole point of the section is that nothing in it needs deciding today.
    */
+  /**
+   * Not yet due, from both people, including anything just ticked.
+   *
+   * `withHeld` here as well as in `arrange`, and that is not belt-and-braces:
+   * the arrangement only builds blocks from late and due-today, so a pinned
+   * coming-up row had no section that would render it and Done excluded it for
+   * being pinned. Ticking something not yet due made it disappear outright —
+   * the exact complaint this branch exists to fix, in a worse form than before,
+   * and on this household two thirds of the list is rows like that.
+   */
   const comingUp = useMemo(
-    () => splitByUrgency(sortItems([...view.mine, ...view.theirs]), today).comingUp,
-    [sortItems, view.mine, view.theirs, today],
+    () =>
+      splitByUrgency(
+        sortItems([...withHeld(view.mine, 'mine'), ...withHeld(view.theirs, 'theirs')]),
+        today,
+      ).comingUp,
+    [sortItems, withHeld, view.mine, view.theirs, today],
   );
 
   const renderFloating = (group: FloatingGroup) => {
@@ -292,7 +448,7 @@ export function TodayScreen() {
         turnLabel={turnLabel}
         windowLabel={formatFlexibleWindow(group.flexibleFrom, group.flexibleUntil, today)}
         onToggle={() => {
-          if (next) toggle.mutate({ item: next, complete: true });
+          if (next) completeItem(next, true);
         }}
         // A floating group's row acts on its next outstanding slot, so that is
         // the occurrence the sheet is about.
@@ -366,6 +522,14 @@ export function TodayScreen() {
             {formatDayLong(today).toUpperCase()}
             {view.doneCount > 0 ? ` · ${view.doneCount} DONE` : ''}
           </Txt>
+
+          {/* Under the date rather than beside the count: it is news about a
+              person, not another statistic about the list. */}
+          {othersDid === '' ? null : (
+            <Txt variant="small" tone="muted">
+              {othersDid} today
+            </Txt>
+          )}
         </Stack>
 
         {unreadable.length > 0 ? (
@@ -445,10 +609,12 @@ export function TodayScreen() {
           </>
         ) : null}
 
-        {view.done.length > 0 ? (
+        {doneElsewhere.length > 0 ? (
           <>
+            {/* The count is of everything done, including what is pinned
+                above — "3 DONE" with two rows under it would read as a bug. */}
             <SectionHeader title="Done" count={view.done.length} />
-            <Stack gap={space.xs}>{view.done.map(renderRow)}</Stack>
+            <Stack gap={space.xs}>{doneElsewhere.map(renderRow)}</Stack>
           </>
         ) : null}
 
@@ -462,14 +628,26 @@ export function TodayScreen() {
         ) : null}
       </ScrollView>
 
+      <Toast
+        message={undo === null ? null : undo.label}
+        actionLabel="Undo"
+        onAction={() => {
+          if (undo !== null) completeItem(undo.item, false);
+        }}
+        onDismiss={() => setUndo(null)}
+        bottomInset={ADD_BUTTON_CLEARANCE}
+      />
+
       <AddChoreButton onPress={() => router.push('/chore/new')} ink={myInk} />
 
       <OccurrenceSheet
         item={open}
         today={today}
-        weekStartsOn={(household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6}
+        weekStartsOn={weekStartsOn}
+        flagged={open !== null && myFlags.has(open.choreId)}
+        onToggleFlag={(choreId) => toggleFlag.mutate(choreId)}
         onClose={() => setOpen(null)}
-        onToggleComplete={(item) => toggle.mutate({ item, complete: item.status !== 'completed' })}
+        onToggleComplete={(item) => completeItem(item, item.status !== 'completed')}
         error={
           ((skip.error ?? reschedule.error ?? clear.error ?? toggle.error) as Error | null)
             ?.message ?? null

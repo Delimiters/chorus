@@ -7,7 +7,7 @@
  * against a hand-written object that could drift away from them.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
@@ -15,7 +15,10 @@ import type { CalendarConfig, CivilDate } from '@/core/civil/types';
 import { buildTodayView, collapseSupersededMisses } from '@/core/occurrence/agenda';
 import { projectOccurrences } from '@/core/occurrence/project';
 import type { ChoreInput, CompletionInput } from '@/core/occurrence/types';
+import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ThemeProvider } from '@/design/theme';
+import { DEFAULT_VIEW, useViewStore } from '@/stores/viewStore';
+import { TOAST_MS } from '@/design/Toast';
 import { TodayScreen } from './TodayScreen';
 
 const ME = 'user-me';
@@ -152,7 +155,32 @@ function buildView(completions: CompletionInput[] = []) {
   return buildTodayView(collapseSupersededMisses(projected, mockToday), mockToday, ME);
 }
 
-const mockToggle = jest.fn();
+/**
+ * Actually completes things.
+ *
+ * A `jest.fn()` that swallows the call leaves the view unchanged, so the row
+ * never becomes completed and every assertion about what happens *after* a tick
+ * passes vacuously — which is exactly how the first version of the hold-in-place
+ * test went green against a screen that did not hold anything in place.
+ *
+ * The re-render comes free: completing sets state on the screen, which calls
+ * the mocked hook again and picks up the rebuilt view.
+ */
+let liveCompletions: CompletionInput[] = [];
+const mockToggle = jest.fn(({ item, complete }: { item: AgendaItem; complete: boolean }) => {
+  liveCompletions = complete
+    ? [
+        ...liveCompletions,
+        {
+          choreId: item.choreId,
+          occurrenceKey: item.occurrenceKey,
+          completedOn: mockToday,
+          completedBy: ME,
+        },
+      ]
+    : liveCompletions.filter((c) => c.occurrenceKey !== item.occurrenceKey);
+  mockView = buildView(liveCompletions);
+});
 const mockRefetch = jest.fn(async () => {});
 const mockSkip = jest.fn();
 const mockReschedule = jest.fn();
@@ -197,7 +225,15 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
   }),
 }));
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush }),
+  // Run the effect, ignore the cleanup. These tests render the screen once and
+  // never navigate away, so focus never changes — but omitting it entirely
+  // makes the screen throw on mount, which took a whole suite down.
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    jest.requireActual('react').useEffect(effect, [effect]);
+  },
+}));
 
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: { weekStartsOn: 0, timeZone: 'UTC' } }),
@@ -230,6 +266,17 @@ jest.mock('@/data/hooks/useRoutines', () => ({
   useMyRoutineItems: () => [],
 }));
 
+// Mutable, so a test can flag something. These suites mock the data layer
+// rather than standing up a QueryClient.
+let mockFlags: Set<string> = new Set();
+const mockToggleFlag = jest.fn();
+let mockFlagsByChore: Map<string, readonly string[]> = new Map();
+jest.mock('@/data/hooks/useFlags', () => ({
+  useMyFlags: () => mockFlags,
+  useFlagsByChore: () => mockFlagsByChore,
+  useToggleFlag: () => ({ mutate: mockToggleFlag }),
+}));
+
 jest.mock('@/data/hooks/useCategories', () => ({
   useCategoryList: () => mockCategories,
   useCategories: () => ({ data: mockCategories, isPending: false, isError: false }),
@@ -256,7 +303,17 @@ function renderScreen() {
 }
 
 beforeEach(() => {
+  /*
+   * The arrangement is a real Zustand store, not a mock, and it lives at module
+   * scope — so a test that presses "When" leaves every later test rendering in
+   * When mode, where no priority heading exists at all. It went unnoticed
+   * because nothing after it asked about one.
+   */
+  useViewStore.setState({ view: DEFAULT_VIEW });
   mockCategories = [];
+  mockFlags = new Set();
+  mockFlagsByChore = new Map();
+  mockToggleFlag.mockClear();
   mockChores = ALL_CHORES.map((c) => ({ ...c }));
   mockToggle.mockClear();
   mockRefetch.mockClear();
@@ -264,6 +321,7 @@ beforeEach(() => {
   mockReschedule.mockClear();
   mockClear.mockClear();
   mockPush.mockClear();
+  liveCompletions = [];
   mockView = buildView();
   mockError = null;
   mockLoading = false;
@@ -331,10 +389,15 @@ describe('Today', () => {
     await fireEvent.press(screen.getByLabelText('Mark Dishes done'));
 
     expect(mockToggle).toHaveBeenCalledTimes(1);
-    const call = mockToggle.mock.calls[0]?.[0];
-    expect(call.complete).toBe(true);
-    expect(call.item.choreId).toBe('dishes');
-    expect(call.item.dueOn).toBe(mockToday);
+    // Asserted as one object rather than three reads off a possibly-absent
+    // call. `toHaveBeenCalledTimes` above does not narrow the index for the
+    // compiler, and `!` would have hidden a genuinely empty calls array.
+    expect(mockToggle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        complete: true,
+        item: expect.objectContaining({ choreId: 'dishes', dueOn: mockToday }),
+      }),
+    );
   });
 
   it('moves a completed chore into Done and offers to undo it', async () => {
@@ -562,6 +625,226 @@ describe('arranging Today', () => {
     expect(rails.length).toBeGreaterThan(0);
     expect(screen.getAllByText('Kitchen').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Plain').length).toBeGreaterThan(0);
+  });
+});
+
+describe('ticking something off', () => {
+  /*
+   * The complaint this exists for, verbatim: "i accidentally checked something
+   * off and it disappeared 😭". Completing moved the row out of its section and
+   * down into Done, which on a fifty-row screen reads as the item being gone.
+   */
+  const tick = (title: string) => fireEvent.press(screen.getByLabelText(`Mark ${title} done`));
+
+  it('leaves the row where it was instead of moving it to Done', () => {
+    renderScreen();
+    const before = screen
+      .getAllByRole('header')
+      .map((h) => String(h.props.children))
+      .indexOf('Yours');
+
+    tick('Dishes');
+
+    // Still in Yours, not relocated to the bottom of the screen. The row is
+    // found by its *completed* label, so this cannot pass by the tick simply
+    // not registering.
+    expect(screen.getByLabelText('Mark Dishes not done')).toBeOnTheScreen();
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    expect(headers.indexOf('Yours')).toBe(before);
+  });
+
+  it('keeps a ticked Coming-up row on the screen', () => {
+    /*
+     * The regression a review caught, and the sharpest possible version of the
+     * bug this whole branch exists to fix.
+     *
+     * `held` pinned the row, but nothing rendered it: the arrangement only
+     * builds blocks from late + due-today, `comingUp` was derived from the
+     * lists the completion had just emptied, and Done excluded it because it
+     * was pinned. So ticking something not-yet-due made it vanish outright —
+     * worse than the behaviour on main, where it at least reappeared under
+     * Done. On this household roughly two thirds of the list is showFrom rows.
+     */
+    renderScreen();
+    // Coming up is open by default, so no disclosure press — pressing it here
+    // collapsed the section and hid the very row under test.
+    tick('Change the filters');
+
+    expect(screen.getByLabelText('Mark Change the filters not done')).toBeOnTheScreen();
+  });
+
+  it('offers an undo, and undoing un-completes it', () => {
+    renderScreen();
+    tick('Dishes');
+
+    expect(screen.getByText('Dishes — done')).toBeOnTheScreen();
+    mockToggle.mockClear();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+
+    // The second call is the reversal, not a repeat of the first.
+    expect(mockToggle).toHaveBeenCalledWith(expect.objectContaining({ complete: false }));
+  });
+
+  it('does not offer an undo for un-completing', () => {
+    // Un-ticking is already the undo. A toast offering to undo an undo is a
+    // loop, and it would sit on screen over the row you just fixed.
+    renderScreen();
+    tick('Dishes');
+    fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
+  it('clears the toast on its own', () => {
+    jest.useFakeTimers();
+    try {
+      renderScreen();
+      tick('Dishes');
+      expect(screen.getByText('Dishes — done')).toBeOnTheScreen();
+
+      act(() => {
+        jest.advanceTimersByTime(TOAST_MS + 100);
+      });
+
+      expect(screen.queryByText('Dishes — done')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('seeing what the other person did', () => {
+  /*
+   * "and ur not checking it off? or i cant see if you do?" — the app had
+   * `completedBy` on every occurrence and rendered it nowhere. A done row
+   * dropped its schedule label and put nothing in its place.
+   */
+  const samDid = (choreId: string, key: string): CompletionInput => ({
+    choreId,
+    occurrenceKey: key,
+    completedOn: mockToday,
+    completedBy: THEM,
+  });
+
+  it('says who did what, on the row', () => {
+    const trash = buildView().theirs.find((i) => i.choreId === 'trash');
+    mockView = buildView([samDid('trash', trash?.occurrenceKey ?? '')]);
+    renderScreen();
+
+    expect(screen.getByLabelText('Mark Take out the trash not done')).toBeOnTheScreen();
+    expect(screen.getAllByText('Sam').length).toBeGreaterThan(0);
+  });
+
+  it('sums it up under the date', () => {
+    const view = buildView();
+    const two = [...view.theirs, ...view.mine].slice(0, 2);
+    mockView = buildView(two.map((i) => samDid(i.choreId, i.occurrenceKey)));
+    renderScreen();
+
+    expect(screen.getByText('Sam did 2 today')).toBeOnTheScreen();
+  });
+
+  it('does not narrate your own work back to you', () => {
+    // A tally of what you just did is the progress you watched happen, and
+    // reads as the app talking about itself.
+    const mine = buildView().mine[0];
+    mockView = buildView([
+      {
+        choreId: mine?.choreId ?? '',
+        occurrenceKey: mine?.occurrenceKey ?? '',
+        completedOn: mockToday,
+        completedBy: ME,
+      },
+    ]);
+    renderScreen();
+
+    expect(screen.queryByText(/did \d+ today/)).toBeNull();
+  });
+});
+
+describe('flagging something for this week', () => {
+  /*
+   * Emily writes ‼️ in her notes, sometimes four of them. That is not a scale
+   * being picked from — it is shouting louder, about this week. `priority` is
+   * permanent, shared and three-valued, and 28 of 99 chores are `crucial`,
+   * which is what happens when you use it to say something temporary.
+   */
+  const rowOrder = () =>
+    screen
+      .getAllByRole('button')
+      .map((b) => String(b.props.accessibilityLabel))
+      .filter((l) => /Open options\.$/.test(l));
+
+  it('lifts a flagged chore above one that would otherwise outrank it', () => {
+    /*
+     * Asserted as a *reversal* of a known order, not as "index 0".
+     *
+     * The first version flagged Dishes and checked it came first — which it
+     * already did, so the assertion held with the pinning deleted. Confirmed
+     * by deleting it.
+     *
+     * "orders by how late inside a section" above pins the natural order:
+     * the gutters are six days late and the lightbulb one, so the gutters come
+     * first. Flagging the lightbulb has to overturn that or it does nothing.
+     */
+    mockFlags = new Set(['lightbulb']);
+    mockFlagsByChore = new Map([['lightbulb', [ME]]]);
+    renderScreen();
+
+    const rows = rowOrder();
+    const gutters = rows.findIndex((l) => l.startsWith('Clean the gutters'));
+    const bulb = rows.findIndex((l) => l.startsWith('Replace the hall lightbulb'));
+
+    expect(bulb).toBeGreaterThanOrEqual(0);
+    expect(gutters).toBeGreaterThanOrEqual(0);
+    expect(bulb).toBeLessThan(gutters);
+  });
+
+  it('keeps it in its own section rather than making a new one', () => {
+    /*
+     * A flag says "this one first", not "this one belongs elsewhere". Lifting
+     * it out of Crucial would lose that it is crucial, which is usually why it
+     * got flagged.
+     *
+     * A review pointed out this passes with `flaggedFirst` deleted, and it
+     * does. That is inherent: deleting the feature also produces no new
+     * section, so no fixture can make this fail for the right reason. It is a
+     * negative control against a *future* change that decides flagged things
+     * deserve their own pile — the discriminating half of the pair is
+     * "lifts a flagged chore above one that would otherwise outrank it" above,
+     * which does fail when the feature is removed.
+     *
+     * Saying so rather than dressing it up: an assertion that cannot fail is
+     * worth keeping only if you know that about it.
+     */
+    mockFlags = new Set(['trash']);
+    mockFlagsByChore = new Map([['trash', [ME]]]);
+    renderScreen();
+
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    expect(headers.some((t) => t.startsWith('Crucial'))).toBe(true);
+    expect(headers.some((t) => /[Ff]lagged/.test(t))).toBe(false);
+
+    // The flagged row is still inside the ownership split rather than hoisted
+    // above it: its Crucial heading comes after "Everyone else", not before.
+    expect(headers.indexOf('Everyone else')).toBeLessThan(
+      headers.findIndex((t) => t.startsWith('Crucial')),
+    );
+    expect(screen.getAllByRole('button', { name: /Take out the trash/ }).length).toBeGreaterThan(0);
+  });
+
+  it('marks the row in words, not only with a glyph', () => {
+    // Set on the *shared* map: the row shows a flag raised by either person,
+    // which is what the sheet's copy promises and what RLS was built for.
+    mockFlagsByChore = new Map([['dishes', [THEM]]]);
+    renderScreen();
+    expect(screen.getByLabelText(/Dishes.*Flagged for this week/)).toBeOnTheScreen();
+  });
+
+  it('says nothing about a chore that is not flagged', () => {
+    renderScreen();
+    expect(screen.queryByLabelText(/Flagged for this week/)).toBeNull();
   });
 });
 

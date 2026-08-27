@@ -32,6 +32,9 @@ const DEBOUNCE_MS = 250;
 /** Tables worth listening to. Each is something the agenda derives from. */
 const TABLES = [
   'chores',
+  // A flag raised on one phone should appear on the other: half its value is
+  // saying "this is on my mind" without a conversation.
+  'chore_flags',
   'chore_completions',
   'chore_exceptions',
   'household_members',

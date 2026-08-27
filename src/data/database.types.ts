@@ -172,6 +172,58 @@ export type Database = {
           },
         ]
       }
+      chore_flags: {
+        Row: {
+          chore_id: string
+          created_at: string
+          flagged_on: string
+          household_id: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          chore_id: string
+          created_at?: string
+          flagged_on: string
+          household_id: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          chore_id?: string
+          created_at?: string
+          flagged_on?: string
+          household_id?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chore_flags_chore_id_fkey"
+            columns: ["chore_id"]
+            isOneToOne: false
+            referencedRelation: "chores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_flags_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_flags_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chore_subtask_ticks: {
         Row: {
           created_at: string

@@ -336,11 +336,19 @@ describe('household isolation', () => {
   describe('append-only event log', () => {
     it('completions cannot be updated, only inserted and deleted', async () => {
       // No UPDATE grant, so PostgREST rejects it outright.
+      //
+      // The code is asserted as well as the presence of an error. This failed
+      // once in CI with `error` null and could not be reproduced locally; with
+      // only `not.toBeNull()` the report said nothing about *why*, which is the
+      // difference between a lead and a shrug. 42501 is insufficient privilege
+      // — the grant — and anything else here means something other than the
+      // guarantee this test is named for.
       const { error } = await alice
         .from('chore_completions')
         .update({ note: 'rewriting history' })
         .eq('chore_id', choreA);
       expect(error).not.toBeNull();
+      expect(error?.code).toBe('42501');
     });
   });
 

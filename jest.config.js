@@ -71,6 +71,7 @@ module.exports = {
     'src/core/lib/': coverageThreshold,
     'src/core/routines/': coverageThreshold,
     'src/core/notify/': coverageThreshold,
+    'src/core/chore/': coverageThreshold,
   },
   coverageReporters: ['text-summary', 'lcov', 'json-summary'],
 };

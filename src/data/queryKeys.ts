@@ -34,6 +34,7 @@ export const qk = {
    * though most rows in them are private to one person.
    */
   /** Every subtask in the household; the screens filter by chore themselves. */
+  flags: (householdId: string) => [...qk.household(householdId), 'flags'] as const,
   subtasks: (householdId: string) => [...qk.household(householdId), 'subtasks'] as const,
   /** Ticks for one occurrence; a new occurrence simply has none. */
   subtaskTicks: (householdId: string, occurrenceKey: string) =>

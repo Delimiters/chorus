@@ -40,6 +40,9 @@ interface Props {
   onAddToRoutine?: ((item: AgendaItem) => void) | undefined;
   /** True when this chore is already in the signed-in person's routine. */
   inRoutine?: boolean;
+  /** Whether this chore is flagged for the current week, and how to change it. */
+  flagged?: boolean;
+  onToggleFlag?: (choreId: string) => void;
   /**
    * The last failure from one of the actions below, if any.
    *
@@ -72,6 +75,8 @@ export function OccurrenceSheet({
   onEditChore,
   onAddToRoutine,
   inRoutine = false,
+  flagged = false,
+  onToggleFlag,
 }: Props) {
   const [moving, setMoving] = useState(false);
   const [movedTo, setMovedTo] = useState<CivilDate>(today);
@@ -136,6 +141,21 @@ export function OccurrenceSheet({
         </View>
       ) : (
         <View style={{ gap: 2 }}>
+          {onToggleFlag === undefined ? null : (
+            <SheetAction
+              label={flagged ? 'Unflag it' : 'Flag it for this week'}
+              hint={
+                flagged
+                  ? 'It will stop standing out.'
+                  : 'Pins it to the top until the week is out. Both of you can see it.'
+              }
+              onPress={() => {
+                onToggleFlag(item.choreId);
+                close();
+              }}
+            />
+          )}
+
           <SheetAction
             label={done ? 'Mark as not done' : 'Mark as done'}
             onPress={() => {
