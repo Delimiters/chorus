@@ -19,9 +19,9 @@ import { create } from 'zustand';
 const STORAGE_KEY = 'chorus.routines.v1';
 
 /** Which half of the Today tab you were last looking at. */
-export type TodayMode = 'chores' | 'routines';
+export type TodayMode = 'plan' | 'chores' | 'routines';
 
-const MODES: readonly TodayMode[] = ['chores', 'routines'];
+const MODES: readonly TodayMode[] = ['plan', 'chores', 'routines'];
 
 export interface RoutinePreference {
   readonly showOthers: boolean;
@@ -30,7 +30,15 @@ export interface RoutinePreference {
 
 export const DEFAULT_ROUTINE_PREFERENCE: RoutinePreference = {
   showOthers: true,
-  todayMode: 'chores',
+  /*
+   * The plan, not the backlog.
+   *
+   * Whichever mode you were last on is remembered, but a fresh install opens
+   * on the plan — the whole argument for building it is that "what am I doing
+   * today" should be the question the app opens with, and defaulting to the
+   * backlog would put the fifty-row list back in front of you every morning.
+   */
+  todayMode: 'plan',
 };
 
 interface RoutineState {

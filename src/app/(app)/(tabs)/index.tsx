@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useToday } from '@/data/today';
 import { RoutinesView } from '@/features/routines/RoutinesView';
+import { PlanView } from '@/features/plan/PlanView';
 import { TodayScreen } from '@/features/today/TodayScreen';
 import { useRoutinePreference } from '@/stores/routineStore';
 import { useUserId } from '@/stores/sessionStore';
@@ -27,6 +28,7 @@ export default function TodayTab() {
   const household = useHousehold();
   const today = useToday(household.data?.timeZone ?? 'UTC');
 
+  if (preference.todayMode === 'plan') return <PlanView />;
   if (preference.todayMode === 'chores') return <TodayScreen />;
 
   const myInk = members.data?.find((m) => m.userId === userId)?.accent ?? null;
