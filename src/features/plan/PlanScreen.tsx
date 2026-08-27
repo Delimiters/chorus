@@ -24,6 +24,7 @@ import { planFor, progressOf } from '@/core/plan/plan';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ADD_BUTTON_CLEARANCE } from '@/design/AddButton';
 import { ChoreRow, SectionHeader } from '@/design/ChoreRow';
+import { Sheet, SheetAction } from '@/design/Sheet';
 import { Button, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
@@ -31,7 +32,7 @@ import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { useMembers } from '@/data/hooks/useHousehold';
 import { useToggleCompletion } from '@/data/hooks/useOccurrences';
-import { useMyPlanEntries, useTheirPlanCount } from '@/data/hooks/usePlan';
+import { useMyPlanEntries, useRemoveFromPlan, useTheirPlanCount } from '@/data/hooks/usePlan';
 import { toPriority } from '@/core/chore/priority';
 import { useUserId } from '@/stores/sessionStore';
 import { formatDayLong } from '@/features/common/format';
@@ -61,12 +62,14 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
   const members = useMembers();
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
+  const remove = useRemoveFromPlan(today as never);
 
   const entries = useMyPlanEntries(today as never);
   const theirCount = useTheirPlanCount(today as never);
   const toggle = useToggleCompletion();
 
   const [refreshing, setRefreshing] = useState(false);
+  const [removing, setRemoving] = useState<AgendaItem | null>(null);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -85,6 +88,10 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
 
   const choreMeta = useMemo(() => new Map(chores.map((c) => [c.id, c])), [chores]);
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  const nameById = useMemo(
+    () => new Map((members.data ?? []).map((m) => [m.userId, m.displayName])),
+    [members.data],
+  );
   const theirName = useMemo(
     () => (members.data ?? []).find((m) => m.userId !== userId)?.displayName ?? 'They',
     [members.data, userId],
@@ -105,8 +112,13 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
         priority={toPriority(meta?.priority)}
         icon={toIconName(meta?.icon ?? null)}
         compact
+        completedByLabel={
+          item.completedBy === null || item.completedBy === userId
+            ? null
+            : (nameById.get(item.completedBy) ?? null)
+        }
         onToggle={() => toggle.mutate({ item, complete: item.status !== 'completed' })}
-        onOpen={() => router.push(`/chore/${item.choreId}`)}
+        onOpen={() => setRemoving(item)}
       />
     );
   };
@@ -227,6 +239,41 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
           </>
         )}
       </ScrollView>
+
+      {/*
+        Taking something off the day.
+        
+        Deliberately its own sheet rather than the full occurrence sheet: on the
+        plan, the question is almost always "not today" rather than "skip it" or
+        "reschedule it", and offering six options for a one-word decision is how
+        a plan starts feeling like admin. Editing the chore is still one tap
+        further in.
+      */}
+      <Sheet
+        visible={removing !== null}
+        onClose={() => setRemoving(null)}
+        title={removing?.choreTitle ?? ''}
+        subtitle="On today's plan"
+      >
+        <View style={{ gap: 2 }}>
+          <SheetAction
+            label="Take off today"
+            hint="It goes back to the list with its date and lateness unchanged. Nothing is skipped or completed."
+            onPress={() => {
+              if (removing !== null) remove.mutate(removing.occurrenceKey);
+              setRemoving(null);
+            }}
+          />
+          <SheetAction
+            label="Edit the chore"
+            onPress={() => {
+              const choreId = removing?.choreId;
+              setRemoving(null);
+              if (choreId !== undefined) router.push(`/chore/${choreId}`);
+            }}
+          />
+        </View>
+      </Sheet>
     </SafeAreaView>
   );
 }
