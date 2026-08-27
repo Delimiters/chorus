@@ -7,7 +7,7 @@
  * against a hand-written object that could drift away from them.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
@@ -15,7 +15,9 @@ import type { CalendarConfig, CivilDate } from '@/core/civil/types';
 import { buildTodayView, collapseSupersededMisses } from '@/core/occurrence/agenda';
 import { projectOccurrences } from '@/core/occurrence/project';
 import type { ChoreInput, CompletionInput } from '@/core/occurrence/types';
+import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ThemeProvider } from '@/design/theme';
+import { TOAST_MS } from '@/design/Toast';
 import { TodayScreen } from './TodayScreen';
 
 const ME = 'user-me';
@@ -152,7 +154,32 @@ function buildView(completions: CompletionInput[] = []) {
   return buildTodayView(collapseSupersededMisses(projected, mockToday), mockToday, ME);
 }
 
-const mockToggle = jest.fn();
+/**
+ * Actually completes things.
+ *
+ * A `jest.fn()` that swallows the call leaves the view unchanged, so the row
+ * never becomes completed and every assertion about what happens *after* a tick
+ * passes vacuously — which is exactly how the first version of the hold-in-place
+ * test went green against a screen that did not hold anything in place.
+ *
+ * The re-render comes free: completing sets state on the screen, which calls
+ * the mocked hook again and picks up the rebuilt view.
+ */
+let liveCompletions: CompletionInput[] = [];
+const mockToggle = jest.fn(({ item, complete }: { item: AgendaItem; complete: boolean }) => {
+  liveCompletions = complete
+    ? [
+        ...liveCompletions,
+        {
+          choreId: item.choreId,
+          occurrenceKey: item.occurrenceKey,
+          completedOn: mockToday,
+          completedBy: ME,
+        },
+      ]
+    : liveCompletions.filter((c) => c.occurrenceKey !== item.occurrenceKey);
+  mockView = buildView(liveCompletions);
+});
 const mockRefetch = jest.fn(async () => {});
 const mockSkip = jest.fn();
 const mockReschedule = jest.fn();
@@ -197,7 +224,15 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
   }),
 }));
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: mockPush }),
+  // Run the effect, ignore the cleanup. These tests render the screen once and
+  // never navigate away, so focus never changes — but omitting it entirely
+  // makes the screen throw on mount, which took a whole suite down.
+  useFocusEffect: (effect: () => void | (() => void)) => {
+    jest.requireActual('react').useEffect(effect, [effect]);
+  },
+}));
 
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: { weekStartsOn: 0, timeZone: 'UTC' } }),
@@ -264,6 +299,7 @@ beforeEach(() => {
   mockReschedule.mockClear();
   mockClear.mockClear();
   mockPush.mockClear();
+  liveCompletions = [];
   mockView = buildView();
   mockError = null;
   mockLoading = false;
@@ -331,10 +367,15 @@ describe('Today', () => {
     await fireEvent.press(screen.getByLabelText('Mark Dishes done'));
 
     expect(mockToggle).toHaveBeenCalledTimes(1);
-    const call = mockToggle.mock.calls[0]?.[0];
-    expect(call.complete).toBe(true);
-    expect(call.item.choreId).toBe('dishes');
-    expect(call.item.dueOn).toBe(mockToday);
+    // Asserted as one object rather than three reads off a possibly-absent
+    // call. `toHaveBeenCalledTimes` above does not narrow the index for the
+    // compiler, and `!` would have hidden a genuinely empty calls array.
+    expect(mockToggle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        complete: true,
+        item: expect.objectContaining({ choreId: 'dishes', dueOn: mockToday }),
+      }),
+    );
   });
 
   it('moves a completed chore into Done and offers to undo it', async () => {
@@ -562,6 +603,72 @@ describe('arranging Today', () => {
     expect(rails.length).toBeGreaterThan(0);
     expect(screen.getAllByText('Kitchen').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Plain').length).toBeGreaterThan(0);
+  });
+});
+
+describe('ticking something off', () => {
+  /*
+   * The complaint this exists for, verbatim: "i accidentally checked something
+   * off and it disappeared 😭". Completing moved the row out of its section and
+   * down into Done, which on a fifty-row screen reads as the item being gone.
+   */
+  const tick = (title: string) => fireEvent.press(screen.getByLabelText(`Mark ${title} done`));
+
+  it('leaves the row where it was instead of moving it to Done', () => {
+    renderScreen();
+    const before = screen
+      .getAllByRole('header')
+      .map((h) => String(h.props.children))
+      .indexOf('Yours');
+
+    tick('Dishes');
+
+    // Still in Yours, not relocated to the bottom of the screen. The row is
+    // found by its *completed* label, so this cannot pass by the tick simply
+    // not registering.
+    expect(screen.getByLabelText('Mark Dishes not done')).toBeOnTheScreen();
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    expect(headers.indexOf('Yours')).toBe(before);
+  });
+
+  it('offers an undo, and undoing un-completes it', () => {
+    renderScreen();
+    tick('Dishes');
+
+    expect(screen.getByText('Dishes — done')).toBeOnTheScreen();
+    mockToggle.mockClear();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+
+    // The second call is the reversal, not a repeat of the first.
+    expect(mockToggle).toHaveBeenCalledWith(expect.objectContaining({ complete: false }));
+  });
+
+  it('does not offer an undo for un-completing', () => {
+    // Un-ticking is already the undo. A toast offering to undo an undo is a
+    // loop, and it would sit on screen over the row you just fixed.
+    renderScreen();
+    tick('Dishes');
+    fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
+  it('clears the toast on its own', () => {
+    jest.useFakeTimers();
+    try {
+      renderScreen();
+      tick('Dishes');
+      expect(screen.getByText('Dishes — done')).toBeOnTheScreen();
+
+      act(() => {
+        jest.advanceTimersByTime(TOAST_MS + 100);
+      });
+
+      expect(screen.queryByText('Dishes — done')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
