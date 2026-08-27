@@ -25,10 +25,26 @@ export function PlanView() {
   const add = useAddToPlan(today);
   const [picking, setPicking] = useState(false);
 
-  /** Everything the plan could name, including what is already done today. */
+  /**
+   * Everything the plan could name, including what is already done today.
+   *
+   * `view.floating` matters here and was missing: `buildTodayView` splits
+   * floating groups out of `mine`/`theirs`, so every "3× a week" chore was
+   * invisible to the plan — not offered by the picker, not renderable if
+   * somehow planned. A floating group's `nextSlot` is the occurrence you would
+   * actually do next, so that is the one the plan can hold.
+   */
+  const floatingSlots = useMemo(
+    () =>
+      view.floating
+        .map((group) => group.nextSlot)
+        .filter((slot): slot is AgendaItem => slot !== null),
+    [view.floating],
+  );
+
   const available = useMemo(
-    () => [...view.mine, ...view.theirs, ...view.done, ...view.skipped],
-    [view.mine, view.theirs, view.done, view.skipped],
+    () => [...view.mine, ...view.theirs, ...view.done, ...view.skipped, ...floatingSlots],
+    [view.mine, view.theirs, view.done, view.skipped, floatingSlots],
   );
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
@@ -50,7 +66,7 @@ export function PlanView() {
     const planned = new Set(
       entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
-    const outstanding = [...view.mine, ...view.theirs].filter(
+    const outstanding = [...view.mine, ...view.theirs, ...floatingSlots].filter(
       (item) => !planned.has(item.occurrenceKey),
     );
 
@@ -68,7 +84,7 @@ export function PlanView() {
       { key: 'soon', title: 'Coming up', items: urgency.comingUp },
     ];
     return candidates.filter((group) => group.items.length > 0);
-  }, [entries, today, view.mine, view.theirs]);
+  }, [entries, today, view.mine, view.theirs, floatingSlots]);
 
   if (isLoading) return <LoadingState label="Loading your day" />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;

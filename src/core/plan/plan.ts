@@ -107,23 +107,6 @@ export function nextPosition(entries: readonly PlanEntry[], on: CivilDate): numb
   return highest + 1;
 }
 
-/**
- * The position a row should take when dragged between two neighbours.
- *
- * Averaging rather than renumbering: one row moves, so one row is written.
- * Renumbering the whole day would turn a drag into N writes and make two people
- * dragging at once a merge conflict rather than two independent facts.
- *
- * `before` is what it lands after, `after` is what it lands before; either may
- * be absent at the ends of the list.
- */
-export function positionBetween(before: number | null, after: number | null): number {
-  if (before === null && after === null) return 1;
-  if (before === null) return (after as number) - 1;
-  if (after === null) return before + 1;
-  return (before + after) / 2;
-}
-
 /** How the day is going. */
 export interface PlanProgress {
   readonly total: number;

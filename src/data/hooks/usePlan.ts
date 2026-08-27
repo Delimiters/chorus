@@ -10,15 +10,9 @@
 import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-import { nextPosition, positionBetween, type PlanEntry } from '@/core/plan/plan';
+import { nextPosition, type PlanEntry } from '@/core/plan/plan';
 import type { CivilDate } from '@/core/civil/types';
-import {
-  addToPlan,
-  listPlanEntries,
-  movePlanEntry,
-  removeFromPlan,
-  type PlanEntryRow,
-} from '../api/plan';
+import { addToPlan, listPlanEntries, removeFromPlan, type PlanEntryRow } from '../api/plan';
 import { qk } from '../queryKeys';
 import { useActiveHouseholdId, useUserId } from '@/stores/sessionStore';
 
@@ -68,14 +62,30 @@ export function useMyPlanEntries(today: CivilDate): readonly PlanEntry[] {
   );
 }
 
-/** How much your housemate has taken on today, for the one-line summary. */
-export function useTheirPlanCount(today: CivilDate): number {
+/**
+ * What your housemate still has on today.
+ *
+ * Counted the same way mine is, which it was not: the first version tallied raw
+ * rows, so it kept saying "Sam has 3 planned" after Sam had finished all three,
+ * and counted entries whose occurrence no longer exists — the very ghosts the
+ * screen's own test proves are dropped from *my* denominator. A number that
+ * means one thing in one line and something else in the next is worse than no
+ * number.
+ */
+export function useTheirPlanCount(
+  today: CivilDate,
+  available: readonly { occurrenceKey: string; status: string }[],
+): number {
   const rows = usePlanEntries(today);
   const userId = useUserId();
-  return useMemo(
-    () => rows.filter((row) => row.userId !== userId && row.plannedFor === today).length,
-    [rows, userId, today],
-  );
+  return useMemo(() => {
+    const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
+    return rows.filter((row) => {
+      if (row.userId === userId || row.plannedFor !== today) return false;
+      const item = byKey.get(row.occurrenceKey);
+      return item !== undefined && item.status !== 'completed' && item.status !== 'skipped';
+    }).length;
+  }, [rows, userId, today, available]);
 }
 
 interface Addable {
@@ -89,69 +99,75 @@ export function useAddToPlan(today: CivilDate) {
   const queryClient = useQueryClient();
   const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
 
-  return useMutation({
-    mutationFn: async (items: readonly Addable[]) => {
-      if (householdId === null || userId === null) throw new Error('Please sign in again.');
-      const existing = queryClient.getQueryData<readonly PlanEntryRow[]>(
-        qk.plan(householdId, from, today),
-      );
-      const mine = (existing ?? []).map((row) => ({
+  /**
+   * What to write, decided from the cache as it stands *before* the mutation.
+   *
+   * The first version computed positions inside `mutationFn`, which runs after
+   * `onMutate` — so it counted its own optimistic rows and every add landed a
+   * few slots further down than the row the user was looking at. The same trap
+   * that made `useToggleFlag` write its own inverse, one PR earlier, in a hook
+   * written the same afternoon. Deciding once and passing the answer through is
+   * the only shape that cannot drift.
+   */
+  const decide = (items: readonly Addable[]) => {
+    const rows = queryClient.getQueryData<readonly PlanEntryRow[]>(
+      qk.plan(householdId ?? '__none__', from, today),
+    );
+    // Mine, not everyone's. `nextPosition` used to run over the whole
+    // household's rows under a variable named `mine`, so my first planned item
+    // could be written at position 52 because my housemate had a long day.
+    const mine = (rows ?? [])
+      .filter((row) => row.userId === userId)
+      .map((row) => ({
         occurrenceKey: row.occurrenceKey,
         choreId: row.choreId,
         plannedFor: row.plannedFor,
         position: row.position,
       }));
+    const already = new Set(
+      (rows ?? [])
+        .filter((row) => row.userId === userId && row.plannedFor === today)
+        .map((row) => row.occurrenceKey),
+    );
 
-      // Positions assigned in one pass so a multi-add keeps the order it was
-      // picked in, rather than every row claiming the same slot.
-      let position = nextPosition(mine, today);
+    let position = nextPosition(mine, today);
+    return items
+      .filter((item) => !already.has(item.occurrenceKey))
+      .map((item) => ({ ...item, position: position++ }));
+  };
+
+  const mutation = useMutation({
+    mutationFn: async (planned: readonly (Addable & { position: number })[]) => {
+      if (householdId === null || userId === null) throw new Error('Please sign in again.');
       await addToPlan(
-        items.map((item) => ({
+        planned.map((item) => ({
           householdId,
           userId,
           choreId: item.choreId,
           occurrenceKey: item.occurrenceKey,
           plannedFor: today,
-          position: position++,
+          position: item.position,
         })),
       );
     },
 
-    onMutate: async (items) => {
+    onMutate: async (planned) => {
       if (householdId === null || userId === null) return;
       const key = qk.plan(householdId, from, today);
       await queryClient.cancelQueries({ queryKey: key });
       const snapshot = queryClient.getQueryData<readonly PlanEntryRow[]>(key);
 
       queryClient.setQueryData<readonly PlanEntryRow[]>(key, (existing = []) => {
-        const mine = existing.map((row) => ({
-          occurrenceKey: row.occurrenceKey,
-          choreId: row.choreId,
-          plannedFor: row.plannedFor,
-          position: row.position,
+        const added = planned.map((item) => ({
+          id: `optimistic:${item.occurrenceKey}`,
+          userId,
+          choreId: item.choreId,
+          occurrenceKey: item.occurrenceKey,
+          plannedFor: today,
+          // The same number that goes to the database. Previously the
+          // optimistic row and the written row disagreed on every add.
+          position: item.position,
         }));
-        let position = nextPosition(mine, today);
-        const added = items
-          // Already planned is a no-op, matching `ignoreDuplicates` on the
-          // write. Without this the optimistic list shows a duplicate that the
-          // refetch then silently removes, which looks like a dropped tap.
-          .filter(
-            (item) =>
-              !existing.some(
-                (row) =>
-                  row.userId === userId &&
-                  row.occurrenceKey === item.occurrenceKey &&
-                  row.plannedFor === today,
-              ),
-          )
-          .map((item) => ({
-            id: `optimistic:${item.occurrenceKey}`,
-            userId,
-            choreId: item.choreId,
-            occurrenceKey: item.occurrenceKey,
-            plannedFor: today,
-            position: position++,
-          }));
         return [...existing, ...added];
       });
 
@@ -168,6 +184,12 @@ export function useAddToPlan(today: CivilDate) {
       void queryClient.invalidateQueries({ queryKey: qk.planAll(householdId) });
     },
   });
+
+  return {
+    ...mutation,
+    /** Reads, decides, then mutates. The order is the point. */
+    mutate: (items: readonly Addable[]) => mutation.mutate(decide(items)),
+  };
 }
 
 export function useRemoveFromPlan(today: CivilDate) {
@@ -213,58 +235,18 @@ export function useRemoveFromPlan(today: CivilDate) {
   });
 }
 
-/** Drag to reorder. One row moves, one row is written. */
-export function useReorderPlan(today: CivilDate) {
-  const householdId = useActiveHouseholdId();
-  const userId = useUserId();
-  const queryClient = useQueryClient();
-  const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
-
-  return useMutation({
-    mutationFn: async ({
-      occurrenceKey,
-      position,
-    }: {
-      occurrenceKey: string;
-      position: number;
-    }) => {
-      if (householdId === null || userId === null) throw new Error('Please sign in again.');
-      const rows = queryClient.getQueryData<readonly PlanEntryRow[]>(
-        qk.plan(householdId, from, today),
-      );
-      const row = (rows ?? []).find(
-        (r) => r.userId === userId && r.occurrenceKey === occurrenceKey && r.plannedFor === today,
-      );
-      if (row === undefined) return;
-      await movePlanEntry(row.id, position);
-    },
-
-    onMutate: async ({ occurrenceKey, position }) => {
-      if (householdId === null || userId === null) return;
-      const key = qk.plan(householdId, from, today);
-      await queryClient.cancelQueries({ queryKey: key });
-      const snapshot = queryClient.getQueryData<readonly PlanEntryRow[]>(key);
-
-      queryClient.setQueryData<readonly PlanEntryRow[]>(key, (existing = []) =>
-        existing.map((row) =>
-          row.userId === userId && row.occurrenceKey === occurrenceKey && row.plannedFor === today
-            ? { ...row, position }
-            : row,
-        ),
-      );
-      return { snapshot };
-    },
-
-    onError: (_error, _input, context) => {
-      if (householdId === null || context?.snapshot === undefined) return;
-      queryClient.setQueryData(qk.plan(householdId, from, today), context.snapshot);
-    },
-
-    onSettled: () => {
-      if (householdId === null) return;
-      void queryClient.invalidateQueries({ queryKey: qk.planAll(householdId) });
-    },
-  });
-}
-
-export { positionBetween };
+/*
+ * Drag to reorder is deliberately absent.
+ *
+ * It was written first — a `useReorderPlan` mutation, `positionBetween`, and
+ * `numeric` positions in the schema to support averaging — and none of it had a
+ * caller, because the screen renders a plain list with no drag affordance. A
+ * review found roughly seventy lines of prose across three files justifying a
+ * feature that did not exist, and one of the untestable kind: the mutation
+ * would have sent an optimistic `optimistic:<key>` id to Postgres as a uuid the
+ * first time anyone dragged a just-added row.
+ *
+ * Tested, documented and unreachable is the shape that let the invite screen go
+ * missing for four phases here. So it is removed until the gesture is built,
+ * and the column stays `numeric` so building it needs no migration.
+ */

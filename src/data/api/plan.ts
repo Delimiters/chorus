@@ -116,15 +116,3 @@ export async function removeFromPlan(
     .eq('planned_for', plannedFor);
   if (error) fail(error);
 }
-
-/**
- * Move one row, and write one row.
- *
- * The position is computed by the caller from its new neighbours, so a drag
- * costs a single update rather than renumbering the day. Two people reordering
- * at once then stay two independent facts instead of a merge conflict.
- */
-export async function movePlanEntry(id: string, position: number): Promise<void> {
-  const { error } = await supabase.from('plan_entries').update({ position }).eq('id', id);
-  if (error) fail(error);
-}

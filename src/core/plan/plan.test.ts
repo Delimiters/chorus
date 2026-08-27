@@ -3,7 +3,6 @@ import type { CivilDate } from '../civil/types';
 import {
   nextPosition,
   planFor,
-  positionBetween,
   progressOf,
   unfinishedBefore,
   type PlanEntry,
@@ -83,41 +82,6 @@ describe('adding to the day', () => {
 
   it('starts at one on an empty day', () => {
     expect(nextPosition([], TODAY)).toBe(1);
-  });
-});
-
-describe('dragging', () => {
-  it('lands between its new neighbours', () => {
-    expect(positionBetween(1, 2)).toBe(1.5);
-  });
-
-  it('goes above everything', () => {
-    expect(positionBetween(null, 1)).toBe(0);
-  });
-
-  it('goes below everything', () => {
-    expect(positionBetween(3, null)).toBe(4);
-  });
-
-  it('handles the only row in the list', () => {
-    expect(positionBetween(null, null)).toBe(1);
-  });
-
-  it('keeps producing a value strictly between, repeatedly', () => {
-    /*
-     * The failure mode of averaging is running out of room. Ten successive
-     * drags into the same gap must still yield a position that sorts between
-     * its neighbours — asserting one drag proves nothing about the tenth, and
-     * this is the property the whole scheme rests on.
-     */
-    let low = 1;
-    const high = 2;
-    for (let i = 0; i < 10; i += 1) {
-      const mid = positionBetween(low, high);
-      expect(mid).toBeGreaterThan(low);
-      expect(mid).toBeLessThan(high);
-      low = mid;
-    }
   });
 });
 

@@ -65,7 +65,7 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
   const remove = useRemoveFromPlan(today as never);
 
   const entries = useMyPlanEntries(today as never);
-  const theirCount = useTheirPlanCount(today as never);
+  const theirCount = useTheirPlanCount(today as never, available);
   const toggle = useToggleCompletion();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -201,7 +201,18 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
               <Button label="Add something anyway" variant="ghost" onPress={onAdd} />
             </View>
           </View>
-        ) : planned.length === 0 ? (
+        ) : null}
+
+        {/*
+          The rows stay, finished or not.
+          
+          The celebration used to replace them, so a mis-tap on the last item
+          left no way to un-tick it — the checkbox, the row and its sheet all
+          vanished together, and the only way back was switching modes. That is
+          the disappearing-row complaint again, at the exact moment the screen
+          is congratulating you.
+        */}
+        {planned.length === 0 && !progress.finished ? (
           /*
            * Asks rather than lists.
            *
@@ -222,7 +233,12 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
           </View>
         ) : (
           <>
-            <SectionHeader title="Doing today" count={planned.length} />
+            {/* Outstanding, not planned: a heading reading "Doing today · 5"
+                over five struck-through rows counts the wrong thing. */}
+            <SectionHeader
+              title={progress.finished ? 'Done today' : 'Doing today'}
+              count={progress.finished ? progress.done : progress.total - progress.done}
+            />
             <Stack gap={space.xs}>{planned.map(renderRow)}</Stack>
 
             <View

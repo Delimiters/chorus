@@ -69,11 +69,12 @@ create table public.plan_entries (
   /*
    * Where it sits in the day.
    *
-   * `numeric` rather than `integer` so a drag can land between two neighbours
-   * by averaging them and write one row, instead of renumbering the whole day.
-   * Two people dragging at once then stay two independent facts rather than a
-   * merge conflict. Ties break on `occurrence_key` client-side, so the order is
-   * total even after enough averaging to collide.
+   * `numeric` rather than `integer` so that when drag-to-reorder is built, a
+   * row can land between two neighbours by averaging them and write one row
+   * instead of renumbering the day. **The gesture does not exist yet** — the
+   * column is chosen so that building it needs no migration, which is the only
+   * claim this comment makes. Ties break on `occurrence_key` client-side, so
+   * the order is total regardless.
    */
   position       numeric not null default 1,
 
@@ -118,11 +119,23 @@ create policy plan_entries_insert on public.plan_entries
     and private.chore_is_visible(chore_id)
   );
 
--- Reordering is an update, and it is the commonest write this table takes.
+/*
+ * `chore_is_visible` on the check as well, matching insert.
+ *
+ * Repointing an entry at a chore you cannot see is already refused — Postgres
+ * tests the new row against the SELECT policy too — so this is safe either way
+ * today. But it is safe *by accident* rather than by statement, and it would
+ * stop being safe the moment somebody widened the select policy for an
+ * unrelated reason. Saying it here costs nothing.
+ */
 create policy plan_entries_update on public.plan_entries
   for update to authenticated
   using (user_id = (select auth.uid()) and private.is_household_member(household_id))
-  with check (user_id = (select auth.uid()) and private.is_household_member(household_id));
+  with check (
+    user_id = (select auth.uid())
+    and private.is_household_member(household_id)
+    and private.chore_is_visible(chore_id)
+  );
 
 create policy plan_entries_delete on public.plan_entries
   for delete to authenticated

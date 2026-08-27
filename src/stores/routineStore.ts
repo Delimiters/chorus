@@ -16,7 +16,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 
-const STORAGE_KEY = 'chorus.routines.v1';
+/**
+ * Bumped so the plan actually becomes the default.
+ *
+ * `todayMode` defaulting to `'plan'` reaches nobody who has already used the
+ * app: both phones have a stored `'chores'` from the Chores/Routines switch, and
+ * hydrate restores it. The default would have applied only to installs that do
+ * not exist.
+ *
+ * So the mode is re-decided once, and the preferences that have nothing to do
+ * with it are carried across rather than reset.
+ */
+const STORAGE_KEY = 'chorus.routines.v2';
+const LEGACY_KEY = 'chorus.routines.v1';
 
 /** Which half of the Today tab you were last looking at. */
 export type TodayMode = 'plan' | 'chores' | 'routines';
@@ -75,6 +87,30 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
   hydrate: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
+
+      /*
+       * Nothing under v2 yet, so this is the first launch after the plan
+       * landed. Carry the preferences that still mean the same thing and let
+       * `todayMode` fall to its new default — which is the whole point of the
+       * bump, and the only way the plan reaches a phone that has been used.
+       *
+       * The v1 blob is left in place rather than deleted: if this ships badly
+       * and gets reverted, the old preferences are still there to read.
+       */
+      if (raw === null) {
+        const legacy = await AsyncStorage.getItem(LEGACY_KEY);
+        if (legacy !== null) {
+          const old = JSON.parse(legacy) as Partial<RoutinePreference>;
+          const carried: RoutinePreference = {
+            ...DEFAULT_ROUTINE_PREFERENCE,
+            ...(typeof old.showOthers === 'boolean' ? { showOthers: old.showOthers } : {}),
+          };
+          set({ preference: carried });
+          void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(carried));
+        }
+        return;
+      }
+
       if (raw !== null) {
         const stored = JSON.parse(raw) as Partial<RoutinePreference>;
         set({

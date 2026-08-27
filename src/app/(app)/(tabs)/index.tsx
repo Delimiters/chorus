@@ -17,16 +17,28 @@ import { useToday } from '@/data/today';
 import { RoutinesView } from '@/features/routines/RoutinesView';
 import { PlanView } from '@/features/plan/PlanView';
 import { TodayScreen } from '@/features/today/TodayScreen';
-import { useRoutinePreference } from '@/stores/routineStore';
+import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
+import { LoadingState } from '@/design/components';
 import { useUserId } from '@/stores/sessionStore';
 
 export default function TodayTab() {
   const preference = useRoutinePreference();
+  const hydrated = useRoutineStore((s) => s.hydrated);
   const router = useRouter();
   const userId = useUserId();
   const members = useMembers();
   const household = useHousehold();
   const today = useToday(household.data?.timeZone ?? 'UTC');
+
+  /*
+   * Wait for the stored preference before choosing a screen.
+   *
+   * Previously harmless because the default matched what nearly everybody had
+   * stored. Now the default is Plan, so anybody who last used Chores would
+   * mount the plan, fire its queries, and get flipped a frame later. A brief
+   * blank beats a flash of the wrong screen.
+   */
+  if (!hydrated) return <LoadingState />;
 
   if (preference.todayMode === 'plan') return <PlanView />;
   if (preference.todayMode === 'chores') return <TodayScreen />;
