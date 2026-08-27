@@ -35,6 +35,9 @@ const TABLES = [
   // A flag raised on one phone should appear on the other: half its value is
   // saying "this is on my mind" without a conversation.
   'chore_flags',
+  // A plan made on one phone should show on the other: seeing what your
+  // housemate has taken on today is half the reason to share a list.
+  'plan_entries',
   'chore_completions',
   'chore_exceptions',
   'household_members',
