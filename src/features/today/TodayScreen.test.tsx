@@ -672,6 +672,55 @@ describe('ticking something off', () => {
   });
 });
 
+describe('seeing what the other person did', () => {
+  /*
+   * "and ur not checking it off? or i cant see if you do?" — the app had
+   * `completedBy` on every occurrence and rendered it nowhere. A done row
+   * dropped its schedule label and put nothing in its place.
+   */
+  const samDid = (choreId: string, key: string): CompletionInput => ({
+    choreId,
+    occurrenceKey: key,
+    completedOn: mockToday,
+    completedBy: THEM,
+  });
+
+  it('says who did what, on the row', () => {
+    const trash = buildView().theirs.find((i) => i.choreId === 'trash');
+    mockView = buildView([samDid('trash', trash?.occurrenceKey ?? '')]);
+    renderScreen();
+
+    expect(screen.getByLabelText('Mark Take out the trash not done')).toBeOnTheScreen();
+    expect(screen.getAllByText('Sam').length).toBeGreaterThan(0);
+  });
+
+  it('sums it up under the date', () => {
+    const view = buildView();
+    const two = [...view.theirs, ...view.mine].slice(0, 2);
+    mockView = buildView(two.map((i) => samDid(i.choreId, i.occurrenceKey)));
+    renderScreen();
+
+    expect(screen.getByText('Sam did 2 today')).toBeOnTheScreen();
+  });
+
+  it('does not narrate your own work back to you', () => {
+    // A tally of what you just did is the progress you watched happen, and
+    // reads as the app talking about itself.
+    const mine = buildView().mine[0];
+    mockView = buildView([
+      {
+        choreId: mine?.choreId ?? '',
+        occurrenceKey: mine?.occurrenceKey ?? '',
+        completedOn: mockToday,
+        completedBy: ME,
+      },
+    ]);
+    renderScreen();
+
+    expect(screen.queryByText(/did \d+ today/)).toBeNull();
+  });
+});
+
 describe('adding a chore from Today', () => {
   it('offers a button that does not depend on where you have scrolled', async () => {
     // Floating rather than in the header or at the end of the list: adding a

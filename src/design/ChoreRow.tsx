@@ -210,6 +210,16 @@ interface ChoreRowProps {
   /** Which of them are ticked for *this* occurrence. */
   tickedSubtasks?: ReadonlySet<string>;
   onToggleSubtask?: (subtaskId: string, ticked: boolean) => void;
+  /**
+   * Who finished it, when it is finished.
+   *
+   * The row has always carried `completedBy` and never shown it: a done row
+   * simply dropped its schedule label and put nothing there. So the one thing
+   * worth knowing about somebody else's completed chore — that they did it —
+   * was the one thing missing. Emily asked outright: "and ur not checking it
+   * off? or i cant see if you do?"
+   */
+  completedByLabel?: string | null;
   onToggle: () => void;
   onOpen: () => void;
   /**
@@ -234,6 +244,7 @@ export function ChoreRow({
   priority = 'normal',
   icon = null,
   notes = null,
+  completedByLabel = null,
   subtasks = [],
   tickedSubtasks,
   onToggleSubtask,
@@ -382,7 +393,9 @@ export function ChoreRow({
               `flexShrink: 0`: the title yields space, this does not. Shrinking
               here is what turned "Entertainment" into "Entertain…".
             */}
-            {(compact && category !== null) || (slim && overdue) ? (
+            {(compact && category !== null) ||
+            (slim && overdue) ||
+            (slim && done && completedByLabel !== null) ? (
               <View
                 style={{
                   flexDirection: 'row',
@@ -415,6 +428,20 @@ export function ChoreRow({
                   — but "6 days late" is a chip's worth of width for one
                   number. Expanded, the full chip returns.
                 */}
+                {slim && done && completedByLabel !== null ? (
+                  <Txt
+                    variant="small"
+                    tone="muted"
+                    style={
+                      category === null
+                        ? { marginLeft: 'auto', paddingLeft: space.xs }
+                        : { paddingLeft: 2 }
+                    }
+                  >
+                    {completedByLabel}
+                  </Txt>
+                ) : null}
+
                 {slim && overdue ? (
                   <Txt variant="small" tone="danger">
                     {`${item.daysOverdue}d`}
@@ -450,7 +477,11 @@ export function ChoreRow({
                 </Chip>
               ) : null}
 
-              {done && item.completedBy !== null ? null : (
+              {done && completedByLabel !== null ? (
+                <Txt variant="small" tone="muted">
+                  {completedByLabel}
+                </Txt>
+              ) : done && item.completedBy !== null ? null : (
                 <Txt variant="small" tone="faint">
                   {scheduleLabel}
                 </Txt>

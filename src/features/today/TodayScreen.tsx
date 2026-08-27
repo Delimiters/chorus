@@ -113,6 +113,29 @@ export function TodayScreen() {
     [chores],
   );
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  const nameById = useMemo(
+    () => new Map((members.data ?? []).map((m) => [m.userId, m.displayName])),
+    [members.data],
+  );
+
+  /**
+   * What everyone *else* did today, in one line.
+   *
+   * "and ur not checking it off? or i cant see if you do?" — the app knew the
+   * answer and never said it. Only other people: a tally of your own work is
+   * the progress you have just watched happen, and reads as the app talking
+   * about itself.
+   */
+  const othersDid = useMemo(() => {
+    const tally = new Map<string, number>();
+    for (const item of view.done) {
+      if (item.completedBy === null || item.completedBy === userId) continue;
+      tally.set(item.completedBy, (tally.get(item.completedBy) ?? 0) + 1);
+    }
+    return [...tally.entries()]
+      .map(([id, count]) => `${nameById.get(id) ?? 'Someone'} did ${count}`)
+      .join(' · ');
+  }, [view.done, userId, nameById]);
   const choreIcons = useMemo(
     () => new Map(chores.map((c) => [c.id, toIconName(c.icon)])),
     [chores],
@@ -254,6 +277,11 @@ export function TodayScreen() {
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={meta?.priority ?? 'normal'}
         icon={choreIcons.get(item.choreId) ?? null}
+        completedByLabel={
+          item.completedBy === null || item.completedBy === userId
+            ? null
+            : (nameById.get(item.completedBy) ?? null)
+        }
         // A property of this screen rather than of the arrangement: Today is
         // the long list either way, and the rail has to mean the same thing in
         // both modes or it teaches nothing.
@@ -451,6 +479,14 @@ export function TodayScreen() {
             {formatDayLong(today).toUpperCase()}
             {view.doneCount > 0 ? ` · ${view.doneCount} DONE` : ''}
           </Txt>
+
+          {/* Under the date rather than beside the count: it is news about a
+              person, not another statistic about the list. */}
+          {othersDid === '' ? null : (
+            <Txt variant="small" tone="muted">
+              {othersDid} today
+            </Txt>
+          )}
         </Stack>
 
         {unreadable.length > 0 ? (
