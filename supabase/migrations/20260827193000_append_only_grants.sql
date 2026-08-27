@@ -24,14 +24,28 @@
 -- So: revoke everything and grant back exactly what each table needs. Explicit
 -- rather than inherited, and therefore the same on every image.
 --
--- ── What this is not ──────────────────────────────────────────────────────
+-- ── What this is and is not, corrected ───────────────────────────────────
 --
--- Not a privilege escalation across households: RLS still applies, so a member
--- could only ever have edited rows they can already see. The damage is to
--- integrity rather than to isolation — but "Alice can rewrite the record of who
--- did the washing up, silently" is exactly what an append-only log exists to
--- prevent, and the app has no way to notice it happening.
--- ═══════════════════════════════════════════════════════════════════════════
+-- The first version of this comment claimed the three tables were "updatable by
+-- any authenticated user" and that "Alice can rewrite the record of who did the
+-- washing up, silently". **That was wrong, and a review caught it.**
+--
+-- None of these tables has an UPDATE policy, and RLS is default-deny — so an
+-- UPDATE from `authenticated` matches zero rows and changes nothing even with
+-- the grant present. Verified: with the grant restored by hand, the statement
+-- returns `UPDATE 0` and no error. The history was never actually writable.
+--
+-- What the missing revoke really cost is narrower and worth stating plainly:
+-- the grant is checked *before* any policy, so its presence turns a refusal
+-- (42501) into a silent no-op. `rls.test.ts` asserts the refusal, which is how
+-- this surfaced — as a red CI job on an image carrying the default ACL, not as
+-- corrupted data.
+--
+-- The migration is still right: an append-only table should refuse an UPDATE
+-- rather than accept and ignore it, and relying on "there happens to be no
+-- policy" is one policy away from being untrue. But it is defence in depth, not
+-- a breach being closed, and the next person reading this should not be told
+-- otherwise.
 
 revoke all on public.chore_completions from authenticated;
 grant select, insert, delete on public.chore_completions to authenticated;

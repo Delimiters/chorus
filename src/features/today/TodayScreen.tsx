@@ -40,7 +40,7 @@ import { Toast } from '@/design/Toast';
 import { groupItems } from '@/core/occurrence/grouping';
 import { toPriority } from '@/core/chore/priority';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import { useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
+import { useFlagsByChore, useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
 import { flaggedFirst } from '@/core/chore/flag';
 import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
@@ -143,7 +143,22 @@ export function TodayScreen() {
     [chores],
   );
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /*
+   * Two questions, two answers.
+   *
+   * `anyFlags` decides what the row *shows* and how it sorts, because the sheet
+   * promises "both of you can see it" and the RLS policy was written for that —
+   * the point of a flag in a shared house is saying "this is worrying me"
+   * without a conversation. `myFlags` decides what the sheet's action *does*,
+   * because you can only raise or lower your own.
+   *
+   * A review found the shared half unreachable: every consumer used `myFlags`,
+   * so `useFlagsByChore` had no call site at all while the pgTAP suite spent
+   * five of nine assertions proving the visibility it enabled.
+   */
   const myFlags = useMyFlags(today, weekStartsOn);
+  const flagsByChore = useFlagsByChore(today, weekStartsOn);
+  const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
   const toggleFlag = useToggleFlag(today, weekStartsOn);
   const toggle = useToggleCompletion();
   const [refreshing, setRefreshing] = useState(false);
@@ -282,7 +297,7 @@ export function TodayScreen() {
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={meta?.priority ?? 'normal'}
         icon={choreIcons.get(item.choreId) ?? null}
-        flagged={myFlags.has(item.choreId)}
+        flagged={anyFlags.has(item.choreId)}
         completedByLabel={
           item.completedBy === null || item.completedBy === userId
             ? null
@@ -357,10 +372,10 @@ export function TodayScreen() {
           // "this one first", not "this one belongs somewhere else" — lifting it
           // out of Crucial into a separate pile would lose the fact that it is
           // crucial, which is usually why it got flagged.
-          .map((block) => ({ ...block, items: flaggedFirst(block.items, myFlags) }))
+          .map((block) => ({ ...block, items: flaggedFirst(block.items, anyFlags) }))
       );
     },
-    [sortItems, today, viewPref.arrangement, choreMeta, categories, myFlags],
+    [sortItems, today, viewPref.arrangement, choreMeta, categories, anyFlags],
   );
 
   /**
@@ -403,9 +418,23 @@ export function TodayScreen() {
    * Split by owner it would be two collapsed lines saying almost nothing; the
    * whole point of the section is that nothing in it needs deciding today.
    */
+  /**
+   * Not yet due, from both people, including anything just ticked.
+   *
+   * `withHeld` here as well as in `arrange`, and that is not belt-and-braces:
+   * the arrangement only builds blocks from late and due-today, so a pinned
+   * coming-up row had no section that would render it and Done excluded it for
+   * being pinned. Ticking something not yet due made it disappear outright —
+   * the exact complaint this branch exists to fix, in a worse form than before,
+   * and on this household two thirds of the list is rows like that.
+   */
   const comingUp = useMemo(
-    () => splitByUrgency(sortItems([...view.mine, ...view.theirs]), today).comingUp,
-    [sortItems, view.mine, view.theirs, today],
+    () =>
+      splitByUrgency(
+        sortItems([...withHeld(view.mine, 'mine'), ...withHeld(view.theirs, 'theirs')]),
+        today,
+      ).comingUp,
+    [sortItems, withHeld, view.mine, view.theirs, today],
   );
 
   const renderFloating = (group: FloatingGroup) => {

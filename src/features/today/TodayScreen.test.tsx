@@ -270,8 +270,10 @@ jest.mock('@/data/hooks/useRoutines', () => ({
 // rather than standing up a QueryClient.
 let mockFlags: Set<string> = new Set();
 const mockToggleFlag = jest.fn();
+let mockFlagsByChore: Map<string, readonly string[]> = new Map();
 jest.mock('@/data/hooks/useFlags', () => ({
   useMyFlags: () => mockFlags,
+  useFlagsByChore: () => mockFlagsByChore,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
 }));
 
@@ -310,6 +312,7 @@ beforeEach(() => {
   useViewStore.setState({ view: DEFAULT_VIEW });
   mockCategories = [];
   mockFlags = new Set();
+  mockFlagsByChore = new Map();
   mockToggleFlag.mockClear();
   mockChores = ALL_CHORES.map((c) => ({ ...c }));
   mockToggle.mockClear();
@@ -650,6 +653,26 @@ describe('ticking something off', () => {
     expect(headers.indexOf('Yours')).toBe(before);
   });
 
+  it('keeps a ticked Coming-up row on the screen', () => {
+    /*
+     * The regression a review caught, and the sharpest possible version of the
+     * bug this whole branch exists to fix.
+     *
+     * `held` pinned the row, but nothing rendered it: the arrangement only
+     * builds blocks from late + due-today, `comingUp` was derived from the
+     * lists the completion had just emptied, and Done excluded it because it
+     * was pinned. So ticking something not-yet-due made it vanish outright —
+     * worse than the behaviour on main, where it at least reappeared under
+     * Done. On this household roughly two thirds of the list is showFrom rows.
+     */
+    renderScreen();
+    // Coming up is open by default, so no disclosure press — pressing it here
+    // collapsed the section and hid the very row under test.
+    tick('Change the filters');
+
+    expect(screen.getByLabelText('Mark Change the filters not done')).toBeOnTheScreen();
+  });
+
   it('offers an undo, and undoing un-completes it', () => {
     renderScreen();
     tick('Dishes');
@@ -766,6 +789,7 @@ describe('flagging something for this week', () => {
      * first. Flagging the lightbulb has to overturn that or it does nothing.
      */
     mockFlags = new Set(['lightbulb']);
+    mockFlagsByChore = new Map([['lightbulb', [ME]]]);
     renderScreen();
 
     const rows = rowOrder();
@@ -778,18 +802,42 @@ describe('flagging something for this week', () => {
   });
 
   it('keeps it in its own section rather than making a new one', () => {
-    // A flag says "this one first", not "this one belongs elsewhere". Lifting
-    // it out of Crucial would lose that it is crucial, which is usually why it
-    // got flagged in the first place.
+    /*
+     * A flag says "this one first", not "this one belongs elsewhere". Lifting
+     * it out of Crucial would lose that it is crucial, which is usually why it
+     * got flagged.
+     *
+     * A review pointed out this passes with `flaggedFirst` deleted, and it
+     * does. That is inherent: deleting the feature also produces no new
+     * section, so no fixture can make this fail for the right reason. It is a
+     * negative control against a *future* change that decides flagged things
+     * deserve their own pile — the discriminating half of the pair is
+     * "lifts a flagged chore above one that would otherwise outrank it" above,
+     * which does fail when the feature is removed.
+     *
+     * Saying so rather than dressing it up: an assertion that cannot fail is
+     * worth keeping only if you know that about it.
+     */
     mockFlags = new Set(['trash']);
+    mockFlagsByChore = new Map([['trash', [ME]]]);
     renderScreen();
 
-    expect(screen.getByRole('header', { name: /^Crucial/ })).toBeOnTheScreen();
-    expect(screen.queryByRole('header', { name: /[Ff]lagged/ })).toBeNull();
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    expect(headers.some((t) => t.startsWith('Crucial'))).toBe(true);
+    expect(headers.some((t) => /[Ff]lagged/.test(t))).toBe(false);
+
+    // The flagged row is still inside the ownership split rather than hoisted
+    // above it: its Crucial heading comes after "Everyone else", not before.
+    expect(headers.indexOf('Everyone else')).toBeLessThan(
+      headers.findIndex((t) => t.startsWith('Crucial')),
+    );
+    expect(screen.getAllByRole('button', { name: /Take out the trash/ }).length).toBeGreaterThan(0);
   });
 
   it('marks the row in words, not only with a glyph', () => {
-    mockFlags = new Set(['dishes']);
+    // Set on the *shared* map: the row shows a flag raised by either person,
+    // which is what the sheet's copy promises and what RLS was built for.
+    mockFlagsByChore = new Map([['dishes', [THEM]]]);
     renderScreen();
     expect(screen.getByLabelText(/Dishes.*Flagged for this week/)).toBeOnTheScreen();
   });
