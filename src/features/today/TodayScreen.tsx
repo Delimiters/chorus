@@ -40,6 +40,8 @@ import { Toast } from '@/design/Toast';
 import { groupItems } from '@/core/occurrence/grouping';
 import { toPriority } from '@/core/chore/priority';
 import { useCategoryList } from '@/data/hooks/useCategories';
+import { useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
+import { flaggedFirst } from '@/core/chore/flag';
 import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
 import { ArrangementControl } from '@/features/common/ArrangementControl';
@@ -140,6 +142,9 @@ export function TodayScreen() {
     () => new Map(chores.map((c) => [c.id, toIconName(c.icon)])),
     [chores],
   );
+  const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  const myFlags = useMyFlags(today, weekStartsOn);
+  const toggleFlag = useToggleFlag(today, weekStartsOn);
   const toggle = useToggleCompletion();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -277,6 +282,7 @@ export function TodayScreen() {
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={meta?.priority ?? 'normal'}
         icon={choreIcons.get(item.choreId) ?? null}
+        flagged={myFlags.has(item.choreId)}
         completedByLabel={
           item.completedBy === null || item.completedBy === userId
             ? null
@@ -344,9 +350,17 @@ export function TodayScreen() {
               { key: 'today', title: 'Due today', items: urgency.dueToday },
             ];
 
-      return blocks.filter((block) => block.items.length > 0);
+      return (
+        blocks
+          .filter((block) => block.items.length > 0)
+          // Inside the block rather than in a section of their own. A flag says
+          // "this one first", not "this one belongs somewhere else" — lifting it
+          // out of Crucial into a separate pile would lose the fact that it is
+          // crucial, which is usually why it got flagged.
+          .map((block) => ({ ...block, items: flaggedFirst(block.items, myFlags) }))
+      );
     },
-    [sortItems, today, viewPref.arrangement, choreMeta, categories],
+    [sortItems, today, viewPref.arrangement, choreMeta, categories, myFlags],
   );
 
   /**
@@ -600,7 +614,9 @@ export function TodayScreen() {
       <OccurrenceSheet
         item={open}
         today={today}
-        weekStartsOn={(household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6}
+        weekStartsOn={weekStartsOn}
+        flagged={open !== null && myFlags.has(open.choreId)}
+        onToggleFlag={(choreId) => toggleFlag.mutate(choreId)}
         onClose={() => setOpen(null)}
         onToggleComplete={(item) => completeItem(item, item.status !== 'completed')}
         error={

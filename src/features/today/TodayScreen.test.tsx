@@ -17,6 +17,7 @@ import { projectOccurrences } from '@/core/occurrence/project';
 import type { ChoreInput, CompletionInput } from '@/core/occurrence/types';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ThemeProvider } from '@/design/theme';
+import { DEFAULT_VIEW, useViewStore } from '@/stores/viewStore';
 import { TOAST_MS } from '@/design/Toast';
 import { TodayScreen } from './TodayScreen';
 
@@ -265,6 +266,15 @@ jest.mock('@/data/hooks/useRoutines', () => ({
   useMyRoutineItems: () => [],
 }));
 
+// Mutable, so a test can flag something. These suites mock the data layer
+// rather than standing up a QueryClient.
+let mockFlags: Set<string> = new Set();
+const mockToggleFlag = jest.fn();
+jest.mock('@/data/hooks/useFlags', () => ({
+  useMyFlags: () => mockFlags,
+  useToggleFlag: () => ({ mutate: mockToggleFlag }),
+}));
+
 jest.mock('@/data/hooks/useCategories', () => ({
   useCategoryList: () => mockCategories,
   useCategories: () => ({ data: mockCategories, isPending: false, isError: false }),
@@ -291,7 +301,16 @@ function renderScreen() {
 }
 
 beforeEach(() => {
+  /*
+   * The arrangement is a real Zustand store, not a mock, and it lives at module
+   * scope — so a test that presses "When" leaves every later test rendering in
+   * When mode, where no priority heading exists at all. It went unnoticed
+   * because nothing after it asked about one.
+   */
+  useViewStore.setState({ view: DEFAULT_VIEW });
   mockCategories = [];
+  mockFlags = new Set();
+  mockToggleFlag.mockClear();
   mockChores = ALL_CHORES.map((c) => ({ ...c }));
   mockToggle.mockClear();
   mockRefetch.mockClear();
@@ -718,6 +737,66 @@ describe('seeing what the other person did', () => {
     renderScreen();
 
     expect(screen.queryByText(/did \d+ today/)).toBeNull();
+  });
+});
+
+describe('flagging something for this week', () => {
+  /*
+   * Emily writes ‼️ in her notes, sometimes four of them. That is not a scale
+   * being picked from — it is shouting louder, about this week. `priority` is
+   * permanent, shared and three-valued, and 28 of 99 chores are `crucial`,
+   * which is what happens when you use it to say something temporary.
+   */
+  const rowOrder = () =>
+    screen
+      .getAllByRole('button')
+      .map((b) => String(b.props.accessibilityLabel))
+      .filter((l) => /Open options\.$/.test(l));
+
+  it('lifts a flagged chore above one that would otherwise outrank it', () => {
+    /*
+     * Asserted as a *reversal* of a known order, not as "index 0".
+     *
+     * The first version flagged Dishes and checked it came first — which it
+     * already did, so the assertion held with the pinning deleted. Confirmed
+     * by deleting it.
+     *
+     * "orders by how late inside a section" above pins the natural order:
+     * the gutters are six days late and the lightbulb one, so the gutters come
+     * first. Flagging the lightbulb has to overturn that or it does nothing.
+     */
+    mockFlags = new Set(['lightbulb']);
+    renderScreen();
+
+    const rows = rowOrder();
+    const gutters = rows.findIndex((l) => l.startsWith('Clean the gutters'));
+    const bulb = rows.findIndex((l) => l.startsWith('Replace the hall lightbulb'));
+
+    expect(bulb).toBeGreaterThanOrEqual(0);
+    expect(gutters).toBeGreaterThanOrEqual(0);
+    expect(bulb).toBeLessThan(gutters);
+  });
+
+  it('keeps it in its own section rather than making a new one', () => {
+    // A flag says "this one first", not "this one belongs elsewhere". Lifting
+    // it out of Crucial would lose that it is crucial, which is usually why it
+    // got flagged in the first place.
+    mockFlags = new Set(['trash']);
+    renderScreen();
+
+    expect(screen.getByRole('header', { name: /^Crucial/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('header', { name: /[Ff]lagged/ })).toBeNull();
+  });
+
+  it('marks the row in words, not only with a glyph', () => {
+    mockFlags = new Set(['dishes']);
+    renderScreen();
+    expect(screen.getByLabelText(/Dishes.*Flagged for this week/)).toBeOnTheScreen();
+  });
+
+  it('says nothing about a chore that is not flagged', () => {
+    renderScreen();
+    expect(screen.queryByLabelText(/Flagged for this week/)).toBeNull();
   });
 });
 

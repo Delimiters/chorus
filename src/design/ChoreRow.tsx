@@ -220,6 +220,17 @@ interface ChoreRowProps {
    * off? or i cant see if you do?"
    */
   completedByLabel?: string | null;
+  /**
+   * Somebody has marked this for attention this week.
+   *
+   * Deliberately not a fourth priority level. Emily's notes carry ‼️ and
+   * sometimes four of them — that is not a scale being picked from, it is
+   * shouting louder about *this week*, which a permanent household-wide field
+   * cannot say. Twenty-eight of ninety-nine chores are marked `crucial`, which
+   * is what happens when you try.
+   */
+  flagged?: boolean;
+  onToggleFlag?: () => void;
   onToggle: () => void;
   onOpen: () => void;
   /**
@@ -245,6 +256,8 @@ export function ChoreRow({
   icon = null,
   notes = null,
   completedByLabel = null,
+  flagged = false,
+  onToggleFlag,
   subtasks = [],
   tickedSubtasks,
   onToggleSubtask,
@@ -334,7 +347,9 @@ export function ChoreRow({
         <Pressable
           onPress={onOpen}
           accessibilityRole="button"
-          accessibilityLabel={`${item.choreTitle}, ${turnLabel ?? 'anyone can do it'}. Open options.`}
+          accessibilityLabel={`${item.choreTitle}, ${turnLabel ?? 'anyone can do it'}.${
+            flagged ? ' Flagged for this week.' : ''
+          } Open options.`}
           style={{ flex: 1, gap: 4 }}
         >
           <View
@@ -352,6 +367,20 @@ export function ChoreRow({
                 <MaterialCommunityIcons name={icon as never} size={16} color={colors.textMuted} />
               </View>
             )}
+
+            {/*
+              Before the title, not after it. A marker that means "look here"
+              has to be where the eye lands first, and a wrapped two-line title
+              would otherwise push it out of sight entirely.
+
+              Hidden from screen readers because the row's own label says it in
+              words — see `accessibilityLabel` below.
+            */}
+            {flagged ? (
+              <View accessibilityElementsHidden importantForAccessibility="no">
+                <MaterialCommunityIcons name="exclamation-thick" size={15} color={colors.danger} />
+              </View>
+            ) : null}
             {/*
               Never truncated. A slim row is about not wasting space, not about
               fitting on one line at any cost — "Resubmit penelope appe…" tells
