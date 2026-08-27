@@ -10,7 +10,7 @@ create extension if not exists pgtap with schema extensions;
 -- table in public.
 
 begin;
-select plan(7);
+select plan(8);
 
 -- ── anon must hold nothing ─────────────────────────────────────────────────
 select is_empty(
@@ -18,6 +18,31 @@ select is_empty(
      from information_schema.role_table_grants
      where grantee = 'anon' and table_schema = 'public' $$,
   'anon holds no privilege on any table in public'
+);
+
+-- ── the append-only tables must not be updatable ──────────────────────────
+--
+-- Postgres hands `authenticated` a default ACL of `arwdDxtm` on every new
+-- table created by `postgres` — UPDATE included. So a table is updatable
+-- unless a migration says otherwise, and "we never wrote an UPDATE policy" is
+-- not the same as "UPDATE is refused": the grant is checked before any policy
+-- and its absence is what actually produces 42501.
+--
+-- Completions and subtask ticks are an event log. A completion is inserted or
+-- deleted, never edited — rewriting when something was done, or by whom, would
+-- make the history unreliable in a way nothing else in the app could detect.
+--
+-- Asserted here rather than only in the integration suite because this is
+-- deterministic and runs first: a stray grant should be named precisely,
+-- rather than surfacing later as a client call that mysteriously succeeded.
+select is_empty(
+  $$ select table_name
+     from information_schema.role_table_grants
+     where grantee = 'authenticated'
+       and table_schema = 'public'
+       and privilege_type = 'UPDATE'
+       and table_name in ('chore_completions', 'chore_subtask_ticks', 'routine_completions') $$,
+  'the append-only tables grant no UPDATE to authenticated'
 );
 
 -- ── every table must have RLS on ───────────────────────────────────────────
