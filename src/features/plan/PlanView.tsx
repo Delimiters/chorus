@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react';
 import { splitByUrgency, type AgendaItem } from '@/core/occurrence/agenda';
 import { unfinishedBefore } from '@/core/plan/plan';
 import { proposeDay } from '@/core/plan/propose';
+import { isRecurring } from '@/core/chore/kind';
 import { useMyFlags } from '@/data/hooks/useFlags';
 import { useHousehold } from '@/data/hooks/useHousehold';
 import { useCategoryList } from '@/data/hooks/useCategories';
@@ -112,7 +113,10 @@ export function PlanView() {
       unfinishedBefore(entries, today, outstanding).map((i) => i.occurrenceKey),
     );
 
-    const recurring = new Map(chores.map((c) => [c.id, c.schedule?.rule?.kind !== 'once']));
+    // `isRecurring` rather than an inline check against `'once'`, which
+    // counted an undated chore as recurring and so ranked it *below* the
+    // litter box — the opposite of the point.
+    const recurring = new Map(chores.map((c) => [c.id, isRecurring(c.schedule)]));
     const { items, reason } = proposeDay(
       outstanding.map((item) => ({
         occurrenceKey: item.occurrenceKey,
