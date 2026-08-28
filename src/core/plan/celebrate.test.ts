@@ -2,7 +2,6 @@ import { celebrationFor, type DayFinished } from './celebrate';
 
 const day = (over: Partial<DayFinished> = {}): DayFinished => ({
   planned: 3,
-  titles: ['Dishes', 'Trash', 'Litter'],
   worstLateness: 0,
   latestTitle: null,
   bothFinished: false,
@@ -22,9 +21,7 @@ describe('an ordinary finished day', () => {
   });
 
   it('does not say "All 1"', () => {
-    expect(celebrationFor(day({ planned: 1, titles: ['Dishes'] }))?.detail).toBe(
-      'One thing, done.',
-    );
+    expect(celebrationFor(day({ planned: 1 }))?.detail).toBe('One thing, done.');
   });
 });
 
@@ -36,7 +33,7 @@ describe('nothing to celebrate', () => {
      * somebody for choosing nothing devalues the moment on the days it is
      * earned.
      */
-    expect(celebrationFor(day({ planned: 0, titles: [] }))).toBeNull();
+    expect(celebrationFor(day({ planned: 0 }))).toBeNull();
   });
 });
 

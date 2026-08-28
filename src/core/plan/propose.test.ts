@@ -9,7 +9,6 @@ const candidate = (over: Partial<Candidate> & { occurrenceKey: string }): Candid
   choreId: over.occurrenceKey,
   choreTitle: over.occurrenceKey,
   dueOn: TODAY,
-  status: 'due',
   daysOverdue: 0,
   missedBefore: 0,
   recurring: true,

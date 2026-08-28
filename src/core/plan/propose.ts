@@ -31,7 +31,6 @@ export interface Candidate {
   readonly choreId: string;
   readonly choreTitle: string;
   readonly dueOn: CivilDate;
-  readonly status: string;
   readonly daysOverdue: number;
   /** How many consecutive times this has already been missed. */
   readonly missedBefore: number;

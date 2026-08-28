@@ -92,7 +92,7 @@ export function PlanScreen({
 
   const entries = useMyPlanEntries(today as never);
   const theirCount = useTheirPlanCount(today as never, available);
-  const theirTotal = useTheirPlanTotal(today as never);
+  const theirTotal = useTheirPlanTotal(today as never, available);
   const toggle = useToggleCompletion();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -115,16 +115,22 @@ export function PlanScreen({
 
   /** What the day was, for the copy and the tier. */
   const day = useMemo(() => {
-    const done = planned
-      .map((p) => p.item)
-      .filter((i) => i.status === 'completed' || i.status === 'skipped');
-    const worst = done.reduce(
+    /*
+     * Completions only, for what the celebration *says*.
+     *
+     * A skip still closes the day — it is a decision, not a failure, and it
+     * should not hold the plan open. But it is not an achievement, and the
+     * loud tier read from `done` including skips: skipping a chore twenty days
+     * overdue produced confetti and "Including Get car inspected — 20 days
+     * late", which is being congratulated for the thing you just avoided.
+     */
+    const finishedItems = planned.map((p) => p.item).filter((i) => i.status === 'completed');
+    const worst = finishedItems.reduce(
       (worstSoFar, item) => (item.daysOverdue > worstSoFar.daysOverdue ? item : worstSoFar),
       { daysOverdue: 0, choreTitle: null as string | null },
     );
     return {
-      planned: planned.length,
-      titles: done.map((i) => i.choreTitle),
+      planned: finishedItems.length,
       worstLateness: worst.daysOverdue,
       latestTitle: worst.daysOverdue > 0 ? worst.choreTitle : null,
       bothFinished: theirTotal > 0 && theirCount === 0,
@@ -144,18 +150,25 @@ export function PlanScreen({
     () => (progress.finished ? celebrationFor(day) : null),
     [progress.finished, day],
   );
-  const [marked, setMarked] = useState(false);
+  /*
+   * The marker outlives the screen.
+   *
+   * It was component state, and switching to Chores mode and back *unmounts*
+   * this screen — so a finished day buzzed and threw confetti again on every
+   * return, which is precisely the "coming back should be quiet, you already
+   * had the moment" the comment above promises. Keyed by date so tomorrow gets
+   * its own moment.
+   */
+  const celebratedOn = useRoutineStore((s) => s.celebratedOn);
+  const markCelebrated = useRoutineStore((s) => s.markCelebrated);
+  const alreadyMarked = celebratedOn === today;
 
   useEffect(() => {
-    if (celebration === null) {
-      setMarked(false);
-      return;
-    }
-    if (marked) return;
-    setMarked(true);
+    if (celebration === null || alreadyMarked) return;
+    markCelebrated(today as never);
     if (celebration.tone === 'loud') celebrated();
     else finishedHaptic();
-  }, [celebration, marked]);
+  }, [celebration, alreadyMarked, markCelebrated, today]);
 
   const choreMeta = useMemo(() => new Map(chores.map((c) => [c.id, c])), [chores]);
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
@@ -372,7 +385,7 @@ export function PlanScreen({
         )}
       </ScrollView>
 
-      <Confetti running={celebration?.tone === 'loud'} />
+      <Confetti running={celebration?.tone === 'loud' && !alreadyMarked} />
 
       {/*
         Taking something off the day.

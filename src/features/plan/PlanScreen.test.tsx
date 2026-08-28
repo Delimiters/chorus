@@ -59,8 +59,17 @@ jest.mock('@/design/haptics', () => ({
 }));
 
 jest.mock('@/stores/sessionStore', () => ({ useUserId: () => ME }));
+let mockCelebratedOn: string | null = null;
+const mockMarkCelebrated = jest.fn((day: string) => {
+  mockCelebratedOn = day;
+});
 jest.mock('@/stores/routineStore', () => ({
-  useRoutineStore: (selector: (s: unknown) => unknown) => selector({ setTodayMode: mockSetMode }),
+  useRoutineStore: (selector: (s: unknown) => unknown) =>
+    selector({
+      setTodayMode: mockSetMode,
+      celebratedOn: mockCelebratedOn,
+      markCelebrated: mockMarkCelebrated,
+    }),
 }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
 
@@ -123,6 +132,8 @@ beforeEach(() => {
   mockTapped.mockClear();
   mockFinished.mockClear();
   mockCelebrated.mockClear();
+  mockCelebratedOn = null;
+  mockMarkCelebrated.mockClear();
   mockRemove.mockClear();
   mockToggle.mockClear();
   onAdd.mockClear();
@@ -378,6 +389,39 @@ describe('the finish moment', () => {
         />
       </ThemeProvider>,
     );
+
+    expect(mockFinished).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not congratulate you for skipping everything', () => {
+    /*
+     * A skip closes the day — it is a decision, not a failure — but it is not
+     * an achievement. The loud tier read from a list that folded skips into
+     * "done", so skipping a chore twenty days overdue produced confetti and
+     * "Including Get car inspected — 20 days late": congratulations for the
+     * exact thing you had just avoided.
+     */
+    mockEntries = [entry('car', 1)];
+    renderScreen([
+      { ...item('car', 'Get car inspected', 'skipped'), daysOverdue: 20 } as AgendaItem,
+    ]);
+
+    expect(mockCelebrated).not.toHaveBeenCalled();
+    expect(screen.queryByText(/20 days late/)).toBeNull();
+  });
+
+  it('does not replay when the screen is remounted', () => {
+    /*
+     * Switching Today's mode unmounts this screen, so a `useState` guard let a
+     * finished day buzz and throw confetti again on every return — the
+     * opposite of "coming back should be quiet, you already had the moment".
+     */
+    mockEntries = [entry('dishes', 1)];
+    const view = renderScreen([item('dishes', 'Dishes', 'completed')]);
+    expect(mockFinished).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    renderScreen([item('dishes', 'Dishes', 'completed')]);
 
     expect(mockFinished).toHaveBeenCalledTimes(1);
   });

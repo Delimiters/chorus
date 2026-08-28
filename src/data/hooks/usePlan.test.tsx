@@ -78,7 +78,7 @@ jest.mock('@/stores/sessionStore', () => ({
 }));
 
 // eslint-disable-next-line import/first
-import { useAddToPlan, useRemoveFromPlan } from './usePlan';
+import { useAddToPlan, useRemoveFromPlan, useTheirPlanTotal } from './usePlan';
 
 function harness() {
   const client = new QueryClient({
@@ -220,6 +220,42 @@ describe('adding to the plan writes the positions it shows', () => {
 
     await waitFor(() => expect(mockWrites).toHaveLength(1));
     expect(mockWrites[0]?.plannedFor).toBe(TODAY);
+  });
+});
+
+describe('how much the other person has on', () => {
+  it('ignores entries whose occurrence no longer exists', () => {
+    /*
+     * The ghost case, and it is not cosmetic: `bothFinished` is
+     * `theirTotal > 0 && theirCount === 0`, so a partner plan made entirely of
+     * ghost rows — an archived chore, a schedule edited so the key moved —
+     * announces "You both finished" with confetti for a day in which they
+     * finished nothing.
+     *
+     * `useTheirPlanCount` already cross-checks against what exists and its own
+     * comment warns about exactly this. The sibling hook shipped without it.
+     */
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:real', 1, THEM), row('v1:ghost', 2, THEM)]);
+
+    const { result } = renderHook(() => useTheirPlanTotal(TODAY, [{ occurrenceKey: 'v1:real' }]), {
+      wrapper,
+    });
+
+    expect(result.current).toBe(1);
+  });
+
+  it('ignores my own entries', () => {
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:mine', 1, ME), row('v1:theirs', 2, THEM)]);
+
+    const { result } = renderHook(
+      () =>
+        useTheirPlanTotal(TODAY, [{ occurrenceKey: 'v1:mine' }, { occurrenceKey: 'v1:theirs' }]),
+      { wrapper },
+    );
+
+    expect(result.current).toBe(1);
   });
 });
 

@@ -1,6 +1,6 @@
 import { civilDate } from '../civil/date';
 import type { RecurrenceRule, Schedule } from '../recurrence/types';
-import { isRecurring, kindOf, splitByKind } from './kind';
+import { isRecurring, kindOf } from './kind';
 
 const schedule = (rule: RecurrenceRule): Schedule => ({
   rule,
@@ -43,43 +43,5 @@ describe('what kind of thing this is', () => {
 
     expect(isRecurring(daily)).toBe(true);
     expect(isRecurring(once)).toBe(false);
-  });
-});
-
-describe('splitting a list', () => {
-  const item = (id: string, rule: RecurrenceRule) => ({ id, schedule: schedule(rule) });
-
-  const daily = (id: string) => item(id, { kind: 'daily', everyNDays: 1 });
-  const oneOff = (id: string) =>
-    item(id, { kind: 'once', dueOn: civilDate('2026-09-05'), granularity: 'day' });
-
-  it('keeps each side in the order it arrived', () => {
-    /*
-     * A partition, not a sort. Whatever ordering the caller established —
-     * urgency, priority, the plan's own positions — has to survive being
-     * separated, and the ids here are interleaved so a re-sort would show.
-     */
-    const { chores, tasks } = splitByKind(
-      [daily('c1'), oneOff('t1'), daily('c2'), oneOff('t2')],
-      (i) => i.schedule,
-    );
-
-    expect(chores.map((c) => c.id)).toEqual(['c1', 'c2']);
-    expect(tasks.map((t) => t.id)).toEqual(['t1', 't2']);
-  });
-
-  it('handles a list that is all one kind', () => {
-    const { chores, tasks } = splitByKind([daily('a'), daily('b')], (i) => i.schedule);
-    expect(chores).toHaveLength(2);
-    expect(tasks).toHaveLength(0);
-  });
-
-  it('loses nothing', () => {
-    const items = [daily('a'), oneOff('b'), item('c', { kind: 'unscheduled' })];
-    const { chores, tasks } = splitByKind(items, (i) => i.schedule);
-
-    // Identity, not cardinality: two lengths summing to three also holds for an
-    // implementation that files one item twice and drops another.
-    expect([...chores, ...tasks].map((i) => i.id).sort()).toEqual(['a', 'b', 'c']);
   });
 });
