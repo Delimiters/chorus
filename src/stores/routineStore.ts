@@ -57,8 +57,19 @@ interface RoutineState {
   readonly preference: RoutinePreference;
   /** False until the stored value has been read, so nothing is written over it. */
   readonly hydrated: boolean;
+  /**
+   * The last day whose finish moment has already been marked.
+   *
+   * Here rather than in component state because switching Today's mode
+   * unmounts the plan screen, and a `useState` guard therefore replayed the
+   * haptic and the confetti every time somebody came back to a finished day.
+   * Not persisted to disk: surviving a remount is the whole requirement, and a
+   * relaunch is rare enough that a second buzz is a nicety rather than a bug.
+   */
+  readonly celebratedOn: string | null;
   readonly setShowOthers: (show: boolean) => void;
   readonly setTodayMode: (mode: TodayMode) => void;
+  readonly markCelebrated: (day: string) => void;
   readonly hydrate: () => Promise<void>;
 }
 
@@ -71,12 +82,15 @@ function persist(preference: RoutinePreference): void {
 export const useRoutineStore = create<RoutineState>((set, get) => ({
   preference: DEFAULT_ROUTINE_PREFERENCE,
   hydrated: false,
+  celebratedOn: null,
 
   setShowOthers: (showOthers) => {
     const preference = { ...get().preference, showOthers };
     set({ preference });
     persist(preference);
   },
+
+  markCelebrated: (celebratedOn) => set({ celebratedOn }),
 
   setTodayMode: (todayMode) => {
     const preference = { ...get().preference, todayMode };

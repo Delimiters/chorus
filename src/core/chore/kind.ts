@@ -32,6 +32,11 @@
  * doing today", and browsing is a different question worth living with the
  * plan before answering. Keeping the distinction here means the tabs are a
  * screen away rather than a migration away.
+ *
+ * A `splitByKind` helper was written for those tabs and deleted before merge:
+ * twelve lines and thirty of tests with no caller, which is how this codebase
+ * lost an invite screen for four phases. It is three lines to write when a
+ * screen actually needs it.
  */
 
 import type { Schedule } from '../recurrence/types';
@@ -54,23 +59,4 @@ export function kindOf(schedule: Schedule): ChoreKind {
 /** True for the repeating half. Reads better than `kindOf(...) === 'chore'` at call sites. */
 export function isRecurring(schedule: Schedule): boolean {
   return kindOf(schedule) === 'chore';
-}
-
-/**
- * Split a list in two, keeping each side's order.
- *
- * A partition rather than a sort: whatever ordering the caller established —
- * urgency, priority, the plan's own positions — has to survive being separated.
- */
-export function splitByKind<T>(
-  items: readonly T[],
-  scheduleOf: (item: T) => Schedule,
-): { readonly chores: readonly T[]; readonly tasks: readonly T[] } {
-  const chores: T[] = [];
-  const tasks: T[] = [];
-  for (const item of items) {
-    if (kindOf(scheduleOf(item)) === 'chore') chores.push(item);
-    else tasks.push(item);
-  }
-  return { chores, tasks };
 }

@@ -95,13 +95,27 @@ export function useTheirPlanCount(
  * shared celebration needs both: "you both finished" is only true if they had a
  * plan at all, and an empty plan is not an achievement.
  */
-export function useTheirPlanTotal(today: CivilDate): number {
+export function useTheirPlanTotal(
+  today: CivilDate,
+  available: readonly { occurrenceKey: string }[],
+): number {
   const rows = usePlanEntries(today);
   const userId = useUserId();
-  return useMemo(
-    () => rows.filter((row) => row.userId !== userId && row.plannedFor === today).length,
-    [rows, userId, today],
-  );
+  return useMemo(() => {
+    /*
+     * Cross-checked against what exists, exactly as `useTheirPlanCount` is.
+     *
+     * Without it, a plan made entirely of ghost entries — an archived chore, a
+     * schedule edited so the key moved — gives `total > 0` and `outstanding
+     * === 0`, and the app announces "You both finished" with confetti for a day
+     * in which they finished nothing. The sibling hook's own comment warns
+     * about exactly this and the second one shipped without the check.
+     */
+    const live = new Set(available.map((item) => item.occurrenceKey));
+    return rows.filter(
+      (row) => row.userId !== userId && row.plannedFor === today && live.has(row.occurrenceKey),
+    ).length;
+  }, [rows, userId, today, available]);
 }
 
 interface Addable {

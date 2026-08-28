@@ -7,7 +7,7 @@
  * `projectOccurrences` with real schedules and real completions.
  */
 
-import { civilDate } from '../civil/date';
+import { addDays, civilDate } from '../civil/date';
 import type { CalendarConfig, CivilDate } from '../civil/types';
 import { projectOccurrences } from './project';
 import type { ChoreInput, CompletionInput } from './types';
@@ -114,6 +114,113 @@ describe('doing it late', () => {
 
     expect(out).toContain(d('2026-09-17'));
     expect(out).toContain(d('2026-09-23'));
+  });
+});
+
+describe('doing it late more than once', () => {
+  it('restarts the clock every time, not just the first', () => {
+    /*
+     * The defect a review caught, and the one that mattered most: the first
+     * version scanned the *fixed* grid for completions, so once a chore had
+     * re-anchored, its real dates no longer appeared there and no later
+     * completion was ever found. Every chore re-anchored exactly once in its
+     * life and then reverted — the "no amount of doing it ever catches up"
+     * condition this whole module exists to remove.
+     *
+     * Every six days from the 2nd. Done three days late on the 5th, so the
+     * next is the 11th. Done three days late again on the 14th, so the next
+     * must be the 20th — and used to stay at the 17th.
+     */
+    const chore = every(6, '2026-09-02');
+    const first = project([chore], [])[0];
+    const c1 = done(first?.occurrenceKey ?? '', '2026-09-05');
+
+    const afterOne = project([chore], [c1]);
+    expect(dates(afterOne)).toContain(d('2026-09-11'));
+
+    const second = afterOne.find((o) => o.dueOn === d('2026-09-11'));
+    const c2 = done(second?.occurrenceKey ?? '', '2026-09-14');
+    const afterTwo = dates(project([chore], [c1, c2]));
+
+    expect(afterTwo).toContain(d('2026-09-20'));
+    expect(afterTwo).not.toContain(d('2026-09-17'));
+  });
+
+  it('keeps both completed occurrences marked done', () => {
+    const chore = every(6, '2026-09-02');
+    const first = project([chore], [])[0];
+    const c1 = done(first?.occurrenceKey ?? '', '2026-09-05');
+    const second = project([chore], [c1]).find((o) => o.dueOn === d('2026-09-11'));
+    const c2 = done(second?.occurrenceKey ?? '', '2026-09-14');
+
+    const out = project([chore], [c1, c2]);
+    expect(out.find((o) => o.dueOn === d('2026-09-02'))?.status).toBe('completed');
+    expect(out.find((o) => o.dueOn === d('2026-09-11'))?.status).toBe('completed');
+  });
+
+  it('walks a long chain without losing the thread', () => {
+    // Five completions in a row, each three days late. Nothing here should
+    // depend on how many have happened.
+    const chore = every(6, '2026-09-02');
+    const completions: CompletionInput[] = [];
+    let series = project([chore], completions);
+
+    for (let i = 0; i < 5; i += 1) {
+      const next = series.find((o) => o.status !== 'completed');
+      if (next === undefined) break;
+      completions.push(done(next.occurrenceKey, addDays(next.dueOn, 3)));
+      series = project([chore], completions);
+    }
+
+    /*
+     * Four, not five: the chain runs 02 → 11 → 20 → 29 and the next lands past
+     * the window. Asserting a fixed five would have been asserting the window
+     * size rather than the behaviour.
+     *
+     * What matters is that *every* completion still resolves to a completed
+     * occurrence — none was orphaned by a later re-anchor moving the dates out
+     * from under its key.
+     */
+    expect(completions.length).toBeGreaterThanOrEqual(4);
+    expect(series.filter((o) => o.status === 'completed')).toHaveLength(completions.length);
+    expect(dates(series)).toEqual(
+      expect.arrayContaining([d('2026-09-11'), d('2026-09-20'), d('2026-09-29')]),
+    );
+  });
+});
+
+describe('an exception in the re-anchored gap', () => {
+  it('keeps a rescheduled occurrence rather than dropping it', () => {
+    /*
+     * Re-anchoring removes the fixed-grid dates between the completion and the
+     * new one. A row somebody had explicitly *moved* used to vanish with them,
+     * silently — the disappearing-row complaint, from a different direction.
+     */
+    const chore = every(6, '2026-09-02');
+    const plain = project([chore], []);
+    const first = plain[0];
+    const eighth = plain.find((o) => o.dueOn === d('2026-09-08'));
+
+    const out = projectOccurrences(
+      {
+        chores: [chore],
+        completions: [done(first?.occurrenceKey ?? '', '2026-09-05')],
+        exceptions: [
+          {
+            choreId: 'plants',
+            occurrenceKey: eighth?.occurrenceKey ?? '',
+            kind: 'reschedule',
+            movedTo: d('2026-09-09'),
+          },
+        ],
+        memberIds: ['user-me'],
+        today: TODAY,
+      },
+      CAL,
+      { start: d('2026-09-01'), end: d('2026-09-30') },
+    );
+
+    expect(dates(out)).toContain(d('2026-09-09'));
   });
 });
 

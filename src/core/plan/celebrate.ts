@@ -28,8 +28,6 @@ export interface Celebration {
 
 export interface DayFinished {
   readonly planned: number;
-  /** Titles of everything finished, in plan order. */
-  readonly titles: readonly string[];
   /** The largest `daysOverdue` among the things finished. */
   readonly worstLateness: number;
   /** The title carrying that lateness, when there is one. */

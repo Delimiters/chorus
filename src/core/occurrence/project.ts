@@ -98,6 +98,9 @@ export function projectOccurrences(
             padded,
             subject,
           ),
+        // So a skip or a reschedule in the re-anchored gap is preserved rather
+        // than silently dropped along with the dates around it.
+        (key) => exceptions.has(key),
       );
 
       for (const occ of raw) {

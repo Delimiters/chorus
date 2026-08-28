@@ -106,7 +106,16 @@ export function PlanView() {
     const planned = new Set(
       entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
-    const outstanding = [...view.mine, ...view.theirs, ...floatingSlots].filter(
+    /*
+     * Yours only.
+     *
+     * The picker offers everything because that is you choosing; the proposal
+     * is the app being *directive*, and it must not quietly hand you your
+     * housemate's turn. The rows on the plan carry no turn label, so an
+     * accepted proposal containing Sam's chores would silently reassign work
+     * with nothing on screen saying so.
+     */
+    const outstanding = [...view.mine, ...floatingSlots].filter(
       (item) => !planned.has(item.occurrenceKey),
     );
     const leftOver = new Set(
@@ -123,7 +132,6 @@ export function PlanView() {
         choreId: item.choreId,
         choreTitle: item.choreTitle,
         dueOn: item.dueOn,
-        status: item.status,
         daysOverdue: item.daysOverdue,
         missedBefore: item.missedBefore,
         recurring: recurring.get(item.choreId) ?? true,
@@ -138,7 +146,7 @@ export function PlanView() {
         .filter((i): i is AgendaItem => i !== undefined),
       reason,
     };
-  }, [entries, today, view.mine, view.theirs, floatingSlots, chores, myFlags]);
+  }, [entries, today, view.mine, floatingSlots, chores, myFlags]);
 
   if (isLoading) return <LoadingState label="Loading your day" />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;
