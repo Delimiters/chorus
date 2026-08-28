@@ -60,10 +60,28 @@ interface PlanScreenProps {
   }[];
   readonly today: string;
   readonly refetch: () => Promise<unknown>;
+  /**
+   * The day the app would propose, and how to accept it.
+   *
+   * Null when there is nothing to offer. Handed in rather than computed here
+   * so the screen stays testable without a `QueryClient`, and so the ranking —
+   * the riskiest part of this whole redesign — lives somewhere it can be
+   * argued with on its own.
+   */
+  readonly proposal?: { items: readonly AgendaItem[]; reason: string } | null;
+  readonly onAcceptProposal?: (items: readonly AgendaItem[]) => void;
   readonly onAdd: () => void;
 }
 
-export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScreenProps) {
+export function PlanScreen({
+  available,
+  chores,
+  today,
+  refetch,
+  onAdd,
+  proposal = null,
+  onAcceptProposal,
+}: PlanScreenProps) {
   const { colors } = useTheme();
   const router = useRouter();
   const userId = useUserId();
@@ -276,16 +294,58 @@ export function PlanScreen({ available, chores, today, refetch, onAdd }: PlanScr
            * this is an invitation, and deliberately not a wall of suggestions.
            * The proposal that fills it is a separate piece of work.
            */
-          <View style={{ alignItems: 'center', paddingVertical: space.xxl, gap: space.sm }}>
-            <Txt variant="bodyStrong" accessibilityRole="header">
-              Nothing planned yet.
-            </Txt>
-            <Txt variant="small" tone="muted" style={{ textAlign: 'center' }}>
-              Pick a few things you actually mean to do today.
-            </Txt>
-            <View style={{ paddingTop: space.md }}>
-              <Button label="Choose what to do today" onPress={onAdd} />
-            </View>
+          <View style={{ paddingVertical: space.lg, gap: space.sm }}>
+            {proposal === null || proposal.items.length === 0 ? (
+              <View style={{ alignItems: 'center', paddingVertical: space.xl, gap: space.sm }}>
+                <Txt variant="bodyStrong" accessibilityRole="header">
+                  Nothing planned yet.
+                </Txt>
+                <Txt variant="small" tone="muted" style={{ textAlign: 'center' }}>
+                  Pick a few things you actually mean to do today.
+                </Txt>
+                <View style={{ paddingTop: space.md }}>
+                  <Button label="Choose what to do today" onPress={onAdd} />
+                </View>
+              </View>
+            ) : (
+              /*
+               * Proposed, not pre-filled.
+               *
+               * Empty asks her to do the work; pre-filled recreates the wall of
+               * twenty with extra steps. This is the third option — a day she
+               * accepts in one tap, or edits, or throws away — and it is the
+               * only shape that answers both "tell me what to do" and "let me
+               * pick" at once.
+               */
+              <View
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.overprintSoft,
+                  backgroundColor: colors.overprintSoft,
+                  borderRadius: radius.md,
+                  padding: space.md,
+                  gap: space.xs,
+                }}
+              >
+                <Txt variant="bodyStrong" accessibilityRole="header">
+                  Here&apos;s a day.
+                </Txt>
+                <Txt variant="small" tone="muted">
+                  {proposal.reason}
+                </Txt>
+
+                <View style={{ gap: 2, paddingVertical: space.sm }}>
+                  {proposal.items.map((item) => (
+                    <Txt key={item.occurrenceKey} variant="body" numberOfLines={1}>
+                      {item.choreTitle}
+                    </Txt>
+                  ))}
+                </View>
+
+                <Button label="Start the day" onPress={() => onAcceptProposal?.(proposal.items)} />
+                <Button label="Pick my own" variant="ghost" onPress={onAdd} />
+              </View>
+            )}
           </View>
         ) : (
           <>
