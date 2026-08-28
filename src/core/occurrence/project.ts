@@ -11,6 +11,7 @@
 import { addDays, compareCivil, daysBetween, isWithin } from '../civil/date';
 import type { CalendarConfig, CivilDate, DateWindow } from '../civil/types';
 import { MAX_WINDOW_DAYS, expandOccurrences } from '../recurrence/expand';
+import { anchorToCompletion } from './anchor';
 import { occurrenceKeyOf } from '../recurrence/period';
 import type { Occurrence } from '../recurrence/types';
 import { assigneeFor } from '../rotation/assign';
@@ -77,7 +78,27 @@ export function projectOccurrences(
       chore.assignment.kind === 'everyone' ? input.memberIds : [null];
 
     for (const subject of subjects) {
-      const raw = expandOccurrences(chore.id, chore.schedule, cal, padded, subject);
+      /*
+       * "Every N days" counts from the last time it was done.
+       *
+       * Applied here rather than in the expander because this is the only
+       * layer that knows both the schedule and the completions — and the
+       * expander must stay completion-blind, or it stops being a pure function
+       * of the rule.
+       */
+      const raw = anchorToCompletion(
+        chore.schedule,
+        expandOccurrences(chore.id, chore.schedule, cal, padded, subject),
+        (key) => completions.get(key),
+        (anchor) =>
+          expandOccurrences(
+            chore.id,
+            { ...chore.schedule, startsOn: anchor },
+            cal,
+            padded,
+            subject,
+          ),
+      );
 
       for (const occ of raw) {
         const exception = exceptions.get(occ.occurrenceKey);
