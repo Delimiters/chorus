@@ -95,7 +95,12 @@ const chore = (id: string, title: string) => ({
 
 const onAdd = jest.fn();
 
-function renderScreen(available: AgendaItem[]) {
+const onAcceptProposal = jest.fn();
+
+function renderScreen(
+  available: AgendaItem[],
+  proposal: { items: readonly AgendaItem[]; reason: string } | null = null,
+) {
   return render(
     <ThemeProvider>
       <PlanScreen
@@ -104,6 +109,8 @@ function renderScreen(available: AgendaItem[]) {
         today={TODAY}
         refetch={async () => {}}
         onAdd={onAdd}
+        proposal={proposal}
+        onAcceptProposal={onAcceptProposal}
       />
     </ThemeProvider>,
   );
@@ -119,6 +126,7 @@ beforeEach(() => {
   mockRemove.mockClear();
   mockToggle.mockClear();
   onAdd.mockClear();
+  onAcceptProposal.mockClear();
   mockPush.mockClear();
 });
 
@@ -264,6 +272,62 @@ describe('a finished plan', () => {
 
     fireEvent.press(screen.getByRole('button', { name: 'Add something anyway' }));
     expect(onAdd).toHaveBeenCalled();
+  });
+});
+
+describe('the morning proposal', () => {
+  const proposal = (titles: string[]) => ({
+    items: titles.map((t) => item(t.toLowerCase(), t)),
+    reason: '2 late, 1 due',
+  });
+
+  it('offers a day rather than an empty screen', () => {
+    /*
+     * Neither empty nor pre-filled. Empty asks her to do the work; pre-filled
+     * recreates the wall of twenty with extra steps. This is the third option,
+     * and it is the only shape that answers "tell me what to do" and "let me
+     * pick" at the same time.
+     */
+    renderScreen([], proposal(['Labs', 'Timesheet', 'Car']));
+
+    expect(screen.getByText("Here's a day.")).toBeOnTheScreen();
+    expect(screen.getByText('2 late, 1 due')).toBeOnTheScreen();
+    expect(screen.getByText('Labs')).toBeOnTheScreen();
+    expect(screen.queryByText('Nothing planned yet.')).toBeNull();
+  });
+
+  it('commits the whole day in one tap', () => {
+    renderScreen([], proposal(['Labs', 'Timesheet']));
+    fireEvent.press(screen.getByRole('button', { name: 'Start the day' }));
+
+    expect(onAcceptProposal).toHaveBeenCalledTimes(1);
+    expect(onAcceptProposal.mock.calls[0]?.[0]).toHaveLength(2);
+  });
+
+  it('still lets her pick her own instead', () => {
+    // Directive by default, editable always. Without this the proposal is a
+    // wall of somebody else's choices, which is what she already had.
+    renderScreen([], proposal(['Labs']));
+    fireEvent.press(screen.getByRole('button', { name: 'Pick my own' }));
+
+    expect(onAdd).toHaveBeenCalled();
+    expect(onAcceptProposal).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the invitation when there is nothing to offer', () => {
+    renderScreen([], { items: [], reason: 'Nothing needs doing today.' });
+    expect(screen.getByText('Nothing planned yet.')).toBeOnTheScreen();
+    expect(screen.queryByText("Here's a day.")).toBeNull();
+  });
+
+  it('does not offer a day over a plan that already exists', () => {
+    // The proposal is for an empty morning. Showing it above a plan she has
+    // already built would be the app arguing with her.
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')], proposal(['Labs']));
+
+    expect(screen.queryByText("Here's a day.")).toBeNull();
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
   });
 });
 

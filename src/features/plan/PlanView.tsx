@@ -11,6 +11,9 @@ import { useMemo, useState } from 'react';
 
 import { splitByUrgency, type AgendaItem } from '@/core/occurrence/agenda';
 import { unfinishedBefore } from '@/core/plan/plan';
+import { proposeDay } from '@/core/plan/propose';
+import { useMyFlags } from '@/data/hooks/useFlags';
+import { useHousehold } from '@/data/hooks/useHousehold';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { useToday_View } from '@/data/hooks/useOccurrences';
 import { useAddToPlan, useMyPlanEntries } from '@/data/hooks/usePlan';
@@ -24,6 +27,11 @@ export function PlanView() {
   const entries = useMyPlanEntries(today);
   const add = useAddToPlan(today);
   const [picking, setPicking] = useState(false);
+  const household = useHousehold();
+  const myFlags = useMyFlags(
+    today,
+    (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+  );
 
   /**
    * Everything the plan could name, including what is already done today.
@@ -86,6 +94,48 @@ export function PlanView() {
     return candidates.filter((group) => group.items.length > 0);
   }, [entries, today, view.mine, view.theirs, floatingSlots]);
 
+  /**
+   * The day the app would offer, if asked.
+   *
+   * Built from the same candidates the picker groups, minus anything already
+   * planned — so accepting the proposal and picking by hand can never disagree
+   * about what is available.
+   */
+  const proposal = useMemo(() => {
+    const planned = new Set(
+      entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
+    );
+    const outstanding = [...view.mine, ...view.theirs, ...floatingSlots].filter(
+      (item) => !planned.has(item.occurrenceKey),
+    );
+    const leftOver = new Set(
+      unfinishedBefore(entries, today, outstanding).map((i) => i.occurrenceKey),
+    );
+
+    const recurring = new Map(chores.map((c) => [c.id, c.schedule?.rule?.kind !== 'once']));
+    const { items, reason } = proposeDay(
+      outstanding.map((item) => ({
+        occurrenceKey: item.occurrenceKey,
+        choreId: item.choreId,
+        choreTitle: item.choreTitle,
+        dueOn: item.dueOn,
+        status: item.status,
+        daysOverdue: item.daysOverdue,
+        missedBefore: item.missedBefore,
+        recurring: recurring.get(item.choreId) ?? true,
+      })),
+      { flagged: myFlags, leftOver },
+    );
+
+    const byKey = new Map(outstanding.map((item) => [item.occurrenceKey, item]));
+    return {
+      items: items
+        .map((i) => byKey.get(i.occurrenceKey))
+        .filter((i): i is AgendaItem => i !== undefined),
+      reason,
+    };
+  }, [entries, today, view.mine, view.theirs, floatingSlots, chores, myFlags]);
+
   if (isLoading) return <LoadingState label="Loading your day" />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;
 
@@ -97,6 +147,10 @@ export function PlanView() {
         today={today}
         refetch={refetch}
         onAdd={() => setPicking(true)}
+        proposal={proposal}
+        onAcceptProposal={(items) =>
+          add.mutate(items.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
+        }
       />
       <PlanPicker
         open={picking}
