@@ -88,6 +88,22 @@ export function useTheirPlanCount(
   }, [rows, userId, today, available]);
 }
 
+/**
+ * How much your housemate planned today, finished or not.
+ *
+ * Distinct from `useTheirPlanCount`, which is what they have *left*. The
+ * shared celebration needs both: "you both finished" is only true if they had a
+ * plan at all, and an empty plan is not an achievement.
+ */
+export function useTheirPlanTotal(today: CivilDate): number {
+  const rows = usePlanEntries(today);
+  const userId = useUserId();
+  return useMemo(
+    () => rows.filter((row) => row.userId !== userId && row.plannedFor === today).length,
+    [rows, userId, today],
+  );
+}
+
 interface Addable {
   readonly occurrenceKey: string;
   readonly choreId: string;
