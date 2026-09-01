@@ -513,16 +513,31 @@ export async function clearException(choreId: string, occurrenceKey: string): Pr
 }
 
 /**
- * Give an undated chore a date, without touching anything else about it.
+ * Give an undated chore a date.
  *
- * A targeted patch rather than a full `updateChore`: the caller is the plan
- * picker, which has a chore id and an intent — "I am doing this today" — and
- * not a form's worth of draft. Round-tripping the whole chore to change one
- * field would mean reading it first and risking overwriting an edit made on
- * the other phone in between.
+ * Written for the plan's "No date yet" group: picking one of those means "I am
+ * doing this today", and deciding to do it today is deciding when.
  *
- * `once` rather than a repeat, because "no date" already said this happens
- * once; all that was missing was when.
+ * ── Three things the first version got wrong ─────────────────────────────
+ *
+ * **It kept `endsOn`.** A chore that had been recurring with an end date and
+ * was later switched to "No date" still carries one, and the schema refines
+ * `endsOn >= startsOn`. Setting `startsOn` to today past that date produced a
+ * blob that `safeParseSchedule` rejects — and `listChores` routes parse
+ * failures into `unreadable` and drops the chore from every screen, with no way
+ * to edit it back. A one-off has no end date to keep, so it is cleared.
+ *
+ * **It never validated.** This was the only write in this file that built a
+ * schedule by hand and skipped `parseSchedule`, which is exactly how an
+ * unreadable row gets written.
+ *
+ * **Its comment claimed the opposite of what it does.** It said a targeted
+ * patch avoided "overwriting an edit made on the other phone" — a read-then-
+ * write of the whole `schedule` column is precisely that clobber. Stated
+ * honestly: an edit landing between the read and the write is lost, which is
+ * the same race `updateChore` has, and is acceptable for a two-person
+ * household where the alternative is a form's worth of draft this caller does
+ * not have.
  */
 export async function scheduleChoreForDay(choreId: string, dueOn: string): Promise<void> {
   const { data, error: readError } = await supabase
@@ -530,14 +545,31 @@ export async function scheduleChoreForDay(choreId: string, dueOn: string): Promi
     .select('schedule')
     .eq('id', choreId)
     .single();
-  if (readError) throw new Error(readError.message);
+  if (readError) fail(readError);
 
   const schedule = {
     ...(data.schedule as Record<string, unknown>),
     startsOn: dueOn,
+    // Cleared, not carried: see above. A one-off ends when it is done.
+    endsOn: null,
     rule: { kind: 'once', dueOn, granularity: 'day' },
   };
 
-  const { error } = await supabase.from('chores').update({ schedule }).eq('id', choreId);
-  if (error) throw new Error(error.message);
+  // Parsed before it is written, so an unreadable chore cannot be created by
+  // this path even if the stored blob turns out to be a shape we did not expect.
+  const parsed = safeParseSchedule(schedule);
+  if (!parsed.success) throw new Error('That schedule is not one the app can store.');
+
+  const { data: updated, error } = await supabase
+    .from('chores')
+    .update({ schedule: parsed.data as unknown as Json })
+    .eq('id', choreId)
+    .select('id');
+  if (error) fail(error);
+  // `.select()` so RLS denying the write is an error rather than a silent
+  // success with zero rows — the tap would otherwise appear to work and do
+  // nothing at all.
+  if ((updated ?? []).length === 0) {
+    throw new Error('That chore could not be updated.');
+  }
 }
