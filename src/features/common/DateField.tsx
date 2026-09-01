@@ -35,8 +35,6 @@ interface Props {
 
 export function DateField({ value, onChange, today, label, weekStartsOn = 0, earliest }: Props) {
   const { colors } = useTheme();
-  const [open, setOpen] = useState(false);
-
   const quick: readonly { label: string; date: CivilDate }[] = [
     { label: 'Today', date: today },
     { label: 'Tomorrow', date: addDays(today, 1) },
@@ -44,6 +42,21 @@ export function DateField({ value, onChange, today, label, weekStartsOn = 0, ear
   ];
 
   const allowed = (date: CivilDate) => earliest === undefined || compareCivil(date, earliest) >= 0;
+
+  /**
+   * Open when the current date is not one of the quick options.
+   *
+   * The calendar was always collapsed, so opening a chore due on, say, the 14th
+   * showed three unselected chips and a "▼ Pick a date" toggle — the chore's
+   * actual date was legible only in the small line underneath, and changing it
+   * meant finding a control that looked like it was for setting a date rather
+   * than for correcting one. Jake: "pick a date should show up automatically
+   * when editing a chore if it's due on a specific date."
+   *
+   * A chore due today or tomorrow still opens collapsed, because there the
+   * chips *do* say what the date is.
+   */
+  const [open, setOpen] = useState(() => !quick.some((option) => option.date === value));
 
   return (
     <View style={{ gap: space.sm }}>

@@ -33,7 +33,11 @@ const FREQUENCIES: readonly { value: Frequency; label: string }[] = [
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
   { value: 'once', label: 'Once' },
-  { value: 'someday', label: 'Someday' },
+  // "Once, no date" rather than "Someday": the feature Jake asked for —
+  // "one time chores that aren't due on a specific date" — already existed and
+  // he could not find it, because "Someday" reads as a wishlist you are not
+  // really committing to rather than as the undated half of "Once".
+  { value: 'someday', label: 'No date' },
 ];
 
 const WEEKDAY_OPTIONS: readonly { value: Weekday; label: string; a11yLabel: string }[] = [
@@ -397,7 +401,8 @@ export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: P
 
       {frequency === 'someday' ? (
         <Txt variant="small" tone="faint">
-          No date. It waits on the Someday list until you tick it off or give it a schedule.
+          A one-off with no deadline. It never goes overdue and never nags — it waits until you tick
+          it off, or until you give it a date.
         </Txt>
       ) : null}
 
