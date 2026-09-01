@@ -336,6 +336,19 @@ describe('editing a chore that is due on a specific date', () => {
     expect(screen.getByRole('button', { name: 'Close the calendar' })).toBeOnTheScreen();
   });
 
+  it('shows the date it is actually set to, as a selected chip', async () => {
+    /*
+     * The row used to be three *unselected* chips — Today, Tomorrow, Next week
+     * — for a chore due on the 14th, with the real date only in a small line
+     * underneath. Jake: "the proper date should be highlighted. Idk it should
+     * just be very clear."
+     */
+    await renderPicker({ kind: 'once', dueOn: civilDate('2026-09-14'), granularity: 'day' });
+
+    const chip = screen.getByLabelText('Due date: Mon 14 Sep');
+    expect(chip.props.accessibilityState.selected).toBe(true);
+  });
+
   it('leaves it closed when a chip already says what the date is', async () => {
     // Due today, so "Today" is highlighted and an open calendar would be noise.
     await renderPicker({ kind: 'once', dueOn: TODAY, granularity: 'day' });

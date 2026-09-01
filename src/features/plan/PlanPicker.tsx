@@ -27,6 +27,20 @@ export interface PickerGroup {
   readonly key: string;
   readonly title: string;
   readonly items: readonly AgendaItem[];
+  /**
+   * Shown, ticked, and not tappable.
+   *
+   * For work that is already on today. Omitting it silently made "it's not in
+   * the list" mean two different things — "you already added it" and "it does
+   * not exist" — and Jake hit exactly that: he went looking for a chore to add,
+   * could not find it, and reported it missing. It was on his plan.
+   */
+  readonly locked?: boolean;
+  /**
+   * Picking one of these gives the chore a date rather than planning an
+   * occurrence — because it has none. See the "No date yet" group.
+   */
+  readonly schedulesOnPick?: boolean;
 }
 
 interface PlanPickerProps {
@@ -70,6 +84,7 @@ export function PlanPicker({ open, groups, categoryFor, onClose, onAdd }: PlanPi
     // silent, infuriating way to drop somebody's selection.
     const out: AgendaItem[] = [];
     for (const group of groups) {
+      if (group.locked === true) continue;
       for (const item of group.items) {
         if (chosen.has(item.occurrenceKey)) out.push(item);
       }
@@ -129,16 +144,23 @@ export function PlanPicker({ open, groups, categoryFor, onClose, onAdd }: PlanPi
 
               <Stack gap={2}>
                 {group.items.map((item) => {
-                  const picked = chosen.has(item.occurrenceKey);
+                  const picked = group.locked === true || chosen.has(item.occurrenceKey);
                   const category = categoryFor(item.choreId);
                   const rail = category?.ink == null ? null : inkColor(category.ink, isDark);
                   return (
                     <Pressable
                       key={item.occurrenceKey}
-                      onPress={() => toggle(item.occurrenceKey)}
+                      onPress={() => {
+                        if (group.locked !== true) toggle(item.occurrenceKey);
+                      }}
+                      disabled={group.locked === true}
                       accessibilityRole="checkbox"
-                      accessibilityState={{ checked: picked }}
-                      accessibilityLabel={item.choreTitle}
+                      accessibilityState={{ checked: picked, disabled: group.locked === true }}
+                      accessibilityLabel={
+                        group.locked === true
+                          ? `${item.choreTitle}, already on today`
+                          : item.choreTitle
+                      }
                       style={({ pressed }) => ({
                         flexDirection: 'row',
                         alignItems: 'center',
@@ -148,7 +170,7 @@ export function PlanPicker({ open, groups, categoryFor, onClose, onAdd }: PlanPi
                         paddingLeft: rail === null ? space.md : space.md + 4,
                         borderRadius: radius.md,
                         backgroundColor: picked ? colors.raised : colors.sunken,
-                        opacity: pressed ? 0.7 : 1,
+                        opacity: group.locked === true ? 0.55 : pressed ? 0.7 : 1,
                         overflow: 'hidden',
                       })}
                     >

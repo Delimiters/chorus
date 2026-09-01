@@ -14,10 +14,11 @@ import { unfinishedBefore } from '@/core/plan/plan';
 import { proposeDay } from '@/core/plan/propose';
 import { isRecurring } from '@/core/chore/kind';
 import { useMyFlags } from '@/data/hooks/useFlags';
+import { useScheduleToday } from '@/data/hooks/useChores';
 import { useHousehold } from '@/data/hooks/useHousehold';
 import { useRoutineStore } from '@/stores/routineStore';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import { useToday_View } from '@/data/hooks/useOccurrences';
+import { quantiseWindow, useOccurrences, useToday_View } from '@/data/hooks/useOccurrences';
 import { useAddToPlan, useMyPlanEntries } from '@/data/hooks/usePlan';
 import { ErrorState, LoadingState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
@@ -31,6 +32,20 @@ const FALLBACK_SCHEDULE = {
   timesOfDay: [],
 } as never;
 
+/**
+ * How far ahead the picker can see.
+ *
+ * Today projects about three weeks, which is right for "what needs doing" and
+ * far too short for "let me add anything" — a chore due in October simply did
+ * not exist to be picked. Jake: "really anything should be pickable there, just
+ * things that are far in the future should maybe be towards the bottom."
+ *
+ * Thirteen weeks forward, well inside the engine's 400-day ceiling, and one
+ * extra query rather than a wider window everywhere: Today staying small is
+ * what keeps the screen that gets opened daily fast.
+ */
+const PICKER_WEEKS_FORWARD = 13;
+
 export function PlanView() {
   const { view, chores, today, isLoading, error, refetch } = useToday_View();
   const categories = useCategoryList();
@@ -38,6 +53,13 @@ export function PlanView() {
   const add = useAddToPlan(today);
   const [picking, setPicking] = useState(false);
   const household = useHousehold();
+  const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  const horizon = useOccurrences(
+    useMemo(
+      () => quantiseWindow(today, weekStartsOn, 0, PICKER_WEEKS_FORWARD),
+      [today, weekStartsOn],
+    ),
+  );
   const myFlags = useMyFlags(
     today,
     (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6,
@@ -60,6 +82,51 @@ export function PlanView() {
     [view.floating],
   );
 
+  /**
+   * Dated work between tomorrow and the horizon, soonest first.
+   *
+   * `agenda` rather than `items`: collapsing superseded misses is what stops a
+   * chore missed nine times offering nine identical rows to pick from.
+   */
+  const horizonUpcoming = useMemo(
+    () =>
+      horizon.agenda
+        .filter((item) => item.status === 'upcoming' || item.status === 'due')
+        .filter((item) => item.dueOn > today)
+        .slice()
+        .sort((a, b) => a.dueOn.localeCompare(b.dueOn)),
+    [horizon.agenda, today],
+  );
+
+  /**
+   * Chores with no date, presented as pickable rows.
+   *
+   * Synthetic: there is no occurrence behind them, and the key is never
+   * written anywhere — picking one schedules the chore instead. The key exists
+   * only so the picker's selection set has something to hold.
+   */
+  const somedayItems = useMemo(
+    () =>
+      chores
+        .filter((c) => c.schedule.rule.kind === 'unscheduled')
+        .map(
+          (c) =>
+            ({
+              occurrenceKey: `someday:${c.id}`,
+              choreId: c.id,
+              choreTitle: c.title,
+              dueOn: today,
+              status: 'due',
+              daysOverdue: 0,
+              missedBefore: 0,
+              completedOn: null,
+              completedBy: null,
+              assignee: { kind: 'anyone' },
+            }) as unknown as AgendaItem,
+        ),
+    [chores, today],
+  );
+
   const available = useMemo(
     () => [
       ...view.mine,
@@ -68,8 +135,17 @@ export function PlanView() {
       ...view.skipped,
       ...view.upcoming,
       ...floatingSlots,
+      ...horizonUpcoming,
     ],
-    [view.mine, view.theirs, view.done, view.skipped, view.upcoming, floatingSlots],
+    [
+      view.mine,
+      view.theirs,
+      view.done,
+      view.skipped,
+      view.upcoming,
+      floatingSlots,
+      horizonUpcoming,
+    ],
   );
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
@@ -100,6 +176,12 @@ export function PlanView() {
     const rest = outstanding.filter((item) => !leftKeys.has(item.occurrenceKey));
     const urgency = splitByUrgency(rest, today);
 
+    const nearby = new Set(
+      [...leftOver, ...urgency.late, ...urgency.dueToday, ...urgency.comingUp].map(
+        (i) => i.occurrenceKey,
+      ),
+    );
+
     const candidates: readonly PickerGroup[] = [
       // First, because you already decided these mattered once and did not get
       // to them. That is a stronger signal than anything the app can compute.
@@ -115,14 +197,67 @@ export function PlanView() {
        * already late or due — which on this household hid 129 occurrences and
        * is why "Water hallway pothos" could not be found at all.
        */
+      /*
+       * Everything else that is dated, out to the horizon, furthest last.
+       *
+       * Deduplicated against the groups above by key: the horizon overlaps
+       * Today's window, so without this the same occurrence would be offered
+       * twice and ticking one copy would leave the other looking unpicked.
+       */
       {
         key: 'later',
         title: 'Later',
-        items: view.upcoming.filter((item) => !planned.has(item.occurrenceKey)),
+        items: horizonUpcoming.filter(
+          (item) => !planned.has(item.occurrenceKey) && !nearby.has(item.occurrenceKey),
+        ),
+      },
+      /*
+       * "No date" chores, which otherwise have no way onto a day at all.
+       *
+       * `unscheduled` produces no occurrences by design — a someday chore is a
+       * plain list, not part of the schedule — so it could never be planned,
+       * ticked, or finished. You could create one and then never act on it,
+       * which makes the whole "one-off with no deadline" idea a dead end.
+       *
+       * Picking one *gives it today's date*, which is the honest reading of
+       * what the tap means: deciding to do it today is deciding when. It then
+       * becomes an ordinary one-off and the plan claims it through the same
+       * queue a newly created chore uses.
+       */
+      {
+        key: 'someday',
+        title: 'No date yet',
+        schedulesOnPick: true,
+        items: somedayItems,
+      },
+      /*
+       * Shown rather than omitted.
+       *
+       * Leaving already-planned work out made "it's not in the list" mean two
+       * different things, and Jake hit the ambiguity directly: he went to add
+       * "Water upstairs plants", could not find it, and reported it missing —
+       * it was already on his plan that day.
+       */
+      {
+        key: 'already',
+        title: 'Already on today',
+        locked: true,
+        items: [...view.mine, ...view.theirs, ...view.upcoming].filter((item) =>
+          planned.has(item.occurrenceKey),
+        ),
       },
     ];
     return candidates.filter((group) => group.items.length > 0);
-  }, [entries, today, view.mine, view.theirs, view.upcoming, floatingSlots]);
+  }, [
+    entries,
+    today,
+    view.mine,
+    view.theirs,
+    view.upcoming,
+    floatingSlots,
+    horizonUpcoming,
+    somedayItems,
+  ]);
 
   /**
    * The day the app would offer, if asked.
@@ -225,6 +360,8 @@ export function PlanView() {
    */
   const planOnCreate = useRoutineStore((s) => s.planOnCreate);
   const clearPlanOnCreate = useRoutineStore((s) => s.clearPlanOnCreate);
+  const queuePlanOnCreate = useRoutineStore((s) => s.queuePlanOnCreate);
+  const scheduleToday = useScheduleToday(today);
 
   useEffect(() => {
     if (isLoading || planOnCreate.length === 0) return;
@@ -276,9 +413,25 @@ export function PlanView() {
           return category === undefined ? null : { name: category.name, ink: category.ink };
         }}
         onClose={() => setPicking(false)}
-        onAdd={(items) =>
-          add.mutate(items.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
-        }
+        onAdd={(items) => {
+          /*
+           * Two kinds of pick, told apart by the synthetic key.
+           *
+           * An undated chore has no occurrence to plan, so choosing it sets its
+           * date to today; the plan then claims it through the same queue a
+           * newly created chore uses, once the occurrence actually exists.
+           */
+          const someday = items.filter((i) => i.occurrenceKey.startsWith('someday:'));
+          const real = items.filter((i) => !i.occurrenceKey.startsWith('someday:'));
+
+          if (real.length > 0) {
+            add.mutate(real.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
+          }
+          for (const item of someday) {
+            queuePlanOnCreate(item.choreId);
+            scheduleToday.mutate(item.choreId);
+          }
+        }}
       />
     </>
   );
