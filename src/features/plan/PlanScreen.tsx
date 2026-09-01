@@ -25,7 +25,7 @@ import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
-import { ADD_BUTTON_CLEARANCE } from '@/design/AddButton';
+import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { ChoreRow, SectionHeader } from '@/design/ChoreRow';
 import { Sheet, SheetAction } from '@/design/Sheet';
 import { Button, Stack, Txt } from '@/design/components';
@@ -396,6 +396,15 @@ export function PlanScreen({
         a plan starts feeling like admin. Editing the chore is still one tap
         further in.
       */}
+      {/*
+        Adding a chore from the plan.
+        
+        "You should be able to create chores from today screen" — and the plan
+        is where you notice something is missing, so making you navigate to the
+        library to add it is the same friction the whole redesign is removing.
+      */}
+      <AddChoreButton onPress={() => router.push('/chore/new')} ink={null} />
+
       <Sheet
         visible={removing !== null}
         onClose={() => setRemoving(null)}

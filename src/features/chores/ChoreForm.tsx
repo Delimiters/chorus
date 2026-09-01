@@ -12,7 +12,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CalendarConfig, CivilDate, CivilTime } from '@/core/civil/types';
@@ -53,6 +53,14 @@ interface Props {
   calendar: CalendarConfig;
   onSubmit: (draft: ChoreDraft) => void;
   onCancel: () => void;
+  /**
+   * Put it on today's plan as soon as it is saved.
+   *
+   * New chores only — an existing one is already wherever it belongs, and a
+   * toggle on the edit form would read as "move this", which it is not.
+   */
+  planToday?: boolean;
+  onPlanTodayChange?: (planToday: boolean) => void;
   onArchive?: (() => void) | undefined;
   isSaving?: boolean;
   error?: string | null;
@@ -81,6 +89,8 @@ export function ChoreForm({
   calendar,
   onSubmit,
   onCancel,
+  planToday,
+  onPlanTodayChange,
   onArchive,
   isSaving = false,
   error = null,
@@ -357,6 +367,34 @@ export function ChoreForm({
               onChange={(value: string) => setIsPrivate(value === 'private')}
               label="Who can see this chore"
             />
+          </FieldGroup>
+        )}
+
+        {/*
+          Adding something while looking at today almost always means doing it
+          today, so this is on by default. If the chore turns out to have no
+          occurrence today — one scheduled for next month — the plan simply
+          finds nothing to claim and the switch costs nothing.
+        */}
+        {onPlanTodayChange === undefined ? null : (
+          <FieldGroup label="When you save">
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: space.md,
+              }}
+            >
+              <Txt variant="small" tone="muted" style={{ flex: 1, minWidth: 0 }}>
+                Put it on today&apos;s plan
+              </Txt>
+              <Switch
+                value={planToday ?? false}
+                onValueChange={onPlanTodayChange}
+                accessibilityLabel="Put it on today's plan"
+              />
+            </View>
           </FieldGroup>
         )}
 

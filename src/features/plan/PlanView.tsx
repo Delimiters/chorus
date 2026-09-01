@@ -7,7 +7,7 @@
  * `RoutinesView` uses.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { splitByUrgency, type AgendaItem } from '@/core/occurrence/agenda';
 import { unfinishedBefore } from '@/core/plan/plan';
@@ -15,12 +15,21 @@ import { proposeDay } from '@/core/plan/propose';
 import { isRecurring } from '@/core/chore/kind';
 import { useMyFlags } from '@/data/hooks/useFlags';
 import { useHousehold } from '@/data/hooks/useHousehold';
+import { useRoutineStore } from '@/stores/routineStore';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { useToday_View } from '@/data/hooks/useOccurrences';
 import { useAddToPlan, useMyPlanEntries } from '@/data/hooks/usePlan';
 import { ErrorState, LoadingState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
 import { PlanScreen } from './PlanScreen';
+
+/** A schedule that is definitely not recurring, for a chore that has gone. */
+const FALLBACK_SCHEDULE = {
+  rule: { kind: 'unscheduled' },
+  startsOn: '1970-01-01',
+  endsOn: null,
+  timesOfDay: [],
+} as never;
 
 export function PlanView() {
   const { view, chores, today, isLoading, error, refetch } = useToday_View();
@@ -167,6 +176,81 @@ export function PlanView() {
       reason,
     };
   }, [entries, today, view.mine, floatingSlots, chores, myFlags]);
+
+  /*
+   * Recurring chores that are due today go on the plan by themselves.
+   *
+   * Jake asked for this and it is right: the litter box is not a decision. The
+   * argument for "proposed, not pre-filled" was about the *backlog* — fifty
+   * one-off things you have to choose between — and today's recurring
+   * housework is not that. It is the baseline the day starts from.
+   *
+   * One-off work is still chosen, which is where the proposal earns its keep.
+   *
+   * Exactly once per day, so removing something sticks. Without the marker the
+   * next render would put it straight back and "Take off today" would be a
+   * button that does nothing.
+   */
+  const autoPlannedOn = useRoutineStore((s) => s.autoPlannedOn);
+  const markAutoPlanned = useRoutineStore((s) => s.markAutoPlanned);
+
+  useEffect(() => {
+    if (isLoading || autoPlannedOn === today) return;
+
+    const planned = new Set(
+      entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
+    );
+    const due = view.mine.filter(
+      (item) =>
+        !planned.has(item.occurrenceKey) &&
+        isRecurring(chores.find((c) => c.id === item.choreId)?.schedule ?? FALLBACK_SCHEDULE),
+    );
+
+    markAutoPlanned(today);
+    if (due.length > 0) {
+      add.mutate(due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
+    }
+  }, [isLoading, autoPlannedOn, today, entries, view.mine, chores, add, markAutoPlanned]);
+
+  /*
+   * Chores just created with "put it on today" ticked.
+   *
+   * Claimed here rather than written at the form, because a new chore has no
+   * occurrence key until its schedule has been expanded — and deriving one at
+   * the form would be a second recurrence engine drifting from the first.
+   *
+   * Cleared whether or not a match was found: a chore created with a date in
+   * three weeks has no occurrence today, and the intent should not sit in the
+   * queue waiting to surprise somebody on a later morning.
+   */
+  const planOnCreate = useRoutineStore((s) => s.planOnCreate);
+  const clearPlanOnCreate = useRoutineStore((s) => s.clearPlanOnCreate);
+
+  useEffect(() => {
+    if (isLoading || planOnCreate.length === 0) return;
+
+    const planned = new Set(
+      entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
+    );
+    const wanted = [...view.mine, ...view.theirs, ...view.upcoming].filter(
+      (item) => planOnCreate.includes(item.choreId) && !planned.has(item.occurrenceKey),
+    );
+
+    clearPlanOnCreate(planOnCreate);
+    if (wanted.length > 0) {
+      add.mutate(wanted.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
+    }
+  }, [
+    isLoading,
+    planOnCreate,
+    entries,
+    today,
+    view.mine,
+    view.theirs,
+    view.upcoming,
+    add,
+    clearPlanOnCreate,
+  ]);
 
   if (isLoading) return <LoadingState label="Loading your day" />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;

@@ -67,9 +67,33 @@ interface RoutineState {
    * relaunch is rare enough that a second buzz is a nicety rather than a bug.
    */
   readonly celebratedOn: string | null;
+  /**
+   * The last day whose recurring chores were folded into the plan.
+   *
+   * Once per day, so taking one off *sticks*: without a marker the next render
+   * would put it straight back, and "not today" would be a button that does
+   * nothing. Not persisted — a relaunch re-adding the ones you have not yet
+   * removed is harmless, where re-adding ones you deliberately removed would
+   * not be, and that only happens within a single day's session.
+   */
+  readonly autoPlannedOn: string | null;
+  /**
+   * Chores just created with "put it on today" ticked.
+   *
+   * A queue of ids rather than plan rows, because a brand-new chore has no
+   * occurrence yet — the key is derived from the projected due date, and that
+   * does not exist until the schedule has been expanded. Deriving it a second
+   * time at the form would be a second recurrence engine, and the two would
+   * drift. So the form records the intent and the plan claims it on the next
+   * render, where the real key is in hand.
+   */
+  readonly planOnCreate: readonly string[];
   readonly setShowOthers: (show: boolean) => void;
   readonly setTodayMode: (mode: TodayMode) => void;
   readonly markCelebrated: (day: string) => void;
+  readonly markAutoPlanned: (day: string) => void;
+  readonly queuePlanOnCreate: (choreId: string) => void;
+  readonly clearPlanOnCreate: (choreIds: readonly string[]) => void;
   readonly hydrate: () => Promise<void>;
 }
 
@@ -83,6 +107,8 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
   preference: DEFAULT_ROUTINE_PREFERENCE,
   hydrated: false,
   celebratedOn: null,
+  autoPlannedOn: null,
+  planOnCreate: [],
 
   setShowOthers: (showOthers) => {
     const preference = { ...get().preference, showOthers };
@@ -91,6 +117,16 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
   },
 
   markCelebrated: (celebratedOn) => set({ celebratedOn }),
+
+  markAutoPlanned: (autoPlannedOn) => set({ autoPlannedOn }),
+
+  queuePlanOnCreate: (choreId) =>
+    set((state) => ({ planOnCreate: [...state.planOnCreate, choreId] })),
+
+  clearPlanOnCreate: (choreIds) =>
+    set((state) => ({
+      planOnCreate: state.planOnCreate.filter((id) => !choreIds.includes(id)),
+    })),
 
   setTodayMode: (todayMode) => {
     const preference = { ...get().preference, todayMode };

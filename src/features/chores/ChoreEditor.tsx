@@ -17,7 +17,9 @@ import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useToday } from '@/data/today';
 import { LoadingState } from '@/design/components';
 import { useUserId } from '@/stores/sessionStore';
+import { useState } from 'react';
 import { ChoreForm } from './ChoreForm';
+import { useRoutineStore } from '@/stores/routineStore';
 
 export function ChoreEditor({ choreId }: { choreId: string | null }) {
   const router = useRouter();
@@ -31,6 +33,15 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
   };
 
   const chore = useChore(choreId);
+  /*
+   * On by default for a new chore.
+   *
+   * If you are adding something while looking at today, you almost certainly
+   * mean to do it today — and the one case where you do not, a chore scheduled
+   * for later, is handled by there being no occurrence to claim.
+   */
+  const [planToday, setPlanToday] = useState(true);
+  const queuePlanOnCreate = useRoutineStore((s) => s.queuePlanOnCreate);
   const create = useCreateChore();
   const update = useUpdateChore();
   const archive = useArchiveChore();
@@ -61,7 +72,15 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
 
     if (chore)
       update.mutate({ choreId: chore.id, draft }, { onSuccess: () => afterSave(chore.id) });
-    else create.mutate(draft, { onSuccess: (newChoreId) => afterSave(newChoreId) });
+    else
+      create.mutate(draft, {
+        onSuccess: (newChoreId) => {
+          // Recorded as an intent, not a plan row: the occurrence key does not
+          // exist until the schedule has been expanded. The plan claims it.
+          if (planToday) queuePlanOnCreate(newChoreId);
+          afterSave(newChoreId);
+        },
+      });
   };
 
   const pending = create.isPending || update.isPending;
@@ -83,6 +102,7 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
       onCancel={close}
       isSaving={pending}
       error={failure?.message ?? null}
+      {...(chore ? {} : { planToday, onPlanTodayChange: setPlanToday })}
       {...(chore
         ? {
             onArchive: () =>

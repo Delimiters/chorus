@@ -286,6 +286,16 @@ describe('a finished plan', () => {
   });
 });
 
+describe('adding a chore from the plan', () => {
+  it('offers a way in, so you need not go to the library', () => {
+    // "You should be able to create chores from today screen." The plan is
+    // where you notice something is missing.
+    renderScreen([]);
+    fireEvent.press(screen.getByRole('button', { name: 'Add a chore' }));
+    expect(mockPush).toHaveBeenCalledWith('/chore/new');
+  });
+});
+
 describe('the morning proposal', () => {
   const proposal = (titles: string[]) => ({
     items: titles.map((t) => item(t.toLowerCase(), t)),
