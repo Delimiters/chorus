@@ -83,7 +83,7 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
         onSuccess: (newChoreId) => {
           // Recorded as an intent, not a plan row: the occurrence key does not
           // exist until the schedule has been expanded. The plan claims it.
-          if (planToday) queuePlanOnCreate(newChoreId);
+          if (planToday) queuePlanOnCreate(newChoreId, today);
           afterSave(newChoreId);
         },
       });

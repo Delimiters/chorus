@@ -82,6 +82,14 @@ interface RoutineState {
   /**
    * Chores just created with "put it on today" ticked.
    *
+   * Each entry carries the day it was queued, and is **kept until it is
+   * claimed** or until that day has passed. Clearing unconditionally on the
+   * first render afterwards looked reasonable and broke the feature outright:
+   * picking a "No date" chore queues it and rewrites its schedule in the same
+   * tick, so the very next render still sees an `unscheduled` chore with no
+   * occurrence, finds nothing to claim, and threw the intent away before the
+   * write had even been issued.
+   *
    * A queue of ids rather than plan rows, because a brand-new chore has no
    * occurrence yet — the key is derived from the projected due date, and that
    * does not exist until the schedule has been expanded. Deriving it a second
@@ -89,12 +97,12 @@ interface RoutineState {
    * drift. So the form records the intent and the plan claims it on the next
    * render, where the real key is in hand.
    */
-  readonly planOnCreate: readonly string[];
+  readonly planOnCreate: readonly { readonly choreId: string; readonly queuedOn: string }[];
   readonly setShowOthers: (show: boolean) => void;
   readonly setTodayMode: (mode: TodayMode) => void;
   readonly markCelebrated: (day: string) => void;
   readonly markAutoPlanned: (day: string) => void;
-  readonly queuePlanOnCreate: (choreId: string) => void;
+  readonly queuePlanOnCreate: (choreId: string, queuedOn: string) => void;
   readonly clearPlanOnCreate: (choreIds: readonly string[]) => void;
   readonly hydrate: () => Promise<void>;
 }
@@ -125,12 +133,12 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
     persist(preference);
   },
 
-  queuePlanOnCreate: (choreId) =>
-    set((state) => ({ planOnCreate: [...state.planOnCreate, choreId] })),
+  queuePlanOnCreate: (choreId, queuedOn) =>
+    set((state) => ({ planOnCreate: [...state.planOnCreate, { choreId, queuedOn }] })),
 
   clearPlanOnCreate: (choreIds) =>
     set((state) => ({
-      planOnCreate: state.planOnCreate.filter((id) => !choreIds.includes(id)),
+      planOnCreate: state.planOnCreate.filter((q) => !choreIds.includes(q.choreId)),
     })),
 
   setTodayMode: (todayMode) => {

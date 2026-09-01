@@ -36,11 +36,6 @@ export interface PickerGroup {
    * could not find it, and reported it missing. It was on his plan.
    */
   readonly locked?: boolean;
-  /**
-   * Picking one of these gives the chore a date rather than planning an
-   * occurrence — because it has none. See the "No date yet" group.
-   */
-  readonly schedulesOnPick?: boolean;
 }
 
 interface PlanPickerProps {

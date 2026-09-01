@@ -89,15 +89,16 @@ export function PlanView() {
    * `agenda` rather than `items`: collapsing superseded misses is what stops a
    * chore missed nine times offering nine identical rows to pick from.
    */
-  const horizonUpcoming = useMemo(
-    () =>
-      horizon.agenda
-        .filter((item) => item.status === 'upcoming' || item.status === 'due')
-        .filter((item) => item.dueOn > today)
-        .slice()
-        .sort((a, b) => a.dueOn.localeCompare(b.dueOn)),
-    [horizon.agenda, today],
-  );
+  const horizonUpcoming = useMemo(() => {
+    const soonestPerChore = new Map<string, AgendaItem>();
+    for (const item of horizon.agenda) {
+      if (item.status !== 'upcoming' && item.status !== 'due') continue;
+      if (item.dueOn <= today) continue;
+      const held = soonestPerChore.get(item.choreId);
+      if (held === undefined || item.dueOn < held.dueOn) soonestPerChore.set(item.choreId, item);
+    }
+    return [...soonestPerChore.values()].sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+  }, [horizon.agenda, today]);
 
   /**
    * Chores with no date, presented as pickable rows.
@@ -228,7 +229,6 @@ export function PlanView() {
       {
         key: 'someday',
         title: 'No date yet',
-        schedulesOnPick: true,
         items: somedayItems,
       },
       /*
@@ -243,9 +243,13 @@ export function PlanView() {
         key: 'already',
         title: 'Already on today',
         locked: true,
-        items: [...view.mine, ...view.theirs, ...view.upcoming].filter((item) =>
-          planned.has(item.occurrenceKey),
-        ),
+        items: [
+          ...view.mine,
+          ...view.theirs,
+          ...view.upcoming,
+          ...floatingSlots,
+          ...horizonUpcoming,
+        ].filter((item) => planned.has(item.occurrenceKey)),
       },
     ];
     return candidates.filter((group) => group.items.length > 0);
@@ -411,11 +415,24 @@ export function PlanView() {
      * proposal thirty lines up explicitly refuses to do. Creating a chore for
      * Emily with the switch on should not make it Jake's.
      */
+    /*
+     * Stale intents go; live ones wait.
+     *
+     * Anything queued on an earlier day is dropped — a chore created for next
+     * month must not ambush somebody on a later morning. Anything queued today
+     * is kept until its occurrence actually turns up, because for a "No date"
+     * chore the occurrence does not exist until the schedule rewrite lands, and
+     * clearing on the next render threw the intent away first.
+     */
+    const stale = planOnCreate.filter((q) => q.queuedOn !== today).map((q) => q.choreId);
+    const live = planOnCreate.filter((q) => q.queuedOn === today).map((q) => q.choreId);
+
     const wanted = [...view.mine, ...view.upcoming].filter(
-      (item) => planOnCreate.includes(item.choreId) && !planned.has(item.occurrenceKey),
+      (item) => live.includes(item.choreId) && !planned.has(item.occurrenceKey),
     );
 
-    clearPlanOnCreate(planOnCreate);
+    const settled = [...stale, ...wanted.map((i) => i.choreId)];
+    if (settled.length > 0) clearPlanOnCreate(settled);
     if (wanted.length > 0) {
       add.mutate(wanted.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
     }
@@ -470,7 +487,7 @@ export function PlanView() {
             add.mutate(real.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
           }
           for (const item of someday) {
-            queuePlanOnCreate(item.choreId);
+            queuePlanOnCreate(item.choreId, today);
             scheduleToday.mutate(item.choreId);
           }
         }}

@@ -10,7 +10,7 @@
  * looked completely normal on screen.
  */
 
-import { render, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { AgendaItem } from '@/core/occurrence/agenda';
@@ -38,7 +38,9 @@ let mockEntries: { occurrenceKey: string; choreId: string; plannedFor: string; p
 let mockIsLoading = false;
 let mockEntriesLoading = false;
 let mockAutoPlannedOn: string | null = null;
-let mockPlanOnCreate: string[] = [];
+let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
+
+let mockHorizon: AgendaItem[] = [];
 
 jest.mock('@/data/hooks/useOccurrences', () => ({
   useToday_View: () => ({
@@ -49,7 +51,10 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     error: null,
     refetch: async () => {},
   }),
-  useOccurrences: () => ({ agenda: [], isLoading: false }),
+  // A real horizon, not an empty one. Mocked empty, every assertion about
+  // "Later" is vacuous by construction — a review proved exactly that by
+  // deleting the group and watching all 498 tests pass.
+  useOccurrences: () => ({ agenda: mockHorizon, isLoading: false }),
   quantiseWindow: () => ({ start: mockToday, end: mockToday }),
   useToggleCompletion: () => ({ mutate: jest.fn() }),
 }));
@@ -79,7 +84,10 @@ jest.mock('@/stores/routineStore', () => ({
 
 jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => [] }));
 jest.mock('@/data/hooks/useFlags', () => ({ useMyFlags: () => new Set<string>() }));
-jest.mock('@/data/hooks/useChores', () => ({ useScheduleToday: () => ({ mutate: jest.fn() }) }));
+const mockScheduleToday = jest.fn();
+jest.mock('@/data/hooks/useChores', () => ({
+  useScheduleToday: () => ({ mutate: mockScheduleToday }),
+}));
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC' } }),
   useMembers: () => ({ data: [{ userId: mockMe, displayName: 'Jake', accent: 'blue' }] }),
@@ -146,6 +154,8 @@ beforeEach(() => {
   mockEntriesLoading = false;
   mockAutoPlannedOn = null;
   mockPlanOnCreate = [];
+  mockHorizon = [];
+  mockScheduleToday.mockClear();
 });
 
 describe('recurring chores that are due today', () => {
@@ -243,13 +253,35 @@ describe('recurring chores that are due today', () => {
 
 describe('a chore created with "put it on today"', () => {
   it('is claimed once its occurrence exists', async () => {
-    mockPlanOnCreate = ['newchore'];
+    mockPlanOnCreate = [{ choreId: 'newchore', queuedOn: mockToday }];
     mockView.mine = [item('newchore')];
     mockChores = [oneOff('newchore')];
     renderView();
 
     await waitFor(() => expect(addedKeys()).toContain('v1:newchore'));
     expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['newchore']);
+  });
+
+  it('waits for the occurrence instead of throwing the intent away', async () => {
+    /*
+     * The defect this replaces, and the test that used to enshrine it.
+     *
+     * Picking a "No date" chore queues the intent and rewrites the schedule in
+     * the same tick, so the very next render still sees an `unscheduled` chore
+     * with no occurrence. Clearing unconditionally there discarded the intent
+     * before the write had even been issued, and the chore silently became a
+     * one-off due today that never reached the plan.
+     *
+     * The old test asserted exactly that — cleared, nothing added — so the fix
+     * would have looked like the regression.
+     */
+    mockPlanOnCreate = [{ choreId: 'nodate', queuedOn: mockToday }];
+    mockChores = [oneOff('nodate')];
+    renderView();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mockClearPlanOnCreate).not.toHaveBeenCalled();
+    expect(mockAdd).not.toHaveBeenCalled();
   });
 
   it('never puts your housemate’s work on your plan', async () => {
@@ -259,23 +291,178 @@ describe('a chore created with "put it on today"', () => {
      * landed on Jake's plan. The proposal refuses to do this thirty lines up;
      * this used to do it with no guard and no comment.
      */
-    mockPlanOnCreate = ['hers'];
+    mockPlanOnCreate = [{ choreId: 'hers', queuedOn: mockToday }];
     mockView.theirs = [item('hers', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } })];
     mockChores = [oneOff('hers')];
     renderView();
 
-    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(mockAdd).not.toHaveBeenCalled();
   });
 
-  it('clears the queue even when nothing matched', async () => {
-    // A chore scheduled for next month has no occurrence today. Left queued, it
-    // would ambush somebody on a later morning.
-    mockPlanOnCreate = ['later'];
-    mockChores = [oneOff('later')];
+  it('drops an intent left over from an earlier day', async () => {
+    // Kept until claimed, but not forever: a chore queued yesterday must not
+    // ambush somebody on a later morning by landing on the wrong day's plan.
+    mockPlanOnCreate = [{ choreId: 'yesterday', queuedOn: civilDate('2026-08-31') }];
+    mockView.mine = [item('yesterday')];
+    mockChores = [oneOff('yesterday')];
     renderView();
 
-    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['later']));
+    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['yesterday']));
     expect(mockAdd).not.toHaveBeenCalled();
+  });
+});
+
+const undated = (id: string) => ({
+  id,
+  title: id,
+  schedule: {
+    rule: { kind: 'unscheduled' },
+    startsOn: mockToday,
+    endsOn: null,
+    timesOfDay: [],
+  },
+});
+
+describe('the picker, over the whole horizon', () => {
+  const openPicker = () => {
+    fireEvent.press(
+      screen.getByRole('button', { name: /Choose what to do today|Pick my own|^Add something$/ }),
+    );
+  };
+
+  it('offers one row per chore, not one per future occurrence', async () => {
+    /*
+     * `collapseSupersededMisses` only collapses at or before today, so a daily
+     * chore contributes ninety future occurrences over a thirteen-week horizon
+     * and a 3×/week floating chore thirty-six. Rendered whole into a list with
+     * no virtualisation, that is an order of magnitude worse than the forty-row
+     * group that started this. The soonest one is the only version of the
+     * question anybody means.
+     */
+    mockHorizon = [
+      item('dishes', {
+        occurrenceKey: 'v1:dishes:03',
+        dueOn: civilDate('2026-09-03'),
+        status: 'upcoming',
+      }),
+      item('dishes', {
+        occurrenceKey: 'v1:dishes:04',
+        dueOn: civilDate('2026-09-04'),
+        status: 'upcoming',
+      }),
+      item('dishes', {
+        occurrenceKey: 'v1:dishes:05',
+        dueOn: civilDate('2026-09-05'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('dishes')];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('LATER · 1')).toBeOnTheScreen());
+  });
+
+  it('offers a chore due beyond Today’s window at all', async () => {
+    // The whole reason for the second query: Today projects three weeks, so
+    // anything due in October simply did not exist to be picked.
+    mockHorizon = [item('october', { dueOn: civilDate('2026-10-20'), status: 'upcoming' })];
+    mockChores = [oneOff('october')];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('october')).toBeOnTheScreen());
+  });
+
+  it('does not offer the same occurrence in two groups', async () => {
+    // The horizon overlaps Today's window, so without the dedup a due-today
+    // row appears twice and ticking one copy leaves the other looking unpicked.
+    mockView.mine = [item('litter')];
+    mockHorizon = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+    openPicker();
+
+    // Counted as *pickable rows*, not as text: the proposal above the picker
+    // lists its own titles, so text alone matches both.
+    await waitFor(() =>
+      expect(screen.getAllByRole('checkbox', { name: 'litter' })).toHaveLength(1),
+    );
+  });
+});
+
+describe('chores with no date', () => {
+  it('are offered, rather than being unreachable forever', async () => {
+    /*
+     * `unscheduled` produces no occurrences by design, so one could never be
+     * planned, ticked or finished — you could create the thing and never act
+     * on it.
+     */
+    mockChores = [undated('beanie')];
+    renderView();
+    fireEvent.press(
+      screen.getByRole('button', { name: /Choose what to do today|Pick my own|^Add something$/ }),
+    );
+
+    await waitFor(() => expect(screen.getByText('beanie')).toBeOnTheScreen());
+  });
+
+  it('are given today’s date rather than being planned directly', async () => {
+    // There is no occurrence to plan. Deciding to do it today is deciding when,
+    // so the pick schedules the chore and the plan claims it afterwards.
+    mockChores = [undated('beanie')];
+    renderView();
+    fireEvent.press(
+      screen.getByRole('button', { name: /Choose what to do today|Pick my own|^Add something$/ }),
+    );
+    await waitFor(() => expect(screen.getByText('beanie')).toBeOnTheScreen());
+
+    fireEvent.press(screen.getByRole('checkbox', { name: 'beanie' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Add 1 to today' }));
+
+    expect(mockScheduleToday).toHaveBeenCalledWith('beanie');
+    // The synthetic key must never reach the plan table.
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe('work already on the plan', () => {
+  it('is shown as already there rather than silently omitted', async () => {
+    /*
+     * Omitting it made "it's not in the list" mean two different things, which
+     * is how a chore that was already planned got reported as missing.
+     */
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    mockEntries = [
+      { occurrenceKey: 'v1:litter', choreId: 'litter', plannedFor: mockToday, position: 1 },
+    ];
+    renderView();
+    fireEvent.press(
+      screen.getByRole('button', { name: /Choose what to do today|Pick my own|^Add something$/ }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'litter, already on today' })).toBeOnTheScreen(),
+    );
+  });
+
+  it('covers work planned from beyond Today’s window too', async () => {
+    // The group drew only from Today's lists, so anything planned out of
+    // "Later" fell out of every group — the same ambiguity, moved.
+    mockHorizon = [item('october', { dueOn: civilDate('2026-10-20'), status: 'upcoming' })];
+    mockChores = [oneOff('october')];
+    mockEntries = [
+      { occurrenceKey: 'v1:october', choreId: 'october', plannedFor: mockToday, position: 1 },
+    ];
+    renderView();
+    fireEvent.press(
+      screen.getByRole('button', { name: /Choose what to do today|Pick my own|^Add something$/ }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'october, already on today' })).toBeOnTheScreen(),
+    );
   });
 });

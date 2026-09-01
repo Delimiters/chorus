@@ -81,7 +81,11 @@ export function DateField({ value, onChange, today, label, weekStartsOn = 0, ear
     <View style={{ gap: space.sm }}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
         {quick
-          .filter((option) => allowed(option.date))
+          // The current value is always shown, even when it is before
+          // `earliest`: a chip for the date something is *actually* set to is
+          // information, not an offer, and filtering it out returned the field
+          // to three unselected chips over an invisible date.
+          .filter((option) => option.date === value || allowed(option.date))
           .map((option) => {
             const selected = option.date === value;
             return (
