@@ -16,10 +16,10 @@ import { isRecurring } from '@/core/chore/kind';
 import { useMyFlags } from '@/data/hooks/useFlags';
 import { useScheduleToday } from '@/data/hooks/useChores';
 import { useHousehold } from '@/data/hooks/useHousehold';
-import { useRoutineStore } from '@/stores/routineStore';
+import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { quantiseWindow, useOccurrences, useToday_View } from '@/data/hooks/useOccurrences';
-import { useAddToPlan, useMyPlanEntries } from '@/data/hooks/usePlan';
+import { useAddToPlan, useMyPlanEntries, usePlanLoading } from '@/data/hooks/usePlan';
 import { ErrorState, LoadingState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
 import { PlanScreen } from './PlanScreen';
@@ -50,6 +50,7 @@ export function PlanView() {
   const { view, chores, today, isLoading, error, refetch } = useToday_View();
   const categories = useCategoryList();
   const entries = useMyPlanEntries(today);
+  const entriesLoading = usePlanLoading(today);
   const add = useAddToPlan(today);
   const [picking, setPicking] = useState(false);
   const household = useHousehold();
@@ -326,26 +327,59 @@ export function PlanView() {
    * next render would put it straight back and "Take off today" would be a
    * button that does nothing.
    */
-  const autoPlannedOn = useRoutineStore((s) => s.autoPlannedOn);
+  const autoPlannedOn = useRoutinePreference().autoPlannedOn;
   const markAutoPlanned = useRoutineStore((s) => s.markAutoPlanned);
 
   useEffect(() => {
-    if (isLoading || autoPlannedOn === today) return;
+    // Waits for the *plan* too, not only the chores. They are separate queries
+    // with no ordering between them, and acting while `entries` is still empty
+    // means every already-planned chore looks unplanned and gets re-added.
+    if (isLoading || entriesLoading || autoPlannedOn === today) return;
 
     const planned = new Set(
       entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
+
+    /*
+     * Due *today*, not merely outstanding.
+     *
+     * `view.mine` is everything outstanding — including work fifty-nine days
+     * overdue, and anything `showFrom` has pulled forward, which on this
+     * household is thirty-two of about fifty rows. Auto-adding that is the wall
+     * of twenty again, wearing the plan's clothes, and it leaves the proposal —
+     * the thing that exists to rank a backlog — with nothing left to rank.
+     *
+     * Overdue recurring work still reaches you, through the proposal, ranked.
+     */
     const due = view.mine.filter(
       (item) =>
+        item.dueOn === today &&
         !planned.has(item.occurrenceKey) &&
         isRecurring(chores.find((c) => c.id === item.choreId)?.schedule ?? FALLBACK_SCHEDULE),
     );
 
-    markAutoPlanned(today);
-    if (due.length > 0) {
-      add.mutate(due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
+    if (due.length === 0) {
+      markAutoPlanned(today);
+      return;
     }
-  }, [isLoading, autoPlannedOn, today, entries, view.mine, chores, add, markAutoPlanned]);
+
+    // Marked on success, not before: a failed insert used to leave the day
+    // marked done, so the auto-plan silently never happened and nothing said so.
+    add.mutate(
+      due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+      { onSuccess: () => markAutoPlanned(today) },
+    );
+  }, [
+    isLoading,
+    entriesLoading,
+    autoPlannedOn,
+    today,
+    entries,
+    view.mine,
+    chores,
+    add,
+    markAutoPlanned,
+  ]);
 
   /*
    * Chores just created with "put it on today" ticked.
@@ -364,12 +398,20 @@ export function PlanView() {
   const scheduleToday = useScheduleToday(today);
 
   useEffect(() => {
-    if (isLoading || planOnCreate.length === 0) return;
+    if (isLoading || entriesLoading || planOnCreate.length === 0) return;
 
     const planned = new Set(
       entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
-    const wanted = [...view.mine, ...view.theirs, ...view.upcoming].filter(
+    /*
+     * Yours only.
+     *
+     * `useAddToPlan` writes `user_id = me`, so pulling from `theirs` put your
+     * housemate's chore on *your* plan — silently reassigning work, which the
+     * proposal thirty lines up explicitly refuses to do. Creating a chore for
+     * Emily with the switch on should not make it Jake's.
+     */
+    const wanted = [...view.mine, ...view.upcoming].filter(
       (item) => planOnCreate.includes(item.choreId) && !planned.has(item.occurrenceKey),
     );
 
@@ -383,10 +425,10 @@ export function PlanView() {
     entries,
     today,
     view.mine,
-    view.theirs,
     view.upcoming,
     add,
     clearPlanOnCreate,
+    entriesLoading,
   ]);
 
   if (isLoading) return <LoadingState label="Loading your day" />;

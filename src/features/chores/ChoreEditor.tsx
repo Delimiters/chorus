@@ -7,7 +7,7 @@
  * here. A lint rule enforces it.
  */
 
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import type { CalendarConfig } from '@/core/civil/types';
 import type { ChoreDraft } from '@/data/api/chores';
@@ -34,13 +34,19 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
 
   const chore = useChore(choreId);
   /*
-   * On by default for a new chore.
+   * On by default only when you came from the plan.
    *
-   * If you are adding something while looking at today, you almost certainly
-   * mean to do it today — and the one case where you do not, a chore scheduled
-   * for later, is handled by there being no occurrence to claim.
+   * The reasoning for "always on" was that adding something while looking at
+   * today means doing it today — but `/chore/new` is reached from the library,
+   * Today, Upcoming and Routines as well, so every chore anyone ever created
+   * silently joined that day's plan. The escape hatch I claimed — "a chore
+   * scheduled for later has no occurrence to claim" — is false for the form's
+   * own default, which is a one-off due today.
+   *
+   * The plan passes `?plan=1`; everywhere else the switch is there and off.
    */
-  const [planToday, setPlanToday] = useState(true);
+  const params = useLocalSearchParams<{ plan?: string }>();
+  const [planToday, setPlanToday] = useState(params.plan === '1');
   const queuePlanOnCreate = useRoutineStore((s) => s.queuePlanOnCreate);
   const create = useCreateChore();
   const update = useUpdateChore();

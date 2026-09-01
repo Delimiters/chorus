@@ -292,7 +292,10 @@ describe('adding a chore from the plan', () => {
     // where you notice something is missing.
     renderScreen([]);
     fireEvent.press(screen.getByRole('button', { name: 'Add a chore' }));
-    expect(mockPush).toHaveBeenCalledWith('/chore/new');
+    // With `?plan=1`, so the form's "put it on today" switch defaults on here
+    // and nowhere else — every other entry point would otherwise silently add
+    // whatever you created to that day's plan.
+    expect(mockPush).toHaveBeenCalledWith('/chore/new?plan=1');
   });
 });
 
