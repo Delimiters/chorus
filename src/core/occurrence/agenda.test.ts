@@ -509,6 +509,33 @@ describe('the Today view', () => {
     expect(view.theirs.map((i) => i.choreTitle)).toEqual(['Theirs']);
   });
 
+  it('separates work that is not due yet, so the plan can still offer it', () => {
+    /*
+     * `upcoming` is deliberately absent from `mine` and `theirs` — that is the
+     * difference between due and upcoming, and Today should not list it.
+     *
+     * But the plan's picker needs it: "what am I doing today" legitimately
+     * includes getting ahead of Thursday's. Without this field the picker could
+     * only offer work already late or due, which on this household hid 129
+     * occurrences — "some things seem like they might not be showing up in Add
+     * to today", and they were not.
+     */
+    const view = buildTodayView(
+      collapseSupersededMisses(
+        project(twoChores(), today, { start: today, end: addDays(today, 6) }),
+        today,
+      ),
+      today,
+      ME,
+    );
+
+    expect(view.upcoming.length).toBeGreaterThan(0);
+    // And none of it is on Today, which is the whole point of the distinction.
+    const onToday = new Set([...view.mine, ...view.theirs].map((i) => i.occurrenceKey));
+    expect(view.upcoming.every((i) => !onToday.has(i.occurrenceKey))).toBe(true);
+    expect(view.upcoming.every((i) => i.status === 'upcoming')).toBe(true);
+  });
+
   it('counts an unassigned chore as yours, since anyone can do it', () => {
     const chores: ChoreInput[] = [
       {

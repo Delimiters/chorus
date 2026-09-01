@@ -52,8 +52,15 @@ export function PlanView() {
   );
 
   const available = useMemo(
-    () => [...view.mine, ...view.theirs, ...view.done, ...view.skipped, ...floatingSlots],
-    [view.mine, view.theirs, view.done, view.skipped, floatingSlots],
+    () => [
+      ...view.mine,
+      ...view.theirs,
+      ...view.done,
+      ...view.skipped,
+      ...view.upcoming,
+      ...floatingSlots,
+    ],
+    [view.mine, view.theirs, view.done, view.skipped, view.upcoming, floatingSlots],
   );
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
@@ -91,9 +98,22 @@ export function PlanView() {
       { key: 'late', title: 'Late', items: urgency.late },
       { key: 'today', title: 'Due today', items: urgency.dueToday },
       { key: 'soon', title: 'Coming up', items: urgency.comingUp },
+      /*
+       * Not due yet, and offerable anyway.
+       *
+       * "What am I doing today" legitimately includes getting ahead of
+       * something due Thursday. Without this the picker could only offer work
+       * already late or due — which on this household hid 129 occurrences and
+       * is why "Water hallway pothos" could not be found at all.
+       */
+      {
+        key: 'later',
+        title: 'Later',
+        items: view.upcoming.filter((item) => !planned.has(item.occurrenceKey)),
+      },
     ];
     return candidates.filter((group) => group.items.length > 0);
-  }, [entries, today, view.mine, view.theirs, floatingSlots]);
+  }, [entries, today, view.mine, view.theirs, view.upcoming, floatingSlots]);
 
   /**
    * The day the app would offer, if asked.
