@@ -286,6 +286,19 @@ describe('a finished plan', () => {
   });
 });
 
+describe('adding a chore from the plan', () => {
+  it('offers a way in, so you need not go to the library', () => {
+    // "You should be able to create chores from today screen." The plan is
+    // where you notice something is missing.
+    renderScreen([]);
+    fireEvent.press(screen.getByRole('button', { name: 'Add a chore' }));
+    // With `?plan=1`, so the form's "put it on today" switch defaults on here
+    // and nowhere else — every other entry point would otherwise silently add
+    // whatever you created to that day's plan.
+    expect(mockPush).toHaveBeenCalledWith('/chore/new?plan=1');
+  });
+});
+
 describe('the morning proposal', () => {
   const proposal = (titles: string[]) => ({
     items: titles.map((t) => item(t.toLowerCase(), t)),

@@ -525,7 +525,7 @@ describe('when it starts', () => {
 
   it('is not offered for a Someday chore, which has no dates at all', async () => {
     await renderForm();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Someday' }));
+    await fireEvent.press(screen.getByRole('tab', { name: 'No date' }));
     expect(screen.queryByText('Starts on')).toBeNull();
   });
 
@@ -553,11 +553,11 @@ describe('the schedule preview', () => {
 
   it('is not shown at all for a someday chore', async () => {
     // A "next few times" heading over "nothing to preview" is a field asking to
-    // be ignored. The frequency picker already says what Someday means.
+    // be ignored. The frequency picker already says what "No date" means.
     await renderForm();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Someday' }));
+    await fireEvent.press(screen.getByRole('tab', { name: 'No date' }));
     expect(screen.queryByText('Next few times')).toBeNull();
-    expect(screen.getByText(/waits on the Someday list/)).toBeOnTheScreen();
+    expect(screen.getByText(/never goes overdue and never nags/)).toBeOnTheScreen();
   });
 
   it('hides the rotation cadence for a chore that only happens once', async () => {

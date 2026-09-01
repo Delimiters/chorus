@@ -35,15 +35,47 @@ interface Props {
 
 export function DateField({ value, onChange, today, label, weekStartsOn = 0, earliest }: Props) {
   const { colors } = useTheme();
-  const [open, setOpen] = useState(false);
-
-  const quick: readonly { label: string; date: CivilDate }[] = [
+  const standard: readonly { label: string; date: CivilDate }[] = [
     { label: 'Today', date: today },
     { label: 'Tomorrow', date: addDays(today, 1) },
     { label: 'Next week', date: addDays(startOfWeek(today, weekStartsOn), 7) },
   ];
 
+  /**
+   * The date it is actually set to, as a chip, whenever none of the standard
+   * ones says it.
+   *
+   * Without this the row showed three *unselected* chips for a chore due on the
+   * 14th, and the only place the real date appeared was a small line underneath
+   * — so the control looked like one for choosing a date that had never been
+   * chosen. Jake: "the proper date should be highlighted. Idk it should just be
+   * very clear."
+   *
+   * First in the row, because it is the answer and the others are alternatives
+   * to it.
+   */
+  const quick: readonly { label: string; date: CivilDate }[] = standard.some(
+    (option) => option.date === value,
+  )
+    ? standard
+    : [{ label: formatDayShort(value), date: value }, ...standard];
+
   const allowed = (date: CivilDate) => earliest === undefined || compareCivil(date, earliest) >= 0;
+
+  /**
+   * Open when the current date is not one of the quick options.
+   *
+   * The calendar was always collapsed, so opening a chore due on, say, the 14th
+   * showed three unselected chips and a "▼ Pick a date" toggle — the chore's
+   * actual date was legible only in the small line underneath, and changing it
+   * meant finding a control that looked like it was for setting a date rather
+   * than for correcting one. Jake: "pick a date should show up automatically
+   * when editing a chore if it's due on a specific date."
+   *
+   * A chore due today or tomorrow still opens collapsed, because there the
+   * chips *do* say what the date is.
+   */
+  const [open, setOpen] = useState(() => !standard.some((option) => option.date === value));
 
   return (
     <View style={{ gap: space.sm }}>

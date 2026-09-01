@@ -38,10 +38,22 @@ const MODES: readonly TodayMode[] = ['plan', 'chores', 'routines'];
 export interface RoutinePreference {
   readonly showOthers: boolean;
   readonly todayMode: TodayMode;
+  /**
+   * The last day whose due recurring chores were folded into the plan.
+   *
+   * **Persisted**, and that is the whole point. It was in memory only, with a
+   * comment claiming a relaunch could only ever re-add things you had not
+   * removed. That was backwards: `useRemoveFromPlan` deletes the row, so after
+   * a relaunch the marker is gone, the row is gone, and the chore is added
+   * straight back. "Take off today" survived a re-render and not a restart —
+   * a chore that keeps coming back.
+   */
+  readonly autoPlannedOn: string | null;
 }
 
 export const DEFAULT_ROUTINE_PREFERENCE: RoutinePreference = {
   showOthers: true,
+  autoPlannedOn: null,
   /*
    * The plan, not the backlog.
    *
@@ -67,9 +79,23 @@ interface RoutineState {
    * relaunch is rare enough that a second buzz is a nicety rather than a bug.
    */
   readonly celebratedOn: string | null;
+  /**
+   * Chores just created with "put it on today" ticked.
+   *
+   * A queue of ids rather than plan rows, because a brand-new chore has no
+   * occurrence yet — the key is derived from the projected due date, and that
+   * does not exist until the schedule has been expanded. Deriving it a second
+   * time at the form would be a second recurrence engine, and the two would
+   * drift. So the form records the intent and the plan claims it on the next
+   * render, where the real key is in hand.
+   */
+  readonly planOnCreate: readonly string[];
   readonly setShowOthers: (show: boolean) => void;
   readonly setTodayMode: (mode: TodayMode) => void;
   readonly markCelebrated: (day: string) => void;
+  readonly markAutoPlanned: (day: string) => void;
+  readonly queuePlanOnCreate: (choreId: string) => void;
+  readonly clearPlanOnCreate: (choreIds: readonly string[]) => void;
   readonly hydrate: () => Promise<void>;
 }
 
@@ -83,6 +109,7 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
   preference: DEFAULT_ROUTINE_PREFERENCE,
   hydrated: false,
   celebratedOn: null,
+  planOnCreate: [],
 
   setShowOthers: (showOthers) => {
     const preference = { ...get().preference, showOthers };
@@ -91,6 +118,20 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
   },
 
   markCelebrated: (celebratedOn) => set({ celebratedOn }),
+
+  markAutoPlanned: (autoPlannedOn) => {
+    const preference = { ...get().preference, autoPlannedOn };
+    set({ preference });
+    persist(preference);
+  },
+
+  queuePlanOnCreate: (choreId) =>
+    set((state) => ({ planOnCreate: [...state.planOnCreate, choreId] })),
+
+  clearPlanOnCreate: (choreIds) =>
+    set((state) => ({
+      planOnCreate: state.planOnCreate.filter((id) => !choreIds.includes(id)),
+    })),
 
   setTodayMode: (todayMode) => {
     const preference = { ...get().preference, todayMode };
@@ -134,6 +175,9 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
             // version is missing keys rather than malformed, and losing every
             // preference because one is absent would be a poor trade.
             ...(typeof stored.showOthers === 'boolean' ? { showOthers: stored.showOthers } : {}),
+            ...(typeof stored.autoPlannedOn === 'string'
+              ? { autoPlannedOn: stored.autoPlannedOn }
+              : {}),
             // Membership, not `typeof`: a stored mode from some future version
             // must fall back to the default rather than reaching a switch that
             // matches no branch.

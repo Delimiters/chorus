@@ -325,6 +325,17 @@ export interface TodayView {
    * screen anywhere able to show it, and "Un-skip it" could never be reached.
    */
   readonly skipped: readonly AgendaItem[];
+  /**
+   * Dated, not yet due, and nobody has dealt with it.
+   *
+   * Not on Today — that is the whole point of `due` versus `upcoming` — but the
+   * plan needs it, because "what am I doing today" legitimately includes
+   * something due on Thursday that you want to get ahead of. Without this the
+   * picker could only ever offer work that was already late or due, which on
+   * this household hid 129 occurrences: "some things seem like they might not
+   * be showing up in Add to today", and they were not.
+   */
+  readonly upcoming: readonly AgendaItem[];
   readonly outstandingCount: number;
   readonly doneCount: number;
 }
@@ -368,6 +379,9 @@ export function buildTodayView(
     theirs: outstandingDated.filter((i) => !isMine(i)),
     done,
     skipped,
+    // Deliberately not filtered by ownership: the picker offers it, and who
+    // ends up doing a shared chore is settled by doing it.
+    upcoming: dated.filter((i) => i.status === 'upcoming'),
     outstandingCount: outstandingDated.length + floating.filter((g) => g.nextSlot !== null).length,
     doneCount: done.length + floatingDoneToday,
   };

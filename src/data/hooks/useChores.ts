@@ -25,10 +25,11 @@ import {
   createChore,
   listChores,
   listCompletionsForChores,
-  uncompleteOccurrence,
-  updateChore,
+  scheduleChoreForDay,
   type Chore,
   type ChoreDraft,
+  uncompleteOccurrence,
+  updateChore,
 } from '../api/chores';
 import { qk } from '../queryKeys';
 
@@ -166,6 +167,16 @@ export function useUpdateChore() {
   return useMutation({
     mutationFn: ({ choreId, draft }: { choreId: string; draft: ChoreDraft }) =>
       updateChore(choreId, draft),
+    onSuccess: invalidate,
+  });
+}
+
+/** Give a "no date" chore today's date, so it can be planned and finished. */
+export function useScheduleToday(today: string) {
+  const invalidate = useInvalidateHousehold();
+
+  return useMutation({
+    mutationFn: (choreId: string) => scheduleChoreForDay(choreId, today),
     onSuccess: invalidate,
   });
 }

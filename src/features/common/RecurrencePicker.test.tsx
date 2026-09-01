@@ -196,7 +196,7 @@ describe('every recurrence shape the app promises', () => {
 
   it('one-time, unscheduled', async () => {
     const p = await renderPicker();
-    await tapTab('Someday');
+    await tapTab('No date');
     expect(p.rule()).toEqual({ kind: 'unscheduled' });
     expect(describeRule(p.rule())).toBe('no schedule');
   });
@@ -228,7 +228,7 @@ describe('the builder cannot produce a rule the engine rejects', () => {
       () => tapTab('Any days'),
       () => tapTab('On a date'),
       () => tapTab('Once'),
-      () => tapTab('Someday'),
+      () => tapTab('No date'),
     ];
 
     for (const step of tour) {
@@ -316,6 +316,44 @@ describe('editing an existing chore', () => {
       granularity: 'day',
     });
     expect(p.rule()).toMatchObject({ dueOn: '2026-12-25' });
+  });
+});
+
+describe('editing a chore that is due on a specific date', () => {
+  it('opens the calendar rather than hiding the date behind a toggle', async () => {
+    /*
+     * Jake: "pick a date should show up automatically when editing a chore if
+     * it's due on a specific date."
+     *
+     * The calendar was always collapsed, so a chore due on the 14th showed
+     * three unselected chips — Today, Tomorrow, Next week — and a "Pick a date"
+     * button. The chore's real date was legible only in a small line
+     * underneath, and the control for changing it looked like one for setting a
+     * date that had never been set.
+     */
+    await renderPicker({ kind: 'once', dueOn: civilDate('2026-09-14'), granularity: 'day' });
+
+    expect(screen.getByRole('button', { name: 'Close the calendar' })).toBeOnTheScreen();
+  });
+
+  it('shows the date it is actually set to, as a selected chip', async () => {
+    /*
+     * The row used to be three *unselected* chips — Today, Tomorrow, Next week
+     * — for a chore due on the 14th, with the real date only in a small line
+     * underneath. Jake: "the proper date should be highlighted. Idk it should
+     * just be very clear."
+     */
+    await renderPicker({ kind: 'once', dueOn: civilDate('2026-09-14'), granularity: 'day' });
+
+    const chip = screen.getByLabelText('Due date: Mon 14 Sep');
+    expect(chip.props.accessibilityState.selected).toBe(true);
+  });
+
+  it('leaves it closed when a chip already says what the date is', async () => {
+    // Due today, so "Today" is highlighted and an open calendar would be noise.
+    await renderPicker({ kind: 'once', dueOn: TODAY, granularity: 'day' });
+
+    expect(screen.getByRole('button', { name: 'Pick another date' })).toBeOnTheScreen();
   });
 });
 

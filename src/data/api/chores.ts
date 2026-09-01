@@ -511,3 +511,33 @@ export async function clearException(choreId: string, occurrenceKey: string): Pr
     .eq('occurrence_key', occurrenceKey);
   if (error) fail(error);
 }
+
+/**
+ * Give an undated chore a date, without touching anything else about it.
+ *
+ * A targeted patch rather than a full `updateChore`: the caller is the plan
+ * picker, which has a chore id and an intent — "I am doing this today" — and
+ * not a form's worth of draft. Round-tripping the whole chore to change one
+ * field would mean reading it first and risking overwriting an edit made on
+ * the other phone in between.
+ *
+ * `once` rather than a repeat, because "no date" already said this happens
+ * once; all that was missing was when.
+ */
+export async function scheduleChoreForDay(choreId: string, dueOn: string): Promise<void> {
+  const { data, error: readError } = await supabase
+    .from('chores')
+    .select('schedule')
+    .eq('id', choreId)
+    .single();
+  if (readError) throw new Error(readError.message);
+
+  const schedule = {
+    ...(data.schedule as Record<string, unknown>),
+    startsOn: dueOn,
+    rule: { kind: 'once', dueOn, granularity: 'day' },
+  };
+
+  const { error } = await supabase.from('chores').update({ schedule }).eq('id', choreId);
+  if (error) throw new Error(error.message);
+}

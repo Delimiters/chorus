@@ -44,6 +44,23 @@ export function usePlanEntries(today: CivilDate) {
   return query.data ?? EMPTY;
 }
 
+/**
+ * Whether the plan itself has arrived.
+ *
+ * Separate from the chores query, and nothing orders the two — so anything that
+ * acts on "what is already planned" has to wait for this as well, or it will
+ * decide that a full plan is empty and add everything a second time.
+ */
+export function usePlanLoading(today: CivilDate): boolean {
+  const householdId = useActiveHouseholdId();
+  const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
+  const query = useQuery({
+    queryKey: qk.plan(householdId ?? '__none__', from, today),
+    queryFn: householdId === null ? skipToken : () => listPlanEntries(householdId, from, today),
+  });
+  return query.isLoading;
+}
+
 /** Only yours. Both plans are visible, but the screen is about your day. */
 export function useMyPlanEntries(today: CivilDate): readonly PlanEntry[] {
   const rows = usePlanEntries(today);
@@ -218,7 +235,8 @@ export function useAddToPlan(today: CivilDate) {
   return {
     ...mutation,
     /** Reads, decides, then mutates. The order is the point. */
-    mutate: (items: readonly Addable[]) => mutation.mutate(decide(items)),
+    mutate: (items: readonly Addable[], options?: { onSuccess?: () => void }) =>
+      mutation.mutate(decide(items), options),
   };
 }
 

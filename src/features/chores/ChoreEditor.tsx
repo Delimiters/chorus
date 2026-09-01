@@ -7,7 +7,7 @@
  * here. A lint rule enforces it.
  */
 
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import type { CalendarConfig } from '@/core/civil/types';
 import type { ChoreDraft } from '@/data/api/chores';
@@ -17,7 +17,9 @@ import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useToday } from '@/data/today';
 import { LoadingState } from '@/design/components';
 import { useUserId } from '@/stores/sessionStore';
+import { useState } from 'react';
 import { ChoreForm } from './ChoreForm';
+import { useRoutineStore } from '@/stores/routineStore';
 
 export function ChoreEditor({ choreId }: { choreId: string | null }) {
   const router = useRouter();
@@ -31,6 +33,21 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
   };
 
   const chore = useChore(choreId);
+  /*
+   * On by default only when you came from the plan.
+   *
+   * The reasoning for "always on" was that adding something while looking at
+   * today means doing it today — but `/chore/new` is reached from the library,
+   * Today, Upcoming and Routines as well, so every chore anyone ever created
+   * silently joined that day's plan. The escape hatch I claimed — "a chore
+   * scheduled for later has no occurrence to claim" — is false for the form's
+   * own default, which is a one-off due today.
+   *
+   * The plan passes `?plan=1`; everywhere else the switch is there and off.
+   */
+  const params = useLocalSearchParams<{ plan?: string }>();
+  const [planToday, setPlanToday] = useState(params.plan === '1');
+  const queuePlanOnCreate = useRoutineStore((s) => s.queuePlanOnCreate);
   const create = useCreateChore();
   const update = useUpdateChore();
   const archive = useArchiveChore();
@@ -61,7 +78,15 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
 
     if (chore)
       update.mutate({ choreId: chore.id, draft }, { onSuccess: () => afterSave(chore.id) });
-    else create.mutate(draft, { onSuccess: (newChoreId) => afterSave(newChoreId) });
+    else
+      create.mutate(draft, {
+        onSuccess: (newChoreId) => {
+          // Recorded as an intent, not a plan row: the occurrence key does not
+          // exist until the schedule has been expanded. The plan claims it.
+          if (planToday) queuePlanOnCreate(newChoreId);
+          afterSave(newChoreId);
+        },
+      });
   };
 
   const pending = create.isPending || update.isPending;
@@ -83,6 +108,7 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
       onCancel={close}
       isSaving={pending}
       error={failure?.message ?? null}
+      {...(chore ? {} : { planToday, onPlanTodayChange: setPlanToday })}
       {...(chore
         ? {
             onArchive: () =>

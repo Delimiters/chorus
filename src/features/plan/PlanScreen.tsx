@@ -25,7 +25,7 @@ import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
-import { ADD_BUTTON_CLEARANCE } from '@/design/AddButton';
+import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { ChoreRow, SectionHeader } from '@/design/ChoreRow';
 import { Sheet, SheetAction } from '@/design/Sheet';
 import { Button, Stack, Txt } from '@/design/components';
@@ -175,6 +175,11 @@ export function PlanScreen({
   const nameById = useMemo(
     () => new Map((members.data ?? []).map((m) => [m.userId, m.displayName])),
     [members.data],
+  );
+  /** Your accent, so the add button matches the same button on every other tab. */
+  const myInk = useMemo(
+    () => (members.data ?? []).find((m) => m.userId === userId)?.accent ?? null,
+    [members.data, userId],
   );
   const theirName = useMemo(
     () => (members.data ?? []).find((m) => m.userId !== userId)?.displayName ?? 'They',
@@ -396,6 +401,18 @@ export function PlanScreen({
         a plan starts feeling like admin. Editing the chore is still one tap
         further in.
       */}
+      {/*
+        Adding a chore from the plan.
+
+        "You should be able to create chores from today screen" — and the plan
+        is where you notice something is missing, so making you navigate to the
+        library to add it is the same friction the whole redesign is removing.
+
+        `?plan=1` so the form's "put it on today" switch defaults on *here* and
+        nowhere else; wearing your ink, like the same button on every other tab.
+      */}
+      <AddChoreButton onPress={() => router.push('/chore/new?plan=1')} ink={myInk} />
+
       <Sheet
         visible={removing !== null}
         onClose={() => setRemoving(null)}
