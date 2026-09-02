@@ -221,10 +221,24 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
     today,
     window,
     calendar,
-    isLoading: choresQuery.isLoading || completionsQuery.isLoading || exceptionsQuery.isLoading,
+    /*
+     * The interval query counts, for both.
+     *
+     * Left out, a failed fetch silently put every interval chore back on the
+     * fixed grid — the precise bug this hook's second completions query exists
+     * to fix — with `error` null and nothing for pull-to-refresh to report. And
+     * omitting it from `isLoading` let the other three settle first, so rows
+     * painted on grid dates, flashed as overdue, then jumped.
+     */
+    isLoading:
+      choresQuery.isLoading ||
+      completionsQuery.isLoading ||
+      intervalCompletionsQuery.isLoading ||
+      exceptionsQuery.isLoading,
     error:
       (choresQuery.error as Error | null) ??
       (completionsQuery.error as Error | null) ??
+      (intervalCompletionsQuery.error as Error | null) ??
       (exceptionsQuery.error as Error | null),
     unreadable: choresQuery.data?.unreadable ?? [],
     refetch,

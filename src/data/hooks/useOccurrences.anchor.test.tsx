@@ -48,7 +48,7 @@ const mockOldCompletion = {
   completedBy: 'user-me',
 };
 
-const mockListCompletionsForChores = jest.fn(async () => [mockOldCompletion]);
+const mockListCompletionsForChores: jest.Mock = jest.fn(async () => [mockOldCompletion]);
 
 jest.mock('../api/chores', () => ({
   listChores: jest.fn(async () => ({ chores: [mockChore], unreadable: [] })),
@@ -86,6 +86,24 @@ function renderOccurrences() {
     wrapper,
   });
 }
+
+describe('when the unbounded fetch fails', () => {
+  it('says so rather than quietly showing the fixed grid', async () => {
+    /*
+     * The failure mode this query was added to remove, arriving through the
+     * back door. If the fetch fails and nothing reports it, every interval
+     * chore silently reverts to the grid — dates the chore had rightly been
+     * skipping reappear as overdue, `refetch` has nothing to signal, and the
+     * reminder planner, which reads the same `items`, schedules notifications
+     * for occurrences Today does not show.
+     */
+    mockListCompletionsForChores.mockRejectedValueOnce(new Error('offline'));
+
+    const { result } = renderOccurrences();
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.error?.message).toBe('offline');
+  });
+});
 
 describe('an interval chore completed before the window', () => {
   it('is still anchored to that completion', async () => {

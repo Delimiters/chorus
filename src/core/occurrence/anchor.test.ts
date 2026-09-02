@@ -8,12 +8,13 @@
  */
 
 import { addDays, civilDate } from '../civil/date';
-import type { CalendarConfig, CivilDate } from '../civil/types';
+import type { CalendarConfig, CivilDate, CivilTime } from '../civil/types';
 import { anchorToCompletion } from './anchor';
 import { projectOccurrences } from './project';
 import type { ChoreInput, CompletionInput } from './types';
 
 const d = (s: string): CivilDate => civilDate(s);
+const t = (value: string): CivilTime => value as CivilTime;
 const CAL: CalendarConfig = { weekStartsOn: 1 };
 const TODAY = d('2026-09-10');
 
@@ -502,6 +503,25 @@ describe('what re-anchoring must not disturb', () => {
       '2026-09-07#2:alice',
       '2026-09-09#3:bob',
     ]);
+  });
+
+  it('is unmoved by how many reminder times the chore has', () => {
+    /*
+     * `timesOfDay` is a list of *reminder* times, not an occurrence fan-out:
+     * `expandDaily` emits one occurrence per date whatever is in it. Counting
+     * it as a multiplier inflated the index at every segment boundary and
+     * skipped a rotation turn — the same defect, reachable from the form by
+     * asking for a morning and an evening reminder. Every other fixture here
+     * leaves `timesOfDay` empty, which is why it hid.
+     */
+    const plain = rotating(2, '2026-09-02');
+    const twice: ChoreInput = {
+      ...plain,
+      schedule: { ...plain.schedule, timesOfDay: [t('08:00'), t('20:00')] },
+    };
+    const completions = [done2('2026-09-02', '2026-09-03')];
+
+    expect(turns(twice, completions)).toEqual(turns(plain, completions));
   });
 
   it('gives the same turn to the same person from a later window', () => {

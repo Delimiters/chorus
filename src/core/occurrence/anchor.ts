@@ -87,9 +87,6 @@ export function anchorToCompletion(
   if (schedule.rule.kind !== 'daily') return raw;
 
   const everyNDays = schedule.rule.everyNDays;
-  // A rule with several times of day emits that many occurrences per date, and
-  // every one of them has its own index. Counting dates would undercount.
-  const slotsPerDate = Math.max(1, schedule.timesOfDay.length);
 
   const dated = completions
     .map((completion) => ({
@@ -159,7 +156,17 @@ export function anchorToCompletion(
       }
     }
 
-    chainIndex += (offset / everyNDays + 1) * slotsPerDate;
+    /*
+     * One occurrence per date, so the count is the offset over the interval.
+     *
+     * This was briefly multiplied by `timesOfDay.length` on the belief that
+     * several times of day fan out into several occurrences. They do not —
+     * `expandDaily` emits one occurrence per date with `slot: 0`, and
+     * `timesOfDay` is a list of *reminder* times read only by the notification
+     * planner. Multiplying inflated the index at every segment boundary and
+     * brought back the skipped rotation turn this counter exists to prevent.
+     */
+    chainIndex += offset / everyNDays + 1;
 
     /*
      * N days after it was *done*, and never on or before the occurrence it

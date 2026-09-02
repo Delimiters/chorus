@@ -153,6 +153,14 @@ function toCompletion(row: {
 const COMPLETION_COLUMNS = 'chore_id, occurrence_key, completed_on, completed_by';
 
 /**
+ * Matches PostgREST's `max_rows` in `supabase/config.toml`.
+ *
+ * Stated here so the truncation is a decision with an ordering rather than a
+ * server default nobody named.
+ */
+const MAX_COMPLETIONS_PER_FETCH = 1000;
+
+/**
  * Completions for occurrences **due** in a window, whenever they were done.
  *
  * `due_on`, not `completed_on`, and the distinction is load-bearing. The agenda
@@ -190,6 +198,14 @@ export async function listCompletions(
  * For the one-time chores that live outside the agenda window — see
  * {@link listOneTimeChores}. They have one occurrence each, so this is a few
  * rows, not a table scan.
+ *
+ * It also feeds the interval re-anchoring, which is a much bigger appetite: a
+ * daily chore accumulates a thousand ticks in under three years. PostgREST caps
+ * a response at `max_rows` (1000) and truncates in **unspecified order**, so
+ * the ordering below is not cosmetic — without it, the row dropped could be the
+ * most recent completion, which is the one that sets the phase of the whole
+ * series. Newest first means truncation loses the oldest, which shifts a
+ * rotation turn rather than moving every future due date.
  */
 export async function listCompletionsForChores(
   householdId: string,
@@ -200,7 +216,9 @@ export async function listCompletionsForChores(
     .from('chore_completions')
     .select(COMPLETION_COLUMNS)
     .eq('household_id', householdId)
-    .in('chore_id', choreIds);
+    .in('chore_id', choreIds)
+    .order('due_on', { ascending: false })
+    .limit(MAX_COMPLETIONS_PER_FETCH);
   if (error) fail(error);
   return (data ?? []).map(toCompletion);
 }
