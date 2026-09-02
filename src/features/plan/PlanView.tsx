@@ -7,8 +7,10 @@
  * `RoutinesView` uses.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import type { CivilDate } from '@/core/civil/types';
 import { splitByUrgency, type AgendaItem } from '@/core/occurrence/agenda';
 import { unfinishedBefore } from '@/core/plan/plan';
 import { proposeDay } from '@/core/plan/propose';
@@ -47,6 +49,7 @@ const FALLBACK_SCHEDULE = {
 const PICKER_WEEKS_FORWARD = 13;
 
 export function PlanView() {
+  const router = useRouter();
   const { view, chores, today, isLoading, error, refetch } = useToday_View();
   const categories = useCategoryList();
   const entries = useMyPlanEntries(today);
@@ -318,7 +321,7 @@ export function PlanView() {
   }, [entries, today, view.mine, floatingSlots, chores, myFlags]);
 
   /*
-   * Recurring chores that are due today go on the plan by themselves.
+   * Recurring chores that are due today, or late, go on the plan by themselves.
    *
    * Jake asked for this and it is right: the litter box is not a decision. The
    * argument for "proposed, not pre-filled" was about the *backlog* — fifty
@@ -334,30 +337,64 @@ export function PlanView() {
   const autoPlannedOn = useRoutinePreference().autoPlannedOn;
   const markAutoPlanned = useRoutineStore((s) => s.markAutoPlanned);
 
+  /*
+   * In flight, and failed-today, both as refs.
+   *
+   * `useAddToPlan` is optimistic: `onMutate` writes the new rows into the plan
+   * cache before the request is even sent. `entries` is a dependency of this
+   * effect, so the write immediately re-runs it, `due` comes out empty — every
+   * key is now "planned" — and the empty branch below marked the day done with
+   * the request still open. `autoPlannedOn` is persisted, so a write that then
+   * failed left the day marked, the rollback restored the rows, and the
+   * auto-plan silently never happened again that day. Precisely the failure the
+   * comment on the mutation claims to prevent.
+   *
+   * `failedFor` exists because the obvious guard loops: on failure the cache
+   * rolls back, `due` refills, and the effect resubmits forever.
+   */
+  const inFlight = useRef(false);
+  const failedFor = useRef<CivilDate | null>(null);
+
   useEffect(() => {
     // Waits for the *plan* too, not only the chores. They are separate queries
     // with no ordering between them, and acting while `entries` is still empty
     // means every already-planned chore looks unplanned and gets re-added.
     if (isLoading || entriesLoading || autoPlannedOn === today) return;
+    if (inFlight.current || failedFor.current === today) return;
 
     const planned = new Set(
       entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
 
     /*
-     * Due *today*, not merely outstanding.
+     * Due today **or late**, which is Jake's call and a reversal of the
+     * previous rule here.
      *
-     * `view.mine` is everything outstanding — including work fifty-nine days
-     * overdue, and anything `showFrom` has pulled forward, which on this
-     * household is thirty-two of about fifty rows. Auto-adding that is the wall
-     * of twenty again, wearing the plan's clothes, and it leaves the proposal —
-     * the thing that exists to rank a backlog — with nothing left to rank.
+     * The argument for today-only was that `view.mine` is everything
+     * outstanding, so auto-adding it was the wall of fifty wearing the plan's
+     * clothes. What changed is the cause of that wall: interval chores were
+     * being held against a fixed grid, so being three days late meant being
+     * permanently late and the backlog only ever grew. Completion-anchoring
+     * means a late chore re-anchors to when you actually did it, so "overdue"
+     * is now a handful of real things rather than a standing accusation.
      *
-     * Overdue recurring work still reaches you, through the proposal, ranked.
+     * A late chore is work you already agreed to and did not get to. Leaving it
+     * out of the day and waiting for the proposal to rank it back in made you
+     * choose it twice.
+     *
+     * `dueOn <= today` rather than a status test, because `view.mine` also
+     * carries anything `showFrom` has pulled forward — those are not late, they
+     * are early, and auto-adding them puts next week on today.
      */
     const due = view.mine.filter(
       (item) =>
-        item.dueOn === today &&
+        item.dueOn <= today &&
+        // Defensive rather than load-bearing: `buildTodayView` already builds
+        // `mine` from due-or-overdue items, so nothing completed or skipped
+        // reaches here today. Kept because this filter is the only thing
+        // standing between a change in that function and the plan claiming
+        // work is left that isn't.
+        (item.status === 'due' || item.status === 'overdue') &&
         !planned.has(item.occurrenceKey) &&
         isRecurring(chores.find((c) => c.id === item.choreId)?.schedule ?? FALLBACK_SCHEDULE),
     );
@@ -369,9 +406,18 @@ export function PlanView() {
 
     // Marked on success, not before: a failed insert used to leave the day
     // marked done, so the auto-plan silently never happened and nothing said so.
+    inFlight.current = true;
     add.mutate(
       due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
-      { onSuccess: () => markAutoPlanned(today) },
+      {
+        onSuccess: () => markAutoPlanned(today),
+        onError: () => {
+          failedFor.current = today;
+        },
+        onSettled: () => {
+          inFlight.current = false;
+        },
+      },
     );
   }, [
     isLoading,
@@ -472,6 +518,17 @@ export function PlanView() {
           return category === undefined ? null : { name: category.name, ink: category.ink };
         }}
         onClose={() => setPicking(false)}
+        /*
+         * `?plan=1` so the form's "put it on today" switch defaults on here and
+         * nowhere else — the same reason the floating + on this sub-tab used to
+         * pass it, before it was removed for looking like the "add to today"
+         * button it sat beside.
+         */
+        onCreate={(title) => {
+          setPicking(false);
+          const suffix = title.length === 0 ? '' : `&title=${encodeURIComponent(title)}`;
+          router.push(`/chore/new?plan=1${suffix}`);
+        }}
         onAdd={(items) => {
           /*
            * Two kinds of pick, told apart by the synthetic key.

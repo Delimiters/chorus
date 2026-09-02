@@ -45,6 +45,14 @@ import { SchedulePreview } from '@/features/common/SchedulePreview';
 interface Props {
   /** Absent when creating. */
   chore?: Chore | undefined;
+  /**
+   * Seeds the title when creating.
+   *
+   * The plan's picker offers `Create "water plants"` when a search matches
+   * nothing, and arriving at an empty form would throw away the words that got
+   * you here. Ignored when editing, where the chore's own title wins.
+   */
+  initialTitle?: string | undefined;
   /** The chore's existing steps, in order. Empty when creating. */
   subtasks?: readonly SubtaskDraft[];
   members: readonly PickerMember[];
@@ -82,6 +90,7 @@ function creditLine(chore: Chore, members: readonly PickerMember[]): string {
 
 export function ChoreForm({
   chore,
+  initialTitle,
   subtasks = [],
   members,
   userId,
@@ -98,7 +107,7 @@ export function ChoreForm({
   const { colors } = useTheme();
   const editing = chore !== undefined;
 
-  const [title, setTitle] = useState(chore?.title ?? '');
+  const [title, setTitle] = useState(chore?.title ?? initialTitle ?? '');
   const [notes, setNotes] = useState(chore?.notes ?? '');
   const [recurrence, setRecurrence] = useState<RecurrenceDraft>(() =>
     draftFromRule(chore?.schedule.rule ?? { kind: 'weekly', everyNWeeks: 1, weekdays: [] }, today),

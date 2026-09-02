@@ -241,8 +241,10 @@ export function useAddToPlan(today: CivilDate) {
   return {
     ...mutation,
     /** Reads, decides, then mutates. The order is the point. */
-    mutate: (items: readonly Addable[], options?: { onSuccess?: () => void }) =>
-      mutation.mutate(decide(items), options),
+    mutate: (
+      items: readonly Addable[],
+      options?: { onSuccess?: () => void; onError?: () => void; onSettled?: () => void },
+    ) => mutation.mutate(decide(items), options),
   };
 }
 

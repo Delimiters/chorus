@@ -339,15 +339,19 @@ describe('a finished plan', () => {
 });
 
 describe('adding a chore from the plan', () => {
-  it('offers a way in, so you need not go to the library', () => {
-    // "You should be able to create chores from today screen." The plan is
-    // where you notice something is missing.
+  it('does not float a + beside the button that adds what you already have', () => {
+    /*
+     * The + is the *create a new chore* button, and on this sub-tab it sat
+     * directly beside "Add something", which picks from existing chores. The
+     * most prominent control on the screen looked like the common action and
+     * did the rare one — Jake read it exactly that way.
+     *
+     * Creating still happens from the plan, in the picker's first row, so this
+     * asserts the removal rather than the loss of the ability. It stays on the
+     * Chores and Routines sub-tabs, where nothing competes with it.
+     */
     renderScreen([]);
-    fireEvent.press(screen.getByRole('button', { name: 'Add a chore' }));
-    // With `?plan=1`, so the form's "put it on today" switch defaults on here
-    // and nowhere else — every other entry point would otherwise silently add
-    // whatever you created to that day's plan.
-    expect(mockPush).toHaveBeenCalledWith('/chore/new?plan=1');
+    expect(screen.queryByRole('button', { name: 'Add a chore' })).toBeNull();
   });
 });
 

@@ -45,7 +45,7 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
    *
    * The plan passes `?plan=1`; everywhere else the switch is there and off.
    */
-  const params = useLocalSearchParams<{ plan?: string }>();
+  const params = useLocalSearchParams<{ plan?: string; title?: string }>();
   const [planToday, setPlanToday] = useState(params.plan === '1');
   const queuePlanOnCreate = useRoutineStore((s) => s.queuePlanOnCreate);
   const create = useCreateChore();
@@ -109,6 +109,7 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
       isSaving={pending}
       error={failure?.message ?? null}
       {...(chore ? {} : { planToday, onPlanTodayChange: setPlanToday })}
+      {...(chore === undefined && params.title !== undefined ? { initialTitle: params.title } : {})}
       {...(chore
         ? {
             onArchive: () =>

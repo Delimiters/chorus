@@ -13,7 +13,7 @@
  * leave by aiming at empty space is a trap.
  */
 
-import { Modal, Pressable, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Txt } from './components';
@@ -40,7 +40,20 @@ export function Sheet({ visible, onClose, title, subtitle, children }: Props) {
       onRequestClose={onClose}
       accessibilityViewIsModal
     >
-      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: colors.scrim }}>
+      {/*
+        Lifted clear of the keyboard.
+      
+        A sheet with a field in it — the "add to today" picker — put its options
+        behind the keyboard with no way to reach them: the list is anchored to
+        the bottom of the screen, the keyboard covers the bottom of the screen,
+        and the sheet had no idea the keyboard existed. `padding` rather than
+        `height`, because the sheet is bottom-anchored inside a `Modal` and
+        animating its height fights the slide-in.
+      */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: colors.scrim }}
+      >
         <Pressable
           onPress={onClose}
           accessibilityRole="button"
@@ -88,7 +101,7 @@ export function Sheet({ visible, onClose, title, subtitle, children }: Props) {
             {children}
           </View>
         </SafeAreaView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

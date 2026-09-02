@@ -14,7 +14,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { Button, Field, Stack, Txt } from '@/design/components';
@@ -22,6 +22,7 @@ import { Sheet } from '@/design/Sheet';
 import { useTheme } from '@/design/theme';
 import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { inkColor } from '@/design/inks';
+import { useKeyboardHeight } from '@/design/useKeyboardHeight';
 
 export interface PickerGroup {
   readonly key: string;
@@ -44,12 +45,65 @@ interface PlanPickerProps {
   readonly categoryFor: (choreId: string) => { name: string; ink: string | null } | null;
   readonly onClose: () => void;
   readonly onAdd: (items: readonly AgendaItem[]) => void;
+  /**
+   * Make a chore that does not exist yet, without leaving for the library.
+   *
+   * The floating + used to be the way, but on the plan it sat beside "Add
+   * something" — which picks from what you already have — so the most prominent
+   * control did the rarer thing. It is gone from this sub-tab, and this is
+   * where creating lives instead: one row, one tap, no menu in between.
+   *
+   * Carries whatever has been typed, so searching for something that turns out
+   * not to exist is the start of creating it rather than wasted effort.
+   */
+  readonly onCreate: (title: string) => void;
 }
 
-export function PlanPicker({ open, groups, categoryFor, onClose, onAdd }: PlanPickerProps) {
+/**
+ * Roughly the sheet's non-list furniture: grabber, title, field, button, inset.
+ *
+ * Approximate, and on a small enough screen the floor below does have to do the
+ * work: a 667pt phone with a 260pt keyboard leaves 107, so the list clamps to
+ * 180 and the sheet's own header is what gives. Both phones this runs on are
+ * 844pt or taller, where the subtraction never reaches the floor.
+ */
+const SHEET_CHROME = 300;
+/** Never so short that it stops being a list. Scrolls instead. */
+const MIN_LIST_HEIGHT = 180;
+/** What it was before the keyboard was accounted for, and still the ceiling. */
+const MAX_LIST_HEIGHT = 420;
+
+export function PlanPicker({
+  open,
+  groups,
+  categoryFor,
+  onClose,
+  onAdd,
+  onCreate,
+}: PlanPickerProps) {
   const { colors, isDark } = useTheme();
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set());
   const [query, setQuery] = useState('');
+
+  /*
+   * The list has to shrink when the keyboard is up, not just move.
+   *
+   * At a fixed 420 the options simply sat behind the keyboard: the sheet is
+   * bottom-anchored, so the bottom of the list is exactly where the keyboard
+   * appears. Searching for something and then being unable to reach the thing
+   * you searched for is the worst version of this screen.
+   *
+   * `SHEET_CHROME` is everything the list shares the sheet with — grabber,
+   * title, search field, the Add button and the safe-area inset. Approximate on
+   * purpose: it only has to be close enough that the floor below never has to
+   * do the work.
+   */
+  const { height: screenHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  const listMaxHeight = Math.max(
+    MIN_LIST_HEIGHT,
+    Math.min(MAX_LIST_HEIGHT, screenHeight - keyboardHeight - SHEET_CHROME),
+  );
 
   /**
    * Filtered by name, across every group at once.
@@ -115,14 +169,64 @@ export function PlanPicker({ open, groups, categoryFor, onClose, onAdd }: PlanPi
         />
       )}
 
+      {/*
+        Pinned above the list rather than scrolling with it.
+      
+        It is the answer to "it isn't in here", which is a thought you have at
+        the bottom of a long list as readily as at the top — a row that has
+        scrolled out of sight is not an answer.
+      */}
+      <Pressable
+        onPress={() => {
+          const typed = query.trim();
+          close();
+          onCreate(typed);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={
+          query.trim().length === 0
+            ? 'Create a new chore'
+            : `Create a new chore called ${query.trim()}`
+        }
+        style={{
+          minHeight: MIN_TARGET,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: space.sm,
+          paddingHorizontal: space.sm,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderStyle: 'dashed',
+          borderColor: colors.rule,
+        }}
+      >
+        <Txt variant="bodyStrong" tone="muted">
+          +
+        </Txt>
+        <Txt variant="body" numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>
+          {query.trim().length === 0 ? 'Create a new chore' : `Create “${query.trim()}”`}
+        </Txt>
+      </Pressable>
+
       {groups.length === 0 ? (
-        <View style={{ paddingVertical: space.xl, alignItems: 'center' }}>
+        <View style={{ paddingVertical: space.md, alignItems: 'center' }}>
           <Txt variant="small" tone="muted">
             Nothing left to add. Everything outstanding is already on today.
           </Txt>
         </View>
       ) : (
-        <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: space.md }}>
+        <ScrollView
+          style={{ maxHeight: listMaxHeight }}
+          contentContainerStyle={{ gap: space.md }}
+          /*
+           * Without this a tap on a row while the keyboard is up is swallowed
+           * dismissing the keyboard, and the row does not toggle — you tap a
+           * chore, nothing happens, and you tap again. That is the "you get
+           * stuck" part, and it is separate from the list being covered.
+           */
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
           {shown.length === 0 ? (
             <View style={{ paddingVertical: space.xl, alignItems: 'center' }}>
               <Txt variant="small" tone="muted">

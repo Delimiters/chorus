@@ -8,7 +8,8 @@
  * thing up is the common case.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { Keyboard, ScrollView } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { AgendaItem } from '@/core/occurrence/agenda';
@@ -31,12 +32,20 @@ const item = (title: string): AgendaItem =>
   }) as unknown as AgendaItem;
 
 const onAdd = jest.fn();
+const onCreate = jest.fn();
 const onClose = jest.fn();
 
 function renderPicker(groups: PickerGroup[]) {
   return render(
     <ThemeProvider>
-      <PlanPicker open groups={groups} categoryFor={() => null} onClose={onClose} onAdd={onAdd} />
+      <PlanPicker
+        open
+        groups={groups}
+        categoryFor={() => null}
+        onClose={onClose}
+        onAdd={onAdd}
+        onCreate={onCreate}
+      />
     </ThemeProvider>,
   );
 }
@@ -53,6 +62,7 @@ const later = (...titles: string[]): PickerGroup => ({
 });
 
 beforeEach(() => {
+  onCreate.mockClear();
   onAdd.mockClear();
   onClose.mockClear();
 });
@@ -150,5 +160,88 @@ describe('choosing', () => {
 
     expect(onClose).toHaveBeenCalled();
     expect(screen.getByLabelText('Search chores to add').props.value).toBe('');
+  });
+});
+
+describe('the keyboard', () => {
+  /*
+   * Props, not pixels: jest-expo does no layout, so this cannot prove the list
+   * is actually clear of the keyboard — that was checked on the phone. What it
+   * can pin is the two decisions, both of which are one prop each and both of
+   * which were silently absent.
+   */
+  const listOf = () => screen.UNSAFE_getByType(ScrollView);
+
+  it('lets a tap through instead of only dismissing itself', () => {
+    // Without this the first tap on a row is eaten dismissing the keyboard and
+    // the row does not toggle: you tap a chore, nothing happens, you tap again.
+    renderPicker([late('Water upstairs plants')]);
+
+    expect(listOf().props.keyboardShouldPersistTaps).toBe('handled');
+  });
+
+  it('shortens the list when the keyboard is up', () => {
+    // `Keyboard.emit` does not exist under jest-expo, so the listener the hook
+    // registers is captured and called directly — which is what the platform
+    // does to it anyway.
+    const listeners = new Map<string, (event: unknown) => void>();
+    // Restored explicitly: there is no `restoreMocks` in the jest config, so a
+    // spy left installed is a landmine for whoever appends the next test.
+    const spy = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+      event: string,
+      handler: (payload: unknown) => void,
+    ) => {
+      listeners.set(event, handler);
+      return { remove: () => listeners.delete(event) };
+    }) as never);
+
+    renderPicker([late('Water upstairs plants')]);
+    const before = listOf().props.style.maxHeight;
+
+    act(() => {
+      /*
+       * Deliberately taller than a real keyboard. The test environment's window
+       * is far taller than any phone, so a realistic 336 never forces the
+       * clamp — and jest-expo does no layout, so the arithmetic against a real
+       * screen cannot be checked here regardless. What this pins is the
+       * coupling: the list's height is a function of the keyboard's. The
+       * clearance itself was checked on the phone.
+       */
+      listeners.get('keyboardWillShow')?.({ endCoordinates: { height: 5000 } });
+    });
+
+    // The whole bug: at a fixed height the bottom of the list sits exactly
+    // where the keyboard appears, so the row you just searched for is
+    // unreachable.
+    expect(listOf().props.style.maxHeight).toBeLessThan(before);
+    spy.mockRestore();
+  });
+});
+
+describe('creating a chore that does not exist yet', () => {
+  it('offers it as the first row, not behind a menu', () => {
+    // The floating + is gone from this sub-tab: it is the *create* button and
+    // it sat beside "Add something", which picks from what you already have.
+    // Creating lives here now, and it stays one tap.
+    renderPicker([late('Water upstairs plants')]);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Create a new chore' }));
+    expect(onCreate).toHaveBeenCalledWith('');
+  });
+
+  it('carries what you searched for into the new chore', () => {
+    /*
+     * Searching for something that turns out not to exist is the commonest way
+     * to end up here, and arriving at an empty form would throw away the words
+     * that got you there.
+     */
+    renderPicker([late('Water upstairs plants')]);
+
+    fireEvent.changeText(screen.getByLabelText('Search chores to add'), 'Descale kettle');
+    fireEvent.press(
+      screen.getByRole('button', { name: 'Create a new chore called Descale kettle' }),
+    );
+
+    expect(onCreate).toHaveBeenCalledWith('Descale kettle');
   });
 });
