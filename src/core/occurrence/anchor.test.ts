@@ -359,3 +359,81 @@ describe('rotation survives the re-anchor', () => {
     expect(next?.assignee).not.toEqual(first?.assignee);
   });
 });
+
+describe('the same chore looks the same from every window', () => {
+  /*
+   * The defect this guards is invisible to every other test here, because they
+   * all use one window.
+   *
+   * `expand.ts` calls window composability "the property most likely to catch
+   * an off-by-one anywhere in this file" and property-tests it — but anchoring
+   * happens a layer *above* the expander, where no property reached. A review
+   * measured a 24% disagreement rate between projecting a whole window and
+   * projecting the same window in two halves, once an interval chore had a
+   * completion: the completion was outside the second half's range, so that
+   * half silently fell back to the fixed grid.
+   *
+   * Four screens project the same chores over different windows — Today,
+   * Upcoming, Stats and the reminder planner. Disagreeing about dates means
+   * disagreeing about occurrence *keys*, so a reminder could fire for something
+   * Today does not show, and a completion written from one screen would not be
+   * the row another screen generates.
+   */
+  const splitAt = (chore: ChoreInput, completions: CompletionInput[], cut: CivilDate) => {
+    const whole = projectOccurrences(
+      { chores: [chore], completions, exceptions: [], memberIds: ['user-me'], today: TODAY },
+      CAL,
+      { start: d('2026-09-01'), end: d('2026-11-30') },
+    );
+    const second = projectOccurrences(
+      { chores: [chore], completions, exceptions: [], memberIds: ['user-me'], today: TODAY },
+      CAL,
+      { start: cut, end: d('2026-11-30') },
+    );
+    return {
+      whole: whole.filter((o) => o.dueOn >= cut).map((o) => o.dueOn),
+      second: second.map((o) => o.dueOn),
+    };
+  };
+
+  it('agrees when the completion is far outside the later window', () => {
+    // The exact case that failed: the anchoring completion is two months before
+    // the second window even begins.
+    const chore = every(6, '2026-09-02');
+    const first = project([chore], [])[0];
+    const completions = [done(first?.occurrenceKey ?? '', '2026-09-05')];
+
+    const { whole, second } = splitAt(chore, completions, d('2026-11-01'));
+
+    expect(second.length).toBeGreaterThan(0);
+    expect(second).toEqual(whole);
+  });
+
+  it('agrees for a long interval, where the fallback was most visible', () => {
+    const chore = every(30, '2026-09-02');
+    const first = project([chore], [])[0];
+    const completions = [done(first?.occurrenceKey ?? '', '2026-09-20')];
+
+    const { whole, second } = splitAt(chore, completions, d('2026-11-01'));
+
+    expect(second.length).toBeGreaterThan(0);
+    expect(second).toEqual(whole);
+  });
+
+  it('agrees after several completions', () => {
+    const chore = every(6, '2026-09-02');
+    const completions: CompletionInput[] = [];
+    let series = project([chore], completions);
+    for (let i = 0; i < 3; i += 1) {
+      const next = series.find((o) => o.status !== 'completed');
+      if (next === undefined) break;
+      completions.push(done(next.occurrenceKey, addDays(next.dueOn, 2)));
+      series = project([chore], completions);
+    }
+
+    const { whole, second } = splitAt(chore, completions, d('2026-11-01'));
+
+    expect(second.length).toBeGreaterThan(0);
+    expect(second).toEqual(whole);
+  });
+});

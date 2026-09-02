@@ -65,6 +65,25 @@ export function projectOccurrences(
   };
 
   const completions = indexBy(input.completions, (c) => c.occurrenceKey);
+
+  /**
+   * Completions grouped by chore, for the interval anchoring.
+   *
+   * It needs *every* completion a chore has, not the ones whose occurrence
+   * happens to fall in this window — the phase of the series is set by the last
+   * one whenever it was, and looking only inside the window made four screens
+   * disagree about the same chore's due dates.
+   */
+  const completionsByChore = new Map<string, { occurrenceKey: string; completedOn: CivilDate }[]>();
+  for (const completion of input.completions) {
+    const held = completionsByChore.get(completion.choreId);
+    const entry = {
+      occurrenceKey: completion.occurrenceKey,
+      completedOn: completion.completedOn,
+    };
+    if (held === undefined) completionsByChore.set(completion.choreId, [entry]);
+    else held.push(entry);
+  }
   const exceptions = indexBy(input.exceptions, (e) => e.occurrenceKey);
 
   const out: ProjectedOccurrence[] = [];
@@ -89,7 +108,7 @@ export function projectOccurrences(
       const raw = anchorToCompletion(
         chore.schedule,
         expandOccurrences(chore.id, chore.schedule, cal, padded, subject),
-        (key) => completions.get(key),
+        completionsByChore.get(chore.id) ?? [],
         (anchor) =>
           expandOccurrences(
             chore.id,
