@@ -33,6 +33,7 @@
 
 import { addDays, compareCivil, daysBetween } from '../civil/date';
 import type { CivilDate } from '../civil/types';
+import { parseOccurrenceKey } from '../recurrence/period';
 import type { Occurrence, Schedule } from '../recurrence/types';
 
 /** What the projector knows about a completion, as this needs it. */
@@ -45,8 +46,10 @@ export interface CompletedAt {
  * The date an interval occurrence was due, read off its key.
  *
  * `v1:{choreId}:{periodKey}:{slot}:{subject}`, and for a `daily` rule the
- * period key *is* the due date — see `dayPeriodKey`. A chore id is a uuid, so
- * it contains no colons and the third field is unambiguous.
+ * period key *is* the due date — see `dayPeriodKey`. Parsed with the shared
+ * `parseOccurrenceKey`, which splits from the right: reimplementing it as
+ * `split(':')[2]` here reintroduced the assumption that parser exists to avoid,
+ * and dropping the `subject` field on the way is what cross-wired `everyone`.
  *
  * Reading it from the key rather than from an expanded occurrence is what makes
  * the anchor independent of the window. Scanning the grid meant a completion
@@ -56,7 +59,7 @@ export interface CompletedAt {
  * occurrence keys. A reminder could fire for an occurrence Today did not show.
  */
 function dueOnFromKey(occurrenceKey: string): CivilDate | null {
-  const periodKey = occurrenceKey.split(':')[2];
+  const periodKey = parseOccurrenceKey(occurrenceKey)?.periodKey;
   return periodKey !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(periodKey)
     ? (periodKey as CivilDate)
     : null;
@@ -78,10 +81,15 @@ export function anchorToCompletion(
   completions: readonly CompletedAt[],
   expandFrom: (anchor: CivilDate) => readonly Occurrence[],
   hasException: (key: string) => boolean,
+  /** Start of the window being projected, so older segments can skip expansion. */
+  windowStart: CivilDate,
 ): readonly Occurrence[] {
   if (schedule.rule.kind !== 'daily') return raw;
 
   const everyNDays = schedule.rule.everyNDays;
+  // A rule with several times of day emits that many occurrences per date, and
+  // every one of them has its own index. Counting dates would undercount.
+  const slotsPerDate = Math.max(1, schedule.timesOfDay.length);
 
   const dated = completions
     .map((completion) => ({
@@ -92,20 +100,6 @@ export function anchorToCompletion(
     .sort((a, b) => compareCivil(a.dueOn, b.dueOn));
 
   if (dated.length === 0) return raw;
-
-  /**
-   * Position in the chore's *original* infinite sequence, from the date alone.
-   *
-   * `occurrenceIndex` is what occurrence-cadence rotation counts turns with.
-   * Restarting it at zero would hand the chore back to whoever had the first
-   * turn every time anybody completed anything; counting completions instead
-   * broke "rotation is completion-independent" outright, because how many times
-   * something has been done says nothing about where it sits in the sequence.
-   * Derived from the date, it is unchanged whenever the chain lands back on the
-   * original grid — which is every completion made on the day it was due.
-   */
-  const indexFor = (dueOn: CivilDate): number =>
-    Math.max(0, Math.ceil(daysBetween(schedule.startsOn, dueOn) / everyNDays));
 
   /*
    * Walked segment by segment, oldest completion first.
@@ -120,14 +114,52 @@ export function anchorToCompletion(
   let anchor = schedule.startsOn;
   let applied = 0;
 
+  /*
+   * How many occurrences the chain has already been through.
+   *
+   * `occurrenceIndex` is what occurrence-cadence rotation counts turns with, so
+   * it has to be **strictly increasing along the chain**. Deriving it from the
+   * date's distance along the *original* grid does not: a chore completed a day
+   * late produced 0, 2, 3, 4 — index 1 never happened, so whoever had turn 1
+   * was silently skipped and the previous person got two turns in a row.
+   *
+   * Counting instead, from the start of the chain, is monotonic by
+   * construction. It is also window-independent, which the running total below
+   * is careful to preserve: a segment that ends before the window still adds
+   * its occurrences to the count, even though none of them are emitted.
+   */
+  let chainIndex = 0;
+
   for (const completion of dated) {
     // A completion behind the anchor belongs to a grid already superseded.
     if (compareCivil(completion.dueOn, anchor) < 0) continue;
 
-    for (const occ of expandFrom(anchor)) {
-      if (compareCivil(occ.dueOn, completion.dueOn) > 0) break;
-      out.push({ ...occ, occurrenceIndex: indexFor(occ.dueOn) });
+    /*
+     * A completion has to sit *on* the chain to move it.
+     *
+     * A tick written against a date this chore no longer falls on — which is
+     * what a stale client writes — would otherwise drag the whole series onto
+     * a phase nothing was ever due on.
+     */
+    const offset = daysBetween(anchor, completion.dueOn);
+    if (offset % everyNDays !== 0) continue;
+
+    /*
+     * Segments that end before the window are counted, not expanded.
+     *
+     * `expandFrom` materialises the whole window every time it is called, so
+     * expanding once per completion made a chore with a couple of years of
+     * history cost half a second on every recomputation — on the JS thread,
+     * inside a `useMemo`, on each optimistic tick.
+     */
+    if (compareCivil(completion.dueOn, windowStart) >= 0) {
+      for (const occ of expandFrom(anchor)) {
+        if (compareCivil(occ.dueOn, completion.dueOn) > 0) break;
+        out.push({ ...occ, occurrenceIndex: chainIndex + occ.occurrenceIndex });
+      }
     }
+
+    chainIndex += (offset / everyNDays + 1) * slotsPerDate;
 
     /*
      * N days after it was *done*, and never on or before the occurrence it
@@ -143,7 +175,7 @@ export function anchorToCompletion(
   if (applied === 0) return raw;
 
   for (const occ of expandFrom(anchor)) {
-    out.push({ ...occ, occurrenceIndex: indexFor(occ.dueOn) });
+    out.push({ ...occ, occurrenceIndex: chainIndex + occ.occurrenceIndex });
   }
 
   /*

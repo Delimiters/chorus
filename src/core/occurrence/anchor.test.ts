@@ -9,6 +9,7 @@
 
 import { addDays, civilDate } from '../civil/date';
 import type { CalendarConfig, CivilDate } from '../civil/types';
+import { anchorToCompletion } from './anchor';
 import { projectOccurrences } from './project';
 import type { ChoreInput, CompletionInput } from './types';
 
@@ -46,6 +47,14 @@ const weekly = (startsOn: string): ChoreInput => ({
 const done = (occurrenceKey: string, completedOn: string): CompletionInput => ({
   choreId: 'plants',
   occurrenceKey,
+  completedOn: d(completedOn),
+  completedBy: 'user-me',
+});
+
+/** A completion addressed at a due date, by the key that date produces. */
+const done2 = (dueOn: string, completedOn: string): CompletionInput => ({
+  choreId: 'plants',
+  occurrenceKey: `v1:plants:${dueOn}:0:-`,
   completedOn: d(completedOn),
   completedBy: 'user-me',
 });
@@ -421,13 +430,23 @@ describe('the same chore looks the same from every window', () => {
   });
 
   it('agrees after several completions', () => {
+    /*
+     * Three days late, not two, and the difference is the whole test.
+     *
+     * At two days late over an interval of six, three completions accumulate
+     * exactly six days of drift — so the re-anchored chain is congruent to the
+     * fixed grid mod N and lands on identical dates. This passed against the
+     * unfixed engine, which is the "documents the shape of a guarantee without
+     * checking it" case AGENTS.md warns about. Three days late is not
+     * congruent, and it fails without the fix.
+     */
     const chore = every(6, '2026-09-02');
     const completions: CompletionInput[] = [];
     let series = project([chore], completions);
     for (let i = 0; i < 3; i += 1) {
       const next = series.find((o) => o.status !== 'completed');
       if (next === undefined) break;
-      completions.push(done(next.occurrenceKey, addDays(next.dueOn, 2)));
+      completions.push(done(next.occurrenceKey, addDays(next.dueOn, 3)));
       series = project([chore], completions);
     }
 
@@ -435,5 +454,185 @@ describe('the same chore looks the same from every window', () => {
 
     expect(second.length).toBeGreaterThan(0);
     expect(second).toEqual(whole);
+  });
+});
+
+describe('what re-anchoring must not disturb', () => {
+  const rotating = (days: number, startsOn: string): ChoreInput => ({
+    id: 'plants',
+    title: 'Water the plants',
+    schedule: {
+      rule: { kind: 'daily', everyNDays: days },
+      startsOn: d(startsOn),
+      endsOn: null,
+      timesOfDay: [],
+    },
+    assignment: {
+      kind: 'rotate',
+      cadence: { unit: 'occurrence', every: 1 },
+      segments: [{ effectiveFrom: d(startsOn), memberIds: ['alice', 'bob'], offset: 0 }],
+    },
+    archived: false,
+  });
+
+  const turns = (chore: ChoreInput, completions: CompletionInput[], today = TODAY) =>
+    projectOccurrences(
+      { chores: [chore], completions, exceptions: [], memberIds: ['alice', 'bob'], today },
+      CAL,
+      { start: d('2026-09-02'), end: d('2026-09-20') },
+    ).map(
+      (o) =>
+        `${o.dueOn}#${o.occurrenceIndex}:${o.assignee.kind === 'member' ? o.assignee.memberId : '?'}`,
+    );
+
+  it('does not hand a rotating chore back to the person who just did it', () => {
+    /*
+     * `occurrenceIndex` is what an occurrence-cadence rotation counts turns
+     * with, so it has to increase by one along the chain. Deriving it from the
+     * date's distance along the original grid gave 0, 2, 3, 4 for a chore done
+     * one day late — index 1 never existed, bob's turn was deleted, and alice
+     * got it twice running. Nothing on screen says "your turn was skipped".
+     */
+    const chore = rotating(2, '2026-09-02');
+    const out = turns(chore, [done2('2026-09-02', '2026-09-03')]);
+
+    expect(out.slice(0, 4)).toEqual([
+      '2026-09-02#0:alice',
+      '2026-09-05#1:bob',
+      '2026-09-07#2:alice',
+      '2026-09-09#3:bob',
+    ]);
+  });
+
+  it('gives the same turn to the same person from a later window', () => {
+    // The index has to be window-independent as well as monotonic: a rotation
+    // that depends on how far the screen looks ahead is a rotation two people
+    // can read differently on two phones.
+    const chore = rotating(2, '2026-09-02');
+    const completions = [done2('2026-09-02', '2026-09-03')];
+
+    const whole = turns(chore, completions);
+    const later = projectOccurrences(
+      { chores: [chore], completions, exceptions: [], memberIds: ['alice', 'bob'], today: TODAY },
+      CAL,
+      { start: d('2026-09-11'), end: d('2026-09-20') },
+    ).map(
+      (o) =>
+        `${o.dueOn}#${o.occurrenceIndex}:${o.assignee.kind === 'member' ? o.assignee.memberId : '?'}`,
+    );
+
+    expect(later.length).toBeGreaterThan(0);
+    expect(later).toEqual(whole.filter((t) => t >= '2026-09-11'));
+  });
+
+  it('keeps one person&apos;s everyone chore off the other person&apos;s dates', () => {
+    /*
+     * `everyone` is "one job *each*, done separately". Grouping completions by
+     * chore alone re-anchored the whole fan-out, so Emily doing her own laundry
+     * slid mine three days later — I did nothing and my schedule moved.
+     */
+    const chore: ChoreInput = {
+      id: 'plants',
+      title: 'Laundry',
+      schedule: {
+        rule: { kind: 'daily', everyNDays: 6 },
+        startsOn: d('2026-09-02'),
+        endsOn: null,
+        timesOfDay: [],
+      },
+      assignment: { kind: 'everyone' },
+      archived: false,
+    };
+    const out = projectOccurrences(
+      {
+        chores: [chore],
+        completions: [
+          {
+            choreId: 'plants',
+            occurrenceKey: 'v1:plants:2026-09-02:0:alice',
+            completedOn: d('2026-09-05'),
+            completedBy: 'alice',
+          },
+        ],
+        exceptions: [],
+        memberIds: ['alice', 'bob'],
+        today: TODAY,
+      },
+      CAL,
+      { start: d('2026-09-02'), end: d('2026-09-20') },
+    );
+
+    // Alice re-anchors to her completion; bob stays on the grid he was always on.
+    expect(dates(out.filter((o) => o.subject === 'bob'))).toEqual([
+      d('2026-09-02'),
+      d('2026-09-08'),
+      d('2026-09-14'),
+      d('2026-09-20'),
+    ]);
+    expect(dates(out.filter((o) => o.subject === 'alice'))).toEqual([
+      d('2026-09-02'),
+      d('2026-09-11'),
+      d('2026-09-17'),
+    ]);
+  });
+
+  it('ignores a completion of a date the chain never had', () => {
+    /*
+     * A stale client ticks the *fixed grid* date, which this chore no longer
+     * falls on. Trusting it dragged the whole series onto a phase nothing was
+     * ever due on, and the tick itself still vanished.
+     */
+    const chore = every(6, '2026-09-02');
+    const out = project(
+      [chore],
+      [done2('2026-09-02', '2026-09-05'), done2('2026-09-14', '2026-09-14')],
+    );
+
+    expect(dates(out).slice(0, 3)).toEqual([d('2026-09-02'), d('2026-09-11'), d('2026-09-17')]);
+  });
+});
+
+describe('the cost of a long history', () => {
+  it('does not re-expand the window once per completion', () => {
+    /*
+     * Counted rather than timed, so it cannot flake on a slow runner.
+     *
+     * `expandFrom` materialises the whole window on every call, so expanding
+     * inside the per-completion loop is O(completions × window) — measured at
+     * 537ms for a two-year-old daily chore over a 21-day window, on the JS
+     * thread, inside a `useMemo`, recomputed on every optimistic tick. Segments
+     * that end before the window are counted arithmetically instead, which is
+     * what makes passing *every* completion affordable in the first place.
+     */
+    const startsOn = d('2024-09-01');
+    const schedule = {
+      rule: { kind: 'daily' as const, everyNDays: 1 },
+      startsOn,
+      endsOn: null,
+      timesOfDay: [],
+    };
+
+    const completions = Array.from({ length: 700 }, (_unused, i) => {
+      const dueOn = addDays(startsOn, i);
+      return { occurrenceKey: `v1:plants:${dueOn}:0:-`, completedOn: dueOn };
+    });
+
+    let calls = 0;
+    const windowStart = d('2026-08-15');
+    anchorToCompletion(
+      schedule,
+      [],
+      completions,
+      () => {
+        calls += 1;
+        return [];
+      },
+      () => false,
+      windowStart,
+    );
+
+    // Every one of the 700 completions predates the window, so only the final
+    // open-ended segment needs expanding at all.
+    expect(calls).toBe(1);
   });
 });
