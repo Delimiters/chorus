@@ -10,7 +10,7 @@
  * looked completely normal on screen.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { AgendaItem } from '@/core/occurrence/agenda';
@@ -210,9 +210,11 @@ describe('recurring chores that are due today or late', () => {
 
   it('does not re-add work already finished or skipped today', async () => {
     /*
-     * Both are dated today and both are outstanding-shaped, so the date test
-     * alone lets them through — and a chore you already did reappearing on the
-     * day, unticked, is the plan lying about what is left.
+     * A guard on a fixture that `buildTodayView` does not currently produce —
+     * it filters `mine` to due-or-overdue before this ever runs. Kept as a
+     * defensive assertion, not presented as the thing that saves us: a chore
+     * you already did reappearing unticked is the plan lying about what is
+     * left, and this pins that the filter here would catch it.
      */
     mockView.mine = [
       item('litter'),
@@ -504,5 +506,94 @@ describe('work already on the plan', () => {
     await waitFor(() =>
       expect(screen.getByRole('checkbox', { name: 'october, already on today' })).toBeOnTheScreen(),
     );
+  });
+});
+
+describe('the day is only marked auto-planned once the write lands', () => {
+  /*
+   * `useAddToPlan` is optimistic: `onMutate` puts the new rows in the cache
+   * before the request is sent. `entries` is a dependency of the auto-plan
+   * effect, so that write re-runs the effect, nothing is left to add, and the
+   * "nothing to do" branch marked the day done with the request still open.
+   * `autoPlannedOn` is persisted, so a write that then failed left the day
+   * marked and the auto-plan silently never ran again that day.
+   *
+   * The other tests in this file cannot see it, because they mock `mutate` as a
+   * plain spy that writes nothing — which is the "fix was inert in production"
+   * shape AGENTS.md names. This mock does what the real hook does.
+   */
+  const optimistic = (outcome: 'resolve' | 'reject') => {
+    mockAdd.mockImplementation(
+      (
+        items: { occurrenceKey: string; choreId: string }[],
+        options?: { onSuccess?: () => void; onError?: () => void; onSettled?: () => void },
+      ) => {
+        // `onMutate`: the rows appear in the cache immediately.
+        mockEntries = [
+          ...mockEntries,
+          ...items.map((i, index) => ({ ...i, plannedFor: mockToday, position: index + 1 })),
+        ];
+        settle = () => {
+          if (outcome === 'resolve') options?.onSuccess?.();
+          else options?.onError?.();
+          options?.onSettled?.();
+        };
+      },
+    );
+  };
+
+  let settle: () => void = () => {};
+
+  it('does not mark it while the insert is still in flight', async () => {
+    optimistic('resolve');
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    const { rerender } = renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+
+    /*
+     * The re-render the optimistic cache write causes in the real app. Without
+     * driving it the effect never runs a second time, and this test passes
+     * against the very bug it exists for — the mocked `useMyPlanEntries` is a
+     * plain module variable with no reactivity of its own.
+     */
+    act(() => {
+      rerender(
+        <ThemeProvider>
+          <PlanView />
+        </ThemeProvider>,
+      );
+    });
+
+    expect(mockMarkAutoPlanned).not.toHaveBeenCalled();
+
+    act(() => settle());
+    expect(mockMarkAutoPlanned).toHaveBeenCalledWith(mockToday);
+  });
+
+  it('leaves the day unmarked when the insert fails', async () => {
+    // So tomorrow's launch — or this one, after a restart — tries again,
+    // instead of the day being permanently marked done having done nothing.
+    optimistic('reject');
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    const { rerender } = renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    act(() => settle());
+
+    // The rollback: the rows go away again, which re-runs the effect. It must
+    // not resubmit forever, and it must not mark the day.
+    mockEntries = [];
+    act(() => {
+      rerender(
+        <ThemeProvider>
+          <PlanView />
+        </ThemeProvider>,
+      );
+    });
+
+    expect(mockMarkAutoPlanned).not.toHaveBeenCalled();
   });
 });

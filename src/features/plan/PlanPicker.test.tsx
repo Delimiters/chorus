@@ -32,12 +32,20 @@ const item = (title: string): AgendaItem =>
   }) as unknown as AgendaItem;
 
 const onAdd = jest.fn();
+const onCreate = jest.fn();
 const onClose = jest.fn();
 
 function renderPicker(groups: PickerGroup[]) {
   return render(
     <ThemeProvider>
-      <PlanPicker open groups={groups} categoryFor={() => null} onClose={onClose} onAdd={onAdd} />
+      <PlanPicker
+        open
+        groups={groups}
+        categoryFor={() => null}
+        onClose={onClose}
+        onAdd={onAdd}
+        onCreate={onCreate}
+      />
     </ThemeProvider>,
   );
 }
@@ -54,6 +62,7 @@ const later = (...titles: string[]): PickerGroup => ({
 });
 
 beforeEach(() => {
+  onCreate.mockClear();
   onAdd.mockClear();
   onClose.mockClear();
 });
@@ -176,7 +185,9 @@ describe('the keyboard', () => {
     // registers is captured and called directly — which is what the platform
     // does to it anyway.
     const listeners = new Map<string, (event: unknown) => void>();
-    jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+    // Restored explicitly: there is no `restoreMocks` in the jest config, so a
+    // spy left installed is a landmine for whoever appends the next test.
+    const spy = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
       event: string,
       handler: (payload: unknown) => void,
     ) => {
@@ -203,5 +214,34 @@ describe('the keyboard', () => {
     // where the keyboard appears, so the row you just searched for is
     // unreachable.
     expect(listOf().props.style.maxHeight).toBeLessThan(before);
+    spy.mockRestore();
+  });
+});
+
+describe('creating a chore that does not exist yet', () => {
+  it('offers it as the first row, not behind a menu', () => {
+    // The floating + is gone from this sub-tab: it is the *create* button and
+    // it sat beside "Add something", which picks from what you already have.
+    // Creating lives here now, and it stays one tap.
+    renderPicker([late('Water upstairs plants')]);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Create a new chore' }));
+    expect(onCreate).toHaveBeenCalledWith('');
+  });
+
+  it('carries what you searched for into the new chore', () => {
+    /*
+     * Searching for something that turns out not to exist is the commonest way
+     * to end up here, and arriving at an empty form would throw away the words
+     * that got you there.
+     */
+    renderPicker([late('Water upstairs plants')]);
+
+    fireEvent.changeText(screen.getByLabelText('Search chores to add'), 'Descale kettle');
+    fireEvent.press(
+      screen.getByRole('button', { name: 'Create a new chore called Descale kettle' }),
+    );
+
+    expect(onCreate).toHaveBeenCalledWith('Descale kettle');
   });
 });

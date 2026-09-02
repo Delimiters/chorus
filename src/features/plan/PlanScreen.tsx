@@ -25,7 +25,6 @@ import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
-import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { ChoreRow, SectionHeader } from '@/design/ChoreRow';
 import { DragList } from '@/design/DragList';
 import { positionBetween } from '@/core/plan/reorder';
@@ -183,11 +182,6 @@ export function PlanScreen({
     () => new Map((members.data ?? []).map((m) => [m.userId, m.displayName])),
     [members.data],
   );
-  /** Your accent, so the add button matches the same button on every other tab. */
-  const myInk = useMemo(
-    () => (members.data ?? []).find((m) => m.userId === userId)?.accent ?? null,
-    [members.data, userId],
-  );
   const theirName = useMemo(
     () => (members.data ?? []).find((m) => m.userId !== userId)?.displayName ?? 'They',
     [members.data, userId],
@@ -227,7 +221,7 @@ export function PlanScreen({
       <ScrollView
         contentContainerStyle={{
           padding: space.lg,
-          paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
+          paddingBottom: space.xxxl,
           gap: 2,
         }}
         scrollEnabled={!dragging}
@@ -433,16 +427,17 @@ export function PlanScreen({
         further in.
       */}
       {/*
-        Adding a chore from the plan.
+        No floating + here, and that is the point.
 
-        "You should be able to create chores from today screen" — and the plan
-        is where you notice something is missing, so making you navigate to the
-        library to add it is the same friction the whole redesign is removing.
+        It is the *create a new chore* button, but on this screen it sits
+        directly beside "Add something", which picks from chores you already
+        have — so the most prominent control on the plan looked like the common
+        action and did the rare one. Jake read it exactly that way.
 
-        `?plan=1` so the form's "put it on today" switch defaults on *here* and
-        nowhere else; wearing your ink, like the same button on every other tab.
+        Creating still happens from the plan, without a second step: the picker
+        opens with "Create a new chore" as its first row. The button stays on
+        the Chores and Routines sub-tabs, where nothing else competes with it.
       */}
-      <AddChoreButton onPress={() => router.push('/chore/new?plan=1')} ink={myInk} />
 
       <Sheet
         visible={removing !== null}
