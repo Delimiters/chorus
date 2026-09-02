@@ -14,7 +14,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { Button, Field, Stack, Txt } from '@/design/components';
@@ -22,6 +22,7 @@ import { Sheet } from '@/design/Sheet';
 import { useTheme } from '@/design/theme';
 import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { inkColor } from '@/design/inks';
+import { useKeyboardHeight } from '@/design/useKeyboardHeight';
 
 export interface PickerGroup {
   readonly key: string;
@@ -46,10 +47,37 @@ interface PlanPickerProps {
   readonly onAdd: (items: readonly AgendaItem[]) => void;
 }
 
+/** Roughly the sheet's non-list furniture: grabber, title, field, button, inset. */
+const SHEET_CHROME = 300;
+/** Never so short that it stops being a list. Scrolls instead. */
+const MIN_LIST_HEIGHT = 180;
+/** What it was before the keyboard was accounted for, and still the ceiling. */
+const MAX_LIST_HEIGHT = 420;
+
 export function PlanPicker({ open, groups, categoryFor, onClose, onAdd }: PlanPickerProps) {
   const { colors, isDark } = useTheme();
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set());
   const [query, setQuery] = useState('');
+
+  /*
+   * The list has to shrink when the keyboard is up, not just move.
+   *
+   * At a fixed 420 the options simply sat behind the keyboard: the sheet is
+   * bottom-anchored, so the bottom of the list is exactly where the keyboard
+   * appears. Searching for something and then being unable to reach the thing
+   * you searched for is the worst version of this screen.
+   *
+   * `SHEET_CHROME` is everything the list shares the sheet with — grabber,
+   * title, search field, the Add button and the safe-area inset. Approximate on
+   * purpose: it only has to be close enough that the floor below never has to
+   * do the work.
+   */
+  const { height: screenHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  const listMaxHeight = Math.max(
+    MIN_LIST_HEIGHT,
+    Math.min(MAX_LIST_HEIGHT, screenHeight - keyboardHeight - SHEET_CHROME),
+  );
 
   /**
    * Filtered by name, across every group at once.
@@ -122,7 +150,18 @@ export function PlanPicker({ open, groups, categoryFor, onClose, onAdd }: PlanPi
           </Txt>
         </View>
       ) : (
-        <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: space.md }}>
+        <ScrollView
+          style={{ maxHeight: listMaxHeight }}
+          contentContainerStyle={{ gap: space.md }}
+          /*
+           * Without this a tap on a row while the keyboard is up is swallowed
+           * dismissing the keyboard, and the row does not toggle — you tap a
+           * chore, nothing happens, and you tap again. That is the "you get
+           * stuck" part, and it is separate from the list being covered.
+           */
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
           {shown.length === 0 ? (
             <View style={{ paddingVertical: space.xl, alignItems: 'center' }}>
               <Txt variant="small" tone="muted">

@@ -345,19 +345,29 @@ export function PlanView() {
     );
 
     /*
-     * Due *today*, not merely outstanding.
+     * Due today **or late**, which is Jake's call and a reversal of the
+     * previous rule here.
      *
-     * `view.mine` is everything outstanding — including work fifty-nine days
-     * overdue, and anything `showFrom` has pulled forward, which on this
-     * household is thirty-two of about fifty rows. Auto-adding that is the wall
-     * of twenty again, wearing the plan's clothes, and it leaves the proposal —
-     * the thing that exists to rank a backlog — with nothing left to rank.
+     * The argument for today-only was that `view.mine` is everything
+     * outstanding, so auto-adding it was the wall of fifty wearing the plan's
+     * clothes. What changed is the cause of that wall: interval chores were
+     * being held against a fixed grid, so being three days late meant being
+     * permanently late and the backlog only ever grew. Completion-anchoring
+     * means a late chore re-anchors to when you actually did it, so "overdue"
+     * is now a handful of real things rather than a standing accusation.
      *
-     * Overdue recurring work still reaches you, through the proposal, ranked.
+     * A late chore is work you already agreed to and did not get to. Leaving it
+     * out of the day and waiting for the proposal to rank it back in made you
+     * choose it twice.
+     *
+     * `dueOn <= today` rather than a status test, because `view.mine` also
+     * carries anything `showFrom` has pulled forward — those are not late, they
+     * are early, and auto-adding them puts next week on today.
      */
     const due = view.mine.filter(
       (item) =>
-        item.dueOn === today &&
+        item.dueOn <= today &&
+        (item.status === 'due' || item.status === 'overdue') &&
         !planned.has(item.occurrenceKey) &&
         isRecurring(chores.find((c) => c.id === item.choreId)?.schedule ?? FALLBACK_SCHEDULE),
     );

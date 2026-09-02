@@ -160,7 +160,7 @@ beforeEach(() => {
   mockScheduleToday.mockClear();
 });
 
-describe('recurring chores that are due today', () => {
+describe('recurring chores that are due today or late', () => {
   it('go on the plan by themselves', async () => {
     mockView.mine = [item('litter')];
     mockChores = [recurring('litter')];
@@ -169,19 +169,57 @@ describe('recurring chores that are due today', () => {
     await waitFor(() => expect(addedKeys()).toEqual(['v1:litter']));
   });
 
-  it('does not drag the whole overdue backlog in with them', async () => {
+  it('brings late work in with them', async () => {
     /*
-     * The defect a review caught. `view.mine` is everything *outstanding* —
-     * work fifty-nine days late, and anything `showFrom` has pulled forward,
-     * which on this household is thirty-two of about fifty rows. Auto-adding
-     * that is the wall of twenty again wearing the plan's clothes, and it
-     * leaves the proposal with nothing left to rank.
+     * Jake's call, and a reversal: this file previously asserted the opposite.
+     *
+     * The case against was that the overdue pile was thirty-two of about fifty
+     * rows. That pile was mostly an artefact — interval chores were held
+     * against a fixed grid, so three days late meant permanently late. With
+     * completion-anchoring, being late is a handful of real things, and a late
+     * chore is work you already agreed to. Leaving it off the day made you
+     * choose it a second time.
      */
     mockView.mine = [
       item('litter'),
       item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
     ];
     mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    expect(addedKeys().sort()).toEqual(['v1:gutters', 'v1:litter']);
+  });
+
+  it('does not drag work forward that is not due yet', async () => {
+    /*
+     * `view.mine` also carries anything `showFrom` has pulled forward. Those
+     * are early, not late — auto-adding them puts next week on today, which is
+     * the wall of rows the old today-only rule was really guarding against.
+     */
+    mockView.mine = [
+      item('litter'),
+      item('filters', { status: 'due', dueOn: civilDate('2026-09-09') }),
+    ];
+    mockChores = [recurring('litter'), recurring('filters')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    expect(addedKeys()).toEqual(['v1:litter']);
+  });
+
+  it('does not re-add work already finished or skipped today', async () => {
+    /*
+     * Both are dated today and both are outstanding-shaped, so the date test
+     * alone lets them through — and a chore you already did reappearing on the
+     * day, unticked, is the plan lying about what is left.
+     */
+    mockView.mine = [
+      item('litter'),
+      item('dishes', { status: 'completed', completedOn: mockToday }),
+      item('bins', { status: 'skipped' }),
+    ];
+    mockChores = [recurring('litter'), recurring('dishes'), recurring('bins')];
     renderView();
 
     await waitFor(() => expect(mockAdd).toHaveBeenCalled());
