@@ -13,7 +13,8 @@
  */
 
 import { act, render, screen } from '@testing-library/react-native';
-import { StyleSheet, Text } from 'react-native';
+import { Animated, PanResponder, StyleSheet, Text } from 'react-native';
+import type { PanResponderCallbacks } from 'react-native';
 
 import { DragList } from './DragList';
 
@@ -25,16 +26,22 @@ const ITEMS = [
 
 const onReorder = jest.fn();
 
+/*
+ * A component rather than an inline element, so a re-render can be driven with
+ * the same tree — which is what the interrupted-tap test needs.
+ */
+const Harness = () => (
+  <DragList
+    items={ITEMS}
+    keyOf={(i) => i.key}
+    labelOf={(i) => i.title}
+    renderItem={(i) => <Text>{i.title}</Text>}
+    onReorder={onReorder}
+  />
+);
+
 function renderList() {
-  return render(
-    <DragList
-      items={ITEMS}
-      keyOf={(i) => i.key}
-      labelOf={(i) => i.title}
-      renderItem={(i) => <Text>{i.title}</Text>}
-      onReorder={onReorder}
-    />,
-  );
+  return render(<Harness />);
 }
 
 const styleOf = (key: string) =>
@@ -102,6 +109,35 @@ describe('picking a row up', () => {
     expect(styleOf('b').zIndex).toBe(0);
   });
 
+  it('does not pick a row up after a tap that was interrupted by a re-render', () => {
+    /*
+     * The version of this that a review caught as vacuous. The hold timer used
+     * to be a `let` inside the render's `.map()`, so it belonged to *that*
+     * render: any re-render between finger-down and finger-up handed
+     * `onTouchEnd` a fresh closure whose timer was `null`, and the real one was
+     * never cleared. The row was then picked up 220ms after the finger had
+     * gone, with no gesture left to put it down — and `scrollEnabled={!dragging}`
+     * meant the plan could not be scrolled at all until you tapped it again.
+     *
+     * This screen re-renders on any of several query hooks, so the interruption
+     * is ordinary rather than exotic. Without one, this test passes against the
+     * bug.
+     */
+    const { rerender } = renderList();
+
+    touch('b', 'onTouchStart');
+    act(() => {
+      rerender(<Harness />);
+    });
+    touch('b', 'onTouchEnd');
+
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(styleOf('b').zIndex).toBe(0);
+  });
+
   it('puts it back down when you let go without moving', () => {
     /*
      * The pan responder is what normally ends a drag, and a hold that never
@@ -116,5 +152,122 @@ describe('picking a row up', () => {
 
     expect(styleOf('b').zIndex).toBe(0);
     expect(styleOf('b').opacity).toBe(1);
+  });
+});
+
+describe('a whole drag, driven through the responder', () => {
+  /*
+   * `fireEvent` cannot produce a pan, so the responder config is captured as
+   * the component builds it and its handlers are called directly with the
+   * gesture state React Native would have supplied. It is the only way to reach
+   * the two fixes a review pointed out had no test at all — the gap that opens
+   * under the held row, and what happens on release.
+   */
+  const configs: PanResponderCallbacks[] = [];
+  let timings: { toValue: number }[] = [];
+
+  const setHeights = (height: number) => {
+    for (const item of ITEMS) {
+      act(() => {
+        screen
+          .getByTestId(`drag-row:${item.key}`)
+          .props.onLayout({ nativeEvent: { layout: { height } } });
+      });
+    }
+  };
+
+  /** The handlers for a row, from the most recent render. */
+  const configFor = (index: number) => configs.slice(-ITEMS.length)[index] as PanResponderCallbacks;
+
+  beforeEach(() => {
+    configs.length = 0;
+    timings = [];
+    jest.spyOn(PanResponder, 'create').mockImplementation((config) => {
+      configs.push(config);
+      return { panHandlers: {} } as ReturnType<typeof PanResponder.create>;
+    });
+    jest.spyOn(Animated, 'timing').mockImplementation((_value, config) => {
+      timings.push({ toValue: config.toValue as number });
+      return {
+        start: (done?: (result: { finished: boolean }) => void) => done?.({ finished: true }),
+        stop: () => {},
+        reset: () => {},
+      } as unknown as Animated.CompositeAnimation;
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('opens a gap under the row it is being dragged over', () => {
+    renderList();
+    setHeights(60);
+    pickUp('a');
+    timings = [];
+
+    // 60-tall rows: dragging row 0 down by 90 puts its centre past row 1's
+    // midpoint but not row 2's, so it lands at index 1.
+    act(() => {
+      configFor(0).onPanResponderMove?.({} as never, { dy: 90 } as never);
+    });
+
+    /*
+     * One animation, not three: rows already sitting where they belong are not
+     * re-animated, which is what keeps this screen's constant re-renders from
+     * restarting animations under the finger. So `c` not appearing here *is*
+     * the assertion that `c` does not move — the drag never reached it.
+     */
+    expect(timings.map((t) => t.toValue)).toEqual([-60]);
+  });
+
+  it('reports the new order on release, and puts the row down', () => {
+    renderList();
+    setHeights(60);
+    pickUp('a');
+
+    act(() => {
+      configFor(0).onPanResponderMove?.({} as never, { dy: 90 } as never);
+      configFor(0).onPanResponderRelease?.({} as never, { dy: 90 } as never);
+    });
+
+    expect(onReorder).toHaveBeenCalledWith(['b', 'a', 'c'], 'a');
+    expect(styleOf('a').zIndex).toBe(0);
+  });
+
+  it('will not let a row be dragged off the end of the list', () => {
+    /*
+     * Asserted on where the row is *drawn*, not on where it lands — the landing
+     * index is the same either way, which is what made the first version of
+     * this test pass with the clamp removed.
+     *
+     * Unclamped the row followed the finger out into the page, so a wild drag
+     * left it hundreds of points outside the list and it teleported the whole
+     * way back on release. Three 60pt rows: the top one can travel exactly 120.
+     */
+    renderList();
+    setHeights(60);
+    pickUp('a');
+
+    act(() => {
+      configFor(0).onPanResponderMove?.({} as never, { dy: 5000 } as never);
+    });
+
+    const held = StyleSheet.flatten(screen.getByTestId('drag-row:a').props.style) as {
+      transform: { translateY: number }[];
+    };
+    expect(held.transform[0]?.translateY).toBe(120);
+  });
+
+  it('still reports the last slot for a drag past the end', () => {
+    renderList();
+    setHeights(60);
+    pickUp('a');
+
+    act(() => {
+      configFor(0).onPanResponderRelease?.({} as never, { dy: 5000 } as never);
+    });
+
+    expect(onReorder).toHaveBeenCalledWith(['b', 'c', 'a'], 'a');
   });
 });

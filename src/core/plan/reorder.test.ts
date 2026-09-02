@@ -1,4 +1,4 @@
-import { positionBetween, reorder, shiftFor, targetIndex } from './reorder';
+import { clampToList, positionBetween, reorder, shiftFor, targetIndex } from './reorder';
 
 // Deliberately uneven: uniform heights make every off-by-one in the cumulative
 // arithmetic invisible, because every row is its own neighbour's size.
@@ -140,5 +140,49 @@ describe('rows getting out of the way', () => {
     // The gap is the *dragged* row's height, not the passed row's — the whole
     // reason this list measures rows instead of assuming a uniform height.
     expect(shiftFor(0, 1, 1, 120)).toBe(-120);
+  });
+});
+
+describe('keeping the dragged row inside the list', () => {
+  // 40, 80, 40, 120, 40 — the same uneven set the rest of this file uses.
+  it('allows a drag that stays within the list', () => {
+    expect(clampToList(HEIGHTS, 2, 50)).toBe(50);
+    expect(clampToList(HEIGHTS, 2, -50)).toBe(-50);
+  });
+
+  it('stops at the top and the bottom', () => {
+    // Row 2 has 120 above it (40 + 80) and 160 below (120 + 40).
+    expect(clampToList(HEIGHTS, 2, -500)).toBe(-120);
+    expect(clampToList(HEIGHTS, 2, 500)).toBe(160);
+  });
+
+  it('measures the room, rather than assuming a row height', () => {
+    // The first row has nothing above it and everything below.
+    expect(clampToList(HEIGHTS, 0, -10)).toBe(0);
+    expect(clampToList(HEIGHTS, 0, 9999)).toBe(280);
+  });
+
+  it('leaves an index that is not in the list alone', () => {
+    expect(clampToList(HEIGHTS, 9, 500)).toBe(500);
+  });
+});
+
+describe('the ends of the list are reachable', () => {
+  const UNIFORM = [60, 60, 60];
+
+  it('reaches the last slot at the furthest a row can be dragged', () => {
+    /*
+     * Held inside the list, the top row's furthest travel is 120 — which puts
+     * its centre at 150, exactly the last row's midpoint. A strictly-greater
+     * comparison made the last slot unreachable however hard you dragged, and
+     * clamping the drag is what exposed it.
+     */
+    const furthest = clampToList(UNIFORM, 0, 9999);
+    expect(targetIndex(UNIFORM, 0, furthest)).toBe(2);
+  });
+
+  it('reaches the first slot in the same way', () => {
+    const furthest = clampToList(UNIFORM, 2, -9999);
+    expect(targetIndex(UNIFORM, 2, furthest)).toBe(0);
   });
 });

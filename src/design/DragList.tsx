@@ -28,10 +28,14 @@
  *   rather than as you having put something somewhere. Rows now open a gap as
  *   the target changes.
  *
- *   **The drop snapped.** The offset reset to zero immediately, but the
- *   reordered rows arrive from the server round trip — `onMutate` is async — so
- *   the row visibly returned to its old slot for a frame or two first. The new
- *   order is now held locally until the real data agrees.
+ *   **The drop snapped.** Not this component's fault, as it turned out, and a
+ *   first attempt to fix it here — holding a locally reordered copy until the
+ *   props caught up — was worse: it could not tell "the write landed" from "an
+ *   unrelated refetch", so any completion toggle during the round trip snapped
+ *   the list back and it jumped *twice*. The cause was `useReorderPlan`
+ *   awaiting `cancelQueries` before writing the optimistic order, which pushed
+ *   the reorder a frame past the finger lifting. Fixed there, so this component
+ *   simply renders what it is given.
  *
  * **Dragging is not the only way to reorder.** Every row carries accessibility
  * actions for moving up and down, because a drag is unusable with VoiceOver and
@@ -46,7 +50,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, PanResponder, View } from 'react-native';
 
-import { reorder, shiftFor, targetIndex } from '@/core/plan/reorder';
+import { clampToList, reorder, shiftFor, targetIndex } from '@/core/plan/reorder';
 
 /** How long to hold before a press becomes a drag rather than a tap. */
 const HOLD_MS = 220;
@@ -84,32 +88,6 @@ export function DragList<T>({
   /** Where the held row would land right now. Drives the gap, not the drop. */
   const [target, setTarget] = useState<number | null>(null);
 
-  /*
-   * The order to *render*, which is not always the order we were handed.
-   *
-   * On release the new order is kept here until the props catch up. Without it
-   * the row snaps back to where it started and then jumps to where you put it,
-   * because the write is a round trip and `onMutate` is async. Cleared the
-   * moment `items` changes — whether that is the write landing (same order,
-   * invisible) or the write failing and rolling back (the row returns, which is
-   * the truth and should be shown).
-   */
-  const [localOrder, setLocalOrder] = useState<readonly T[] | null>(null);
-  const itemsAtRelease = useRef<readonly T[] | null>(null);
-
-  useEffect(() => {
-    if (
-      localOrder !== null &&
-      itemsAtRelease.current !== null &&
-      items !== itemsAtRelease.current
-    ) {
-      itemsAtRelease.current = null;
-      setLocalOrder(null);
-    }
-  }, [items, localOrder]);
-
-  const rows = localOrder ?? items;
-
   const offset = useRef(new Animated.Value(0)).current;
 
   /*
@@ -120,44 +98,105 @@ export function DragList<T>({
    * there is the stale-closure bug this codebase has hit more than once.
    */
   const heights = useRef<Map<string, number>>(new Map());
-  const order = useRef<readonly T[]>(rows);
-  order.current = rows;
+
+  /*
+   * Hold timers keyed by row, not a local inside the render.
+   *
+   * `let holdTimer` in the map callback belongs to *that render*. Any re-render
+   * between finger-down and finger-up — and this screen re-renders on any of
+   * several query hooks — gave `onTouchEnd` a fresh closure whose timer was
+   * null, so the timer was never cleared: the row was picked up 220ms after the
+   * finger had gone, and stayed picked up. `scrollEnabled={!dragging}` meant
+   * the plan then could not be scrolled at all.
+   */
+  const holdTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const order = useRef<readonly T[]>(items);
+  order.current = items;
   const targetRef = useRef<number | null>(null);
 
   /** One animated offset per row, so a shift does not re-render the list. */
-  const shifts = useRef<Map<string, Animated.Value>>(new Map());
-  const shiftFor_ = (key: string) => {
-    const held = shifts.current.get(key);
+  const gaps = useRef<Map<string, Animated.Value>>(new Map());
+  const gapFor = (key: string) => {
+    const held = gaps.current.get(key);
     if (held !== undefined) return held;
     const created = new Animated.Value(0);
-    shifts.current.set(key, created);
+    gaps.current.set(key, created);
     return created;
   };
+
+  /** The gap each row has already been sent to, so it is not re-animated. */
+  const applied = useRef<Map<string, number>>(new Map());
+
+  /*
+   * Values for rows that have gone are dropped, after being put back to zero.
+   *
+   * A row that was displaced and then left the list kept its offset, so if the
+   * key ever came back it rendered a row-height out of place, on top of its
+   * neighbour. The map would also have grown for the lifetime of the screen.
+   */
+  useEffect(() => {
+    const live = new Set(items.map(keyOf));
+    for (const [key, value] of gaps.current) {
+      if (live.has(key)) continue;
+      value.setValue(0);
+      gaps.current.delete(key);
+      applied.current.delete(key);
+    }
+  }, [items, keyOf]);
 
   useEffect(() => {
     onDragStateChange?.(dragging !== null);
   }, [dragging, onDragStateChange]);
 
-  /* Animate every row to where the current target says it should sit. */
+  /*
+   * Unmounting mid-drag otherwise left `onDragStateChange` last told `true`,
+   * so the surrounding `scrollEnabled={!dragging}` stayed off, and a pending
+   * hold timer fired into a component that no longer exists.
+   */
+  const dragStateChanged = useRef(onDragStateChange);
+  dragStateChanged.current = onDragStateChange;
+  useEffect(
+    () => () => {
+      for (const timer of holdTimers.current.values()) clearTimeout(timer);
+      holdTimers.current.clear();
+      dragStateChanged.current?.(false);
+    },
+    [],
+  );
+
+  /*
+   * Animate every row to where the current target says it should sit.
+   *
+   * `items` is a dependency, and has to be. The target is an *index*, so it
+   * only means anything against the array it was computed from — with `items`
+   * left out, a realtime reorder arriving from the other phone while a finger
+   * was held still left the gap open under the wrong row until the next move.
+   * Holding still is exactly what people do while aiming.
+   *
+   * `applied` is what stops that costing anything: a row whose gap is already
+   * where it should be is not re-animated, so the re-renders this screen does
+   * constantly do not restart animations under the finger.
+   */
   useEffect(() => {
-    const current = order.current;
-    const from = dragging === null ? -1 : current.findIndex((item) => keyOf(item) === dragging);
+    const from = dragging === null ? -1 : items.findIndex((item) => keyOf(item) === dragging);
     const height = dragging === null ? 0 : (heights.current.get(dragging) ?? 0);
 
-    const animations = current.map((item, index) => {
+    const animations = items.flatMap((item, index) => {
+      const key = keyOf(item);
       const to = from === -1 || target === null ? 0 : shiftFor(from, target, index, height);
-      return Animated.timing(shiftFor_(keyOf(item)), {
-        toValue: to,
-        duration: SHIFT_MS,
-        useNativeDriver: true,
-      });
+      if (applied.current.get(key) === to) return [];
+      applied.current.set(key, to);
+      return [
+        Animated.timing(gapFor(key), {
+          toValue: to,
+          duration: SHIFT_MS,
+          useNativeDriver: true,
+        }),
+      ];
     });
 
-    // `rows` is deliberately read through the ref rather than listed as a
-    // dependency: a re-render mid-drag would otherwise restart the animation
-    // from a stale order, which is a visible stutter under the finger.
-    Animated.parallel(animations).start();
-  }, [dragging, target, keyOf]);
+    if (animations.length > 0) Animated.parallel(animations).start();
+  }, [dragging, target, items, keyOf]);
 
   const stopDragging = () => {
     offset.setValue(0);
@@ -177,7 +216,7 @@ export function DragList<T>({
 
   return (
     <View>
-      {rows.map((item) => {
+      {items.map((item) => {
         const key = keyOf(item);
         const isDragging = dragging === key;
 
@@ -188,12 +227,23 @@ export function DragList<T>({
           onMoveShouldSetPanResponder: () => dragging === key,
 
           onPanResponderMove: (_event, gesture) => {
-            offset.setValue(gesture.dy);
-
             const current = order.current;
             const from = current.findIndex((i) => keyOf(i) === key);
             const measured = current.map((i) => heights.current.get(keyOf(i)) ?? 0);
-            const to = targetIndex(measured, from, gesture.dy);
+
+            /*
+             * Held inside the list.
+             *
+             * Unclamped, a row dragged well past either end followed the finger
+             * out into the page and then teleported all the way back on
+             * release — the further you overshot, the bigger the jump. Now it
+             * stops at the ends, which is also the honest signal that there is
+             * nowhere further to go.
+             */
+            const dy = clampToList(measured, from, gesture.dy);
+
+            offset.setValue(dy);
+            const to = targetIndex(measured, from, dy);
 
             // Only when it changes: a setState per pixel would re-render the
             // whole list on every frame of the gesture.
@@ -207,19 +257,20 @@ export function DragList<T>({
             const current = order.current;
             const from = current.findIndex((i) => keyOf(i) === key);
             const measured = current.map((i) => heights.current.get(keyOf(i)) ?? 0);
-            const to = targetIndex(measured, from, gesture.dy);
+            const to = targetIndex(measured, from, clampToList(measured, from, gesture.dy));
 
             if (to !== from) {
-              const next = reorder(current, from, to);
-              // Shown immediately, replaced when the real data arrives.
-              itemsAtRelease.current = items;
-              setLocalOrder(next);
-              // Every gap closes at once, and the row is already in its new
-              // slot, so there is nothing left to animate back.
-              for (const value of shifts.current.values()) value.setValue(0);
-              stopDragging();
-              onReorder(next.map(keyOf), key);
-              return;
+              /*
+               * Order out first, then everything resets in the same tick.
+               *
+               * The optimistic write in `useReorderPlan` now lands before the
+               * next paint, so by the time these offsets are zero the rows are
+               * already in their new places. Holding a local copy to bridge the
+               * gap was tried and was worse — see the note at the top.
+               */
+              onReorder(reorder(current, from, to).map(keyOf), key);
+              for (const value of gaps.current.values()) value.setValue(0);
+              applied.current.clear();
             }
 
             stopDragging();
@@ -227,8 +278,6 @@ export function DragList<T>({
 
           onPanResponderTerminate: stopDragging,
         });
-
-        let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
         return (
           <Animated.View
@@ -238,10 +287,22 @@ export function DragList<T>({
               heights.current.set(key, event.nativeEvent.layout.height);
             }}
             onTouchStart={() => {
-              holdTimer = setTimeout(() => setDragging(key), HOLD_MS);
+              const existing = holdTimers.current.get(key);
+              if (existing !== undefined) clearTimeout(existing);
+              holdTimers.current.set(
+                key,
+                setTimeout(() => {
+                  holdTimers.current.delete(key);
+                  setDragging(key);
+                }, HOLD_MS),
+              );
             }}
             onTouchEnd={() => {
-              if (holdTimer !== null) clearTimeout(holdTimer);
+              const pending = holdTimers.current.get(key);
+              if (pending !== undefined) {
+                clearTimeout(pending);
+                holdTimers.current.delete(key);
+              }
               // A hold that never became a drag never reaches the responder, so
               // without this the row stays picked up until the next gesture.
               if (dragging === key && targetRef.current === null) stopDragging();
@@ -265,7 +326,7 @@ export function DragList<T>({
               zIndex: isDragging ? 2 : 0,
               elevation: isDragging ? 4 : 0,
               opacity: isDragging ? 0.95 : 1,
-              transform: [{ translateY: isDragging ? offset : shiftFor_(key) }],
+              transform: [{ translateY: isDragging ? offset : gapFor(key) }],
             }}
             {...responder.panHandlers}
           >
