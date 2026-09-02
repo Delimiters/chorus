@@ -22,6 +22,7 @@ const mockThem = 'user-them';
 const mockToday = civilDate('2026-09-01');
 
 const mockAdd = jest.fn();
+const mockReorder = jest.fn();
 const mockMarkAutoPlanned = jest.fn();
 const mockClearPlanOnCreate = jest.fn();
 
@@ -65,6 +66,7 @@ jest.mock('@/data/hooks/usePlan', () => ({
   useTheirPlanCount: () => 0,
   useTheirPlanTotal: () => 0,
   useRemoveFromPlan: () => ({ mutate: jest.fn() }),
+  useReorderPlan: () => ({ mutate: mockReorder }),
   useAddToPlan: () => ({ mutate: mockAdd }),
 }));
 

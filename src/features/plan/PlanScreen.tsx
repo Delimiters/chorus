@@ -27,6 +27,8 @@ import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { ChoreRow, SectionHeader } from '@/design/ChoreRow';
+import { DragList } from '@/design/DragList';
+import { positionBetween } from '@/core/plan/reorder';
 import { Sheet, SheetAction } from '@/design/Sheet';
 import { Button, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
@@ -39,6 +41,7 @@ import {
   useMyPlanEntries,
   useRemoveFromPlan,
   useTheirPlanCount,
+  useReorderPlan,
   useTheirPlanTotal,
 } from '@/data/hooks/usePlan';
 import { toPriority } from '@/core/chore/priority';
@@ -89,6 +92,7 @@ export function PlanScreen({
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
   const remove = useRemoveFromPlan(today as never);
+  const reorderPlan = useReorderPlan(today as never);
 
   const entries = useMyPlanEntries(today as never);
   const theirCount = useTheirPlanCount(today as never, available);
@@ -97,6 +101,9 @@ export function PlanScreen({
 
   const [refreshing, setRefreshing] = useState(false);
   const [removing, setRemoving] = useState<AgendaItem | null>(null);
+  // The list and the page cannot both own the finger: a drag inside a
+  // ScrollView scrolls the page unless the page is frozen for its duration.
+  const [dragging, setDragging] = useState(false);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -223,6 +230,7 @@ export function PlanScreen({
           paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
           gap: 2,
         }}
+        scrollEnabled={!dragging}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -373,7 +381,30 @@ export function PlanScreen({
               title={progress.finished ? 'Done today' : 'Doing today'}
               count={progress.finished ? progress.done : progress.total - progress.done}
             />
-            <Stack gap={space.xs}>{planned.map(renderRow)}</Stack>
+            <DragList
+              items={planned}
+              keyOf={(p) => p.item.occurrenceKey}
+              labelOf={(p) => p.item.choreTitle}
+              renderItem={(p) => renderRow(p)}
+              onDragStateChange={setDragging}
+              onReorder={(orderedKeys, movedKey) => {
+                /*
+                 * One row moves, so one row is written: the moved row takes the
+                 * average of its new neighbours' positions. Renumbering the day
+                 * would be N writes and would turn two people reordering at once
+                 * into a conflict.
+                 */
+                const byKey = new Map(planned.map((p) => [p.item.occurrenceKey, p]));
+                const positions = orderedKeys.map((k) => byKey.get(k)?.position ?? 0);
+                const movedAt = orderedKeys.indexOf(movedKey);
+                if (movedAt === -1) return;
+
+                reorderPlan.mutate(
+                  movedKey,
+                  positionBetween(positions[movedAt - 1] ?? null, positions[movedAt + 1] ?? null),
+                );
+              }}
+            />
 
             <View
               style={{

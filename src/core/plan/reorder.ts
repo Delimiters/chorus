@@ -1,0 +1,84 @@
+/**
+ * Where a dragged row lands, and what position to give it.
+ *
+ * The arithmetic lives here, away from the gesture, because it is the part that
+ * can be wrong in ways nobody notices: a drag that lands one place off looks
+ * like a slippery finger rather than a bug. The component that owns the
+ * PanResponder is then only responsible for turning touches into a `dy`.
+ *
+ * Rows are **measured**, not assumed. The list this replaces used a fixed row
+ * height so the offset divided by the height *was* the number of places moved —
+ * exact, and only true for uniform rows. Plan rows are not uniform: a chore
+ * whose name needs two lines is a taller row, which was a deliberate decision.
+ */
+
+/**
+ * The index a row dragged by `dy` should end up at.
+ *
+ * Decided by where the dragged row's *centre* has got to, compared against the
+ * midpoints of the rows it is passing. Comparing edges instead makes a row
+ * swap as soon as it overlaps its neighbour by a pixel, which feels like the
+ * list twitching away from you.
+ */
+export function targetIndex(heights: readonly number[], from: number, dy: number): number {
+  if (heights.length === 0) return 0;
+  if (from < 0 || from >= heights.length) return from;
+
+  /*
+   * Midpoints in one pass, capturing the dragged row's own on the way past.
+   *
+   * Indexed reads would each need a `?? 0` that the bounds check above has
+   * already ruled out — unreachable branches that coverage counts and no test
+   * can honestly reach.
+   */
+  const midpoints: number[] = [];
+  let running = 0;
+  let own = 0;
+  for (const [i, height] of heights.entries()) {
+    const midpoint = running + height / 2;
+    midpoints.push(midpoint);
+    if (i === from) own = midpoint;
+    running += height;
+  }
+
+  const centre = own + dy;
+  let target = from;
+
+  for (const [i, midpoint] of midpoints.entries()) {
+    // Moving down: pass a row once the centre clears that row's midpoint.
+    if (i > from && centre > midpoint) target = i;
+    // Moving up: the same test in the other direction. Only one of the two can
+    // fire, because the centre cannot be past midpoints on both sides of where
+    // it started; `min` keeps the furthest one travelled to.
+    if (i < from && centre < midpoint) target = Math.min(target, i);
+  }
+
+  return target;
+}
+
+/** The order a list takes once one item has moved from `from` to `to`. */
+export function reorder<T>(items: readonly T[], from: number, to: number): readonly T[] {
+  if (from === to || from < 0 || from >= items.length) return items;
+  const next = [...items];
+  const [moved] = next.splice(from, 1);
+  if (moved === undefined) return items;
+  next.splice(Math.max(0, Math.min(to, next.length)), 0, moved);
+  return next;
+}
+
+/**
+ * The position a row should take between its new neighbours.
+ *
+ * Averaging rather than renumbering: one row moves, so one row is written.
+ * Renumbering the day would turn a drag into N writes and make two people
+ * dragging at once a merge conflict rather than two independent facts.
+ *
+ * `before` is what it lands after and `after` is what it lands before; either
+ * may be absent at the ends of the list.
+ */
+export function positionBetween(before: number | null, after: number | null): number {
+  if (before === null && after === null) return 1;
+  if (before === null) return (after as number) - 1;
+  if (after === null) return before + 1;
+  return (before + after) / 2;
+}

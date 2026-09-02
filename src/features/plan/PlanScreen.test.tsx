@@ -6,7 +6,7 @@
  * against shapes the engine genuinely produces.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { AgendaItem } from '@/core/occurrence/agenda';
@@ -23,6 +23,7 @@ let mockEntries: PlanEntry[] = [];
 let mockTheirCount = 0;
 let mockTheirTotal = 0;
 const mockRemove = jest.fn();
+const mockReorder = jest.fn();
 const mockToggle = jest.fn();
 const mockSetMode = jest.fn();
 const mockPush = jest.fn();
@@ -32,6 +33,7 @@ jest.mock('@/data/hooks/usePlan', () => ({
   useTheirPlanCount: () => mockTheirCount,
   useTheirPlanTotal: () => mockTheirTotal,
   useRemoveFromPlan: () => ({ mutate: mockRemove }),
+  useReorderPlan: () => ({ mutate: mockReorder }),
 }));
 
 jest.mock('@/data/hooks/useOccurrences', () => ({
@@ -135,6 +137,7 @@ beforeEach(() => {
   mockCelebratedOn = null;
   mockMarkCelebrated.mockClear();
   mockRemove.mockClear();
+  mockReorder.mockClear();
   mockToggle.mockClear();
   onAdd.mockClear();
   onAcceptProposal.mockClear();
@@ -223,6 +226,55 @@ describe('a plan in progress', () => {
     renderScreen([item('dishes', 'Dishes')]);
 
     expect(screen.queryByText(/has \d+ planned/)).toBeNull();
+  });
+
+  it('can be reordered without a drag gesture', () => {
+    /*
+     * A drag is unusable with VoiceOver, and "there is a handle" is not an
+     * accessible reorder story — the rule the house list already follows.
+     *
+     * Moving the second row up writes a position between nothing and the first
+     * row's, so one row moves and one row is written; renumbering the day would
+     * be N writes and would make two people reordering at once a conflict.
+     */
+    mockEntries = [entry('dishes', 10), entry('trash', 20)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    const row = screen.getByTestId('drag-row:v1:trash');
+    expect(row.props.accessibilityActions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'moveUp' })]),
+    );
+    // Invoked directly: RNTL's synthetic event dispatch does not reach
+    // `onAccessibilityAction`, and the action is what VoiceOver actually calls.
+    act(() => {
+      row.props.onAccessibilityAction({ nativeEvent: { actionName: 'moveUp' } });
+    });
+
+    // The exact value, not merely "smaller": Dishes sits at 10 and Trash is
+    // landing above it with nothing before, so the position is 9. Asserting
+    // "less than 10" also passes for a hardcoded 1, which is no averaging at all.
+    expect(mockReorder).toHaveBeenCalledWith('v1:trash', 9);
+  });
+
+  it('writes the row that actually moved when it moves down', () => {
+    /*
+     * The direction that catches inferring the moved row from the two orders.
+     * Moving Dishes down turns [dishes, trash, mail] into [trash, dishes, mail],
+     * whose first differing index is 0 — Trash, which did not move. Writing
+     * Trash's position instead leaves Dishes exactly where it was, so the drag
+     * silently snaps back on the next refetch.
+     */
+    mockEntries = [entry('dishes', 10), entry('trash', 20), entry('mail', 30)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash'), item('mail', 'Mail')]);
+
+    act(() => {
+      screen
+        .getByTestId('drag-row:v1:dishes')
+        .props.onAccessibilityAction({ nativeEvent: { actionName: 'moveDown' } });
+    });
+
+    // Between Trash (20) and Mail (30), not below Trash.
+    expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 25);
   });
 
   it('takes something off the day without completing or skipping it', () => {
