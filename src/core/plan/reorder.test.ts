@@ -1,4 +1,4 @@
-import { positionBetween, reorder, targetIndex } from './reorder';
+import { positionBetween, reorder, shiftFor, targetIndex } from './reorder';
 
 // Deliberately uneven: uniform heights make every off-by-one in the cumulative
 // arithmetic invisible, because every row is its own neighbour's size.
@@ -105,5 +105,40 @@ describe('the position a moved row takes', () => {
       expect(mid).toBeLessThan(high);
       low = mid;
     }
+  });
+});
+
+describe('rows getting out of the way', () => {
+  const H = 60;
+
+  it('does not move the row being dragged', () => {
+    expect(shiftFor(0, 3, 0, H)).toBe(0);
+  });
+
+  it('slides passed rows up when dragging down', () => {
+    // Dragging row 0 down to 2: rows 1 and 2 move up into the gap it left,
+    // and row 3 — which it never reached — stays put.
+    expect(shiftFor(0, 2, 1, H)).toBe(-H);
+    expect(shiftFor(0, 2, 2, H)).toBe(-H);
+    expect(shiftFor(0, 2, 3, H)).toBe(0);
+  });
+
+  it('slides passed rows down when dragging up', () => {
+    // Dragging row 3 up to 1: rows 1 and 2 move down. Direction is the thing
+    // an off-by-one here gets wrong, and it looks like the list fighting you.
+    expect(shiftFor(3, 1, 1, H)).toBe(H);
+    expect(shiftFor(3, 1, 2, H)).toBe(H);
+    expect(shiftFor(3, 1, 0, H)).toBe(0);
+  });
+
+  it('moves nothing when the row has not left its place', () => {
+    expect(shiftFor(2, 2, 0, H)).toBe(0);
+    expect(shiftFor(2, 2, 3, H)).toBe(0);
+  });
+
+  it('opens exactly one row-height of space, whatever the row is', () => {
+    // The gap is the *dragged* row's height, not the passed row's — the whole
+    // reason this list measures rows instead of assuming a uniform height.
+    expect(shiftFor(0, 1, 1, 120)).toBe(-120);
   });
 });

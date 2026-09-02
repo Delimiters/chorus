@@ -12,6 +12,27 @@
  * lands one place off looks like a slippery finger rather than a defect, which
  * is exactly the kind of wrong that survives.
  *
+ * ── What the first version got wrong, on the phone ────────────────────────
+ *
+ * All of it was invisible to the tests, which drive the accessibility actions
+ * rather than a gesture. Jake's report was "the rows go behind the one you're
+ * dragging and it's jumpy when you drop it", and that was three separate bugs:
+ *
+ *   **The lift did nothing.** `zIndex` sat on the inner `Animated.View`, which
+ *   is an only child — `zIndex` orders *siblings*, and the siblings are the row
+ *   wrappers. So every row below the dragged one painted over it. It now sits
+ *   on the wrapper, which is the element that actually has siblings.
+ *
+ *   **Nothing moved out of the way.** The list stood still while you held a row
+ *   over it and rearranged only on release, which reads as the list jumping
+ *   rather than as you having put something somewhere. Rows now open a gap as
+ *   the target changes.
+ *
+ *   **The drop snapped.** The offset reset to zero immediately, but the
+ *   reordered rows arrive from the server round trip — `onMutate` is async — so
+ *   the row visibly returned to its old slot for a frame or two first. The new
+ *   order is now held locally until the real data agrees.
+ *
  * **Dragging is not the only way to reorder.** Every row carries accessibility
  * actions for moving up and down, because a drag is unusable with VoiceOver and
  * "there's a handle" is not an accessible reorder story. That rule comes from
@@ -25,10 +46,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, PanResponder, View } from 'react-native';
 
-import { reorder, targetIndex } from '@/core/plan/reorder';
+import { reorder, shiftFor, targetIndex } from '@/core/plan/reorder';
 
 /** How long to hold before a press becomes a drag rather than a tap. */
 const HOLD_MS = 220;
+
+/** Long enough to read as movement, short enough not to lag the finger. */
+const SHIFT_MS = 140;
 
 interface Props<T> {
   items: readonly T[];
@@ -57,22 +81,90 @@ export function DragList<T>({
   onDragStateChange,
 }: Props<T>) {
   const [dragging, setDragging] = useState<string | null>(null);
+  /** Where the held row would land right now. Drives the gap, not the drop. */
+  const [target, setTarget] = useState<number | null>(null);
+
+  /*
+   * The order to *render*, which is not always the order we were handed.
+   *
+   * On release the new order is kept here until the props catch up. Without it
+   * the row snaps back to where it started and then jumps to where you put it,
+   * because the write is a round trip and `onMutate` is async. Cleared the
+   * moment `items` changes — whether that is the write landing (same order,
+   * invisible) or the write failing and rolling back (the row returns, which is
+   * the truth and should be shown).
+   */
+  const [localOrder, setLocalOrder] = useState<readonly T[] | null>(null);
+  const itemsAtRelease = useRef<readonly T[] | null>(null);
+
+  useEffect(() => {
+    if (
+      localOrder !== null &&
+      itemsAtRelease.current !== null &&
+      items !== itemsAtRelease.current
+    ) {
+      itemsAtRelease.current = null;
+      setLocalOrder(null);
+    }
+  }, [items, localOrder]);
+
+  const rows = localOrder ?? items;
+
   const offset = useRef(new Animated.Value(0)).current;
 
   /*
-   * Measured heights, and the live order, in refs.
+   * Measured heights, the live order, and the live target, in refs.
    *
-   * The PanResponder is created once and closes over whatever it captured, so
-   * anything it reads mid-drag has to be a ref — reading state there is the
-   * stale-closure bug this codebase has hit more than once.
+   * The PanResponder is created once per render and closes over whatever it
+   * captured, so anything it reads mid-drag has to be a ref — reading state
+   * there is the stale-closure bug this codebase has hit more than once.
    */
   const heights = useRef<Map<string, number>>(new Map());
-  const order = useRef<readonly T[]>(items);
-  order.current = items;
+  const order = useRef<readonly T[]>(rows);
+  order.current = rows;
+  const targetRef = useRef<number | null>(null);
+
+  /** One animated offset per row, so a shift does not re-render the list. */
+  const shifts = useRef<Map<string, Animated.Value>>(new Map());
+  const shiftFor_ = (key: string) => {
+    const held = shifts.current.get(key);
+    if (held !== undefined) return held;
+    const created = new Animated.Value(0);
+    shifts.current.set(key, created);
+    return created;
+  };
 
   useEffect(() => {
     onDragStateChange?.(dragging !== null);
   }, [dragging, onDragStateChange]);
+
+  /* Animate every row to where the current target says it should sit. */
+  useEffect(() => {
+    const current = order.current;
+    const from = dragging === null ? -1 : current.findIndex((item) => keyOf(item) === dragging);
+    const height = dragging === null ? 0 : (heights.current.get(dragging) ?? 0);
+
+    const animations = current.map((item, index) => {
+      const to = from === -1 || target === null ? 0 : shiftFor(from, target, index, height);
+      return Animated.timing(shiftFor_(keyOf(item)), {
+        toValue: to,
+        duration: SHIFT_MS,
+        useNativeDriver: true,
+      });
+    });
+
+    // `rows` is deliberately read through the ref rather than listed as a
+    // dependency: a re-render mid-drag would otherwise restart the animation
+    // from a stale order, which is a visible stutter under the finger.
+    Animated.parallel(animations).start();
+  }, [dragging, target, keyOf]);
+
+  const stopDragging = () => {
+    offset.setValue(0);
+    targetRef.current = null;
+    setTarget(null);
+    setDragging(null);
+  };
 
   const move = (key: string, delta: number) => {
     const current = order.current;
@@ -85,7 +177,7 @@ export function DragList<T>({
 
   return (
     <View>
-      {items.map((item) => {
+      {rows.map((item) => {
         const key = keyOf(item);
         const isDragging = dragging === key;
 
@@ -97,6 +189,18 @@ export function DragList<T>({
 
           onPanResponderMove: (_event, gesture) => {
             offset.setValue(gesture.dy);
+
+            const current = order.current;
+            const from = current.findIndex((i) => keyOf(i) === key);
+            const measured = current.map((i) => heights.current.get(keyOf(i)) ?? 0);
+            const to = targetIndex(measured, from, gesture.dy);
+
+            // Only when it changes: a setState per pixel would re-render the
+            // whole list on every frame of the gesture.
+            if (to !== targetRef.current) {
+              targetRef.current = to;
+              setTarget(to);
+            }
           },
 
           onPanResponderRelease: (_event, gesture) => {
@@ -105,21 +209,29 @@ export function DragList<T>({
             const measured = current.map((i) => heights.current.get(keyOf(i)) ?? 0);
             const to = targetIndex(measured, from, gesture.dy);
 
-            offset.setValue(0);
-            setDragging(null);
-            if (to !== from) onReorder(reorder(current, from, to).map(keyOf), key);
+            if (to !== from) {
+              const next = reorder(current, from, to);
+              // Shown immediately, replaced when the real data arrives.
+              itemsAtRelease.current = items;
+              setLocalOrder(next);
+              // Every gap closes at once, and the row is already in its new
+              // slot, so there is nothing left to animate back.
+              for (const value of shifts.current.values()) value.setValue(0);
+              stopDragging();
+              onReorder(next.map(keyOf), key);
+              return;
+            }
+
+            stopDragging();
           },
 
-          onPanResponderTerminate: () => {
-            offset.setValue(0);
-            setDragging(null);
-          },
+          onPanResponderTerminate: stopDragging,
         });
 
         let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
         return (
-          <View
+          <Animated.View
             key={key}
             testID={`drag-row:${key}`}
             onLayout={(event) => {
@@ -130,6 +242,9 @@ export function DragList<T>({
             }}
             onTouchEnd={() => {
               if (holdTimer !== null) clearTimeout(holdTimer);
+              // A hold that never became a drag never reaches the responder, so
+              // without this the row stays picked up until the next gesture.
+              if (dragging === key && targetRef.current === null) stopDragging();
             }}
             accessibilityActions={[
               { name: 'moveUp', label: `Move ${labelOf(item)} up` },
@@ -139,25 +254,23 @@ export function DragList<T>({
               if (event.nativeEvent.actionName === 'moveUp') move(key, -1);
               if (event.nativeEvent.actionName === 'moveDown') move(key, 1);
             }}
+            style={{
+              /*
+               * On the wrapper, not on the child inside it.
+               *
+               * `zIndex` orders siblings, and the child was an only child — so
+               * the lift did nothing and every row below painted over the one
+               * in your hand.
+               */
+              zIndex: isDragging ? 2 : 0,
+              elevation: isDragging ? 4 : 0,
+              opacity: isDragging ? 0.95 : 1,
+              transform: [{ translateY: isDragging ? offset : shiftFor_(key) }],
+            }}
             {...responder.panHandlers}
           >
-            <Animated.View
-              style={
-                isDragging
-                  ? {
-                      transform: [{ translateY: offset }],
-                      // Lifted, so it is obvious which row is in your hand and
-                      // that it is above the others rather than between them.
-                      zIndex: 2,
-                      elevation: 4,
-                      opacity: 0.95,
-                    }
-                  : undefined
-              }
-            >
-              {renderItem(item, isDragging)}
-            </Animated.View>
-          </View>
+            {renderItem(item, isDragging)}
+          </Animated.View>
         );
       })}
     </View>

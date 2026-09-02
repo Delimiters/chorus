@@ -82,3 +82,24 @@ export function positionBetween(before: number | null, after: number | null): nu
   if (after === null) return before + 1;
   return (before + after) / 2;
 }
+
+/**
+ * How far a row that is *not* being dragged should move out of the way.
+ *
+ * A drag with no live gap gives you nothing to aim at: the rows sit still while
+ * you hold one over them, and the list only rearranges after you let go, which
+ * reads as the list jumping rather than as you having placed something. The
+ * dragged row's own height is what opens up, because that is the space it will
+ * occupy.
+ *
+ * Returns a signed offset in points: negative to slide up, positive down.
+ */
+export function shiftFor(from: number, to: number, index: number, draggedHeight: number): number {
+  if (index === from || from === to) return 0;
+
+  // Dragging down: everything it has passed slides up into the gap it left.
+  if (from < to) return index > from && index <= to ? -draggedHeight : 0;
+
+  // Dragging up: everything it has passed slides down.
+  return index >= to && index < from ? draggedHeight : 0;
+}
