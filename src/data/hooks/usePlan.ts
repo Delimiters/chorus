@@ -12,7 +12,13 @@ import { useMemo } from 'react';
 
 import { nextPosition, type PlanEntry } from '@/core/plan/plan';
 import type { CivilDate } from '@/core/civil/types';
-import { addToPlan, listPlanEntries, removeFromPlan, type PlanEntryRow } from '../api/plan';
+import {
+  addToPlan,
+  listPlanEntries,
+  movePlanEntry,
+  removeFromPlan,
+  type PlanEntryRow,
+} from '../api/plan';
 import { qk } from '../queryKeys';
 import { useActiveHouseholdId, useUserId } from '@/stores/sessionStore';
 
@@ -283,8 +289,79 @@ export function useRemoveFromPlan(today: CivilDate) {
   });
 }
 
+/**
+ * Move one row, and write one row.
+ *
+ * The position is computed by the caller from its new neighbours, so a drag
+ * costs a single update rather than renumbering the day — which is what lets
+ * two people reorder at once and stay two independent facts rather than a merge
+ * conflict.
+ *
+ * A row that has not been persisted yet is skipped rather than sent: its id is
+ * the optimistic `optimistic:<key>`, and Postgres would reject that as a uuid.
+ * The refetch that follows the add gives it a real id a moment later.
+ */
+export function useReorderPlan(today: CivilDate) {
+  const householdId = useActiveHouseholdId();
+  const userId = useUserId();
+  const queryClient = useQueryClient();
+  const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
+
+  const rowFor = (occurrenceKey: string) =>
+    (
+      queryClient.getQueryData<readonly PlanEntryRow[]>(
+        qk.plan(householdId ?? '__none__', from, today),
+      ) ?? []
+    ).find(
+      (r) => r.userId === userId && r.occurrenceKey === occurrenceKey && r.plannedFor === today,
+    );
+
+  const mutation = useMutation({
+    mutationFn: async ({ id, position }: { id: string; position: number }) => {
+      if (id.startsWith('optimistic:')) return;
+      await movePlanEntry(id, position);
+    },
+
+    onMutate: async ({ id, position }) => {
+      if (householdId === null) return;
+      const key = qk.plan(householdId, from, today);
+      await queryClient.cancelQueries({ queryKey: key });
+      const snapshot = queryClient.getQueryData<readonly PlanEntryRow[]>(key);
+
+      queryClient.setQueryData<readonly PlanEntryRow[]>(key, (existing = []) =>
+        existing.map((row) => (row.id === id ? { ...row, position } : row)),
+      );
+      return { snapshot };
+    },
+
+    onError: (_error, _input, context) => {
+      if (householdId === null || context?.snapshot === undefined) return;
+      queryClient.setQueryData(qk.plan(householdId, from, today), context.snapshot);
+    },
+
+    onSettled: () => {
+      if (householdId === null) return;
+      void queryClient.invalidateQueries({ queryKey: qk.planAll(householdId) });
+    },
+  });
+
+  return {
+    ...mutation,
+    /*
+     * Reads the row, decides the position, then mutates — the order that the
+     * flag hook and the add hook both got wrong by re-deriving inside
+     * `mutationFn`, which runs *after* `onMutate` has already changed the cache.
+     */
+    mutate: (occurrenceKey: string, position: number) => {
+      const row = rowFor(occurrenceKey);
+      if (row === undefined) return;
+      mutation.mutate({ id: row.id, position });
+    },
+  };
+}
+
 /*
- * Drag to reorder is deliberately absent.
+ * The note below is kept because it is why this took two attempts.
  *
  * It was written first — a `useReorderPlan` mutation, `positionBetween`, and
  * `numeric` positions in the schema to support averaging — and none of it had a

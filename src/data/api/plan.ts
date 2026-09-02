@@ -116,3 +116,16 @@ export async function removeFromPlan(
     .eq('planned_for', plannedFor);
   if (error) fail(error);
 }
+
+/**
+ * Move one row, and write one row.
+ *
+ * The caller computes the position from the row's new neighbours by averaging
+ * them, so a drag is a single update rather than a renumbering of the day. Two
+ * people dragging at once then stay two independent facts instead of a merge
+ * conflict.
+ */
+export async function movePlanEntry(id: string, position: number): Promise<void> {
+  const { error } = await supabase.from('plan_entries').update({ position }).eq('id', id);
+  if (error) fail(error);
+}
