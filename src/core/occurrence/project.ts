@@ -12,7 +12,7 @@ import { addDays, compareCivil, daysBetween, isWithin } from '../civil/date';
 import type { CalendarConfig, CivilDate, DateWindow } from '../civil/types';
 import { MAX_WINDOW_DAYS, expandOccurrences } from '../recurrence/expand';
 import { anchorToCompletion } from './anchor';
-import { occurrenceKeyOf } from '../recurrence/period';
+import { occurrenceKeyOf, parseOccurrenceKey } from '../recurrence/period';
 import type { Occurrence } from '../recurrence/types';
 import { assigneeFor } from '../rotation/assign';
 import type {
@@ -65,6 +65,35 @@ export function projectOccurrences(
   };
 
   const completions = indexBy(input.completions, (c) => c.occurrenceKey);
+
+  /**
+   * Completions grouped by chore **and subject**, for the interval anchoring.
+   *
+   * It needs *every* completion a chore has, not the ones whose occurrence
+   * happens to fall in this window — the phase of the series is set by the last
+   * one whenever it was, and looking only inside the window made four screens
+   * disagree about the same chore's due dates.
+   *
+   * Grouped by subject as well as by chore, because an `everyone` chore is
+   * "one job *each*, done separately". Keyed by chore alone, Emily doing her
+   * own laundry moved mine: her completion re-anchored the whole fan-out, so a
+   * date I was responsible for slid three days without my touching anything.
+   */
+  const completionsByStream = new Map<
+    string,
+    { occurrenceKey: string; completedOn: CivilDate }[]
+  >();
+  for (const completion of input.completions) {
+    const parsed = parseOccurrenceKey(completion.occurrenceKey);
+    const streamKey = `${completion.choreId}\u0000${parsed?.subject ?? '-'}`;
+    const held = completionsByStream.get(streamKey);
+    const entry = {
+      occurrenceKey: completion.occurrenceKey,
+      completedOn: completion.completedOn,
+    };
+    if (held === undefined) completionsByStream.set(streamKey, [entry]);
+    else held.push(entry);
+  }
   const exceptions = indexBy(input.exceptions, (e) => e.occurrenceKey);
 
   const out: ProjectedOccurrence[] = [];
@@ -89,7 +118,7 @@ export function projectOccurrences(
       const raw = anchorToCompletion(
         chore.schedule,
         expandOccurrences(chore.id, chore.schedule, cal, padded, subject),
-        (key) => completions.get(key),
+        completionsByStream.get(`${chore.id}\u0000${subject ?? '-'}`) ?? [],
         (anchor) =>
           expandOccurrences(
             chore.id,
@@ -101,6 +130,7 @@ export function projectOccurrences(
         // So a skip or a reschedule in the re-anchored gap is preserved rather
         // than silently dropped along with the dates around it.
         (key) => exceptions.has(key),
+        padded.start,
       );
 
       for (const occ of raw) {

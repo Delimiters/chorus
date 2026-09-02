@@ -31,46 +31,38 @@
  * the completion onward. The gap between the two is the restarted clock.
  */
 
-import { addDays, compareCivil } from '../civil/date';
+import { addDays, compareCivil, daysBetween } from '../civil/date';
 import type { CivilDate } from '../civil/types';
+import { parseOccurrenceKey } from '../recurrence/period';
 import type { Occurrence, Schedule } from '../recurrence/types';
 
 /** What the projector knows about a completion, as this needs it. */
 export interface CompletedAt {
+  readonly occurrenceKey: string;
   readonly completedOn: CivilDate;
 }
 
 /**
- * The earliest completed occurrence due strictly after `after`.
+ * The date an interval occurrence was due, read off its key.
  *
- * Earliest rather than latest, and taken one at a time, because the series has
- * to be walked *forward*: each completion moves the dates that follow it, so
- * the occurrence a later completion belongs to does not exist until the earlier
- * one has been applied.
+ * `v1:{choreId}:{periodKey}:{slot}:{subject}`, and for a `daily` rule the
+ * period key *is* the due date — see `dayPeriodKey`. Parsed with the shared
+ * `parseOccurrenceKey`, which splits from the right: reimplementing it as
+ * `split(':')[2]` here reintroduced the assumption that parser exists to avoid,
+ * and dropping the `subject` field on the way is what cross-wired `everyone`.
  *
- * By `dueOn` rather than by `completedOn`: doing next week's early does not
- * make it the one the clock restarts from — the sequence is what has a
- * position, not the calendar.
+ * Reading it from the key rather than from an expanded occurrence is what makes
+ * the anchor independent of the window. Scanning the grid meant a completion
+ * more than a few weeks old was invisible, and the projection quietly fell back
+ * to the fixed grid — so Today, Upcoming, Stats and the reminder planner each
+ * computed *different due dates for the same chore*, and therefore different
+ * occurrence keys. A reminder could fire for an occurrence Today did not show.
  */
-function nextCompleted(
-  series: readonly Occurrence[],
-  completionFor: (key: string) => CompletedAt | undefined,
-  after: CivilDate | null,
-): { dueOn: CivilDate; completedOn: CivilDate; index: number } | null {
-  let best: { dueOn: CivilDate; completedOn: CivilDate; index: number } | null = null;
-  for (const occ of series) {
-    if (after !== null && compareCivil(occ.dueOn, after) <= 0) continue;
-    const completion = completionFor(occ.occurrenceKey);
-    if (completion === undefined) continue;
-    if (best === null || compareCivil(occ.dueOn, best.dueOn) < 0) {
-      best = {
-        dueOn: occ.dueOn,
-        completedOn: completion.completedOn,
-        index: occ.occurrenceIndex,
-      };
-    }
-  }
-  return best;
+function dueOnFromKey(occurrenceKey: string): CivilDate | null {
+  const periodKey = parseOccurrenceKey(occurrenceKey)?.periodKey;
+  return periodKey !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(periodKey)
+    ? (periodKey as CivilDate)
+    : null;
 }
 
 /**
@@ -86,78 +78,123 @@ function nextCompleted(
 export function anchorToCompletion(
   schedule: Schedule,
   raw: readonly Occurrence[],
-  completionFor: (key: string) => CompletedAt | undefined,
+  completions: readonly CompletedAt[],
   expandFrom: (anchor: CivilDate) => readonly Occurrence[],
   hasException: (key: string) => boolean,
+  /** Start of the window being projected, so older segments can skip expansion. */
+  windowStart: CivilDate,
 ): readonly Occurrence[] {
   if (schedule.rule.kind !== 'daily') return raw;
 
   const everyNDays = schedule.rule.everyNDays;
 
+  const dated = completions
+    .map((completion) => ({
+      dueOn: dueOnFromKey(completion.occurrenceKey),
+      completedOn: completion.completedOn,
+    }))
+    .filter((c): c is { dueOn: CivilDate; completedOn: CivilDate } => c.dueOn !== null)
+    .sort((a, b) => compareCivil(a.dueOn, b.dueOn));
+
+  if (dated.length === 0) return raw;
+
   /*
-   * Walked forward, one completion at a time, rather than re-anchored once.
+   * Walked segment by segment, oldest completion first.
    *
-   * The first version found the *latest* completion in `raw` and re-expanded
-   * from it — and `raw` is the fixed grid, so after one re-anchor the series'
-   * real dates no longer appeared in it and no later completion was ever
-   * found. Every chore re-anchored exactly once in its life and then reverted
-   * to the fixed grid, which is the "no amount of doing it ever catches up"
-   * condition this module exists to remove. Verified: a second late completion
-   * moved nothing at all.
-   *
-   * Each pass therefore applies the earliest completion not yet accounted for
-   * and rebuilds the tail, so the next pass can see the occurrence that only
-   * exists because of this one.
+   * Each completion moves everything after it, so the occurrence a *later*
+   * completion belongs to does not exist on the original grid at all — it only
+   * exists on the chain the earlier completion produced. Filtering one grid by
+   * date therefore loses those rows, and with them the completions attached to
+   * them: a chore done twice showed the second tick as still outstanding.
    */
-  let series = raw;
-  let after: CivilDate | null = null;
+  const out: Occurrence[] = [];
+  let anchor = schedule.startsOn;
+  let applied = 0;
 
-  // Bounded by the number of occurrences: each pass consumes one completion,
-  // and every completion belongs to an occurrence in the window.
-  for (let guard = 0; guard <= raw.length; guard += 1) {
-    const current = nextCompleted(series, completionFor, after);
-    if (current === null) return series;
+  /*
+   * How many occurrences the chain has already been through.
+   *
+   * `occurrenceIndex` is what occurrence-cadence rotation counts turns with, so
+   * it has to be **strictly increasing along the chain**. Deriving it from the
+   * date's distance along the *original* grid does not: a chore completed a day
+   * late produced 0, 2, 3, 4 — index 1 never happened, so whoever had turn 1
+   * was silently skipped and the previous person got two turns in a row.
+   *
+   * Counting instead, from the start of the chain, is monotonic by
+   * construction. It is also window-independent, which the running total below
+   * is careful to preserve: a segment that ends before the window still adds
+   * its occurrences to the count, even though none of them are emitted.
+   */
+  let chainIndex = 0;
 
-    /*
-     * The next one is due N days after it was *done*, not after it was due.
-     *
-     * Never earlier than the day after the completed occurrence, so finishing
-     * something early cannot produce two occurrences on overlapping dates or a
-     * key that collides with the one just ticked.
-     */
-    const restart = addDays(current.completedOn, everyNDays);
-    const earliest = addDays(current.dueOn, 1);
-    const nextDue = compareCivil(restart, earliest) > 0 ? restart : earliest;
-
-    /*
-     * History keeps everything up to the completion, *including* occurrences
-     * the caller has an exception for.
-     *
-     * Filtering purely on date silently dropped a skipped or rescheduled
-     * occurrence that fell in the gap — a row somebody had explicitly moved
-     * vanishing from the agenda with no trace, which is the disappearing-row
-     * complaint again.
-     */
-    const history = series.filter(
-      (occ) =>
-        compareCivil(occ.dueOn, current.dueOn) <= 0 ||
-        (compareCivil(occ.dueOn, nextDue) < 0 && hasException(occ.occurrenceKey)),
-    );
+  for (const completion of dated) {
+    // A completion behind the anchor belongs to a grid already superseded.
+    if (compareCivil(completion.dueOn, anchor) < 0) continue;
 
     /*
-     * Indices continue the sequence rather than restarting at zero.
+     * A completion has to sit *on* the chain to move it.
      *
-     * `occurrenceIndex` is what date-independent rotation counts turns with, so
-     * a grid that restarted from zero would hand the chore back to whoever had
-     * the first turn every time anybody completed anything.
+     * A tick written against a date this chore no longer falls on — which is
+     * what a stale client writes — would otherwise drag the whole series onto
+     * a phase nothing was ever due on.
      */
-    const future = expandFrom(nextDue)
-      .filter((occ) => compareCivil(occ.dueOn, nextDue) >= 0)
-      .map((occ, i) => ({ ...occ, occurrenceIndex: current.index + 1 + i }));
+    const offset = daysBetween(anchor, completion.dueOn);
+    if (offset % everyNDays !== 0) continue;
 
-    series = [...history, ...future];
-    after = current.dueOn;
+    /*
+     * Segments that end before the window are counted, not expanded.
+     *
+     * `expandFrom` materialises the whole window every time it is called, so
+     * expanding once per completion made a chore with a couple of years of
+     * history cost half a second on every recomputation — on the JS thread,
+     * inside a `useMemo`, on each optimistic tick.
+     */
+    if (compareCivil(completion.dueOn, windowStart) >= 0) {
+      for (const occ of expandFrom(anchor)) {
+        if (compareCivil(occ.dueOn, completion.dueOn) > 0) break;
+        out.push({ ...occ, occurrenceIndex: chainIndex + occ.occurrenceIndex });
+      }
+    }
+
+    /*
+     * One occurrence per date, so the count is the offset over the interval.
+     *
+     * This was briefly multiplied by `timesOfDay.length` on the belief that
+     * several times of day fan out into several occurrences. They do not —
+     * `expandDaily` emits one occurrence per date with `slot: 0`, and
+     * `timesOfDay` is a list of *reminder* times read only by the notification
+     * planner. Multiplying inflated the index at every segment boundary and
+     * brought back the skipped rotation turn this counter exists to prevent.
+     */
+    chainIndex += offset / everyNDays + 1;
+
+    /*
+     * N days after it was *done*, and never on or before the occurrence it
+     * completed: finishing early must not re-emit dates that are already
+     * history, or collide with the key just ticked.
+     */
+    const restart = addDays(completion.completedOn, everyNDays);
+    const earliest = addDays(completion.dueOn, 1);
+    anchor = compareCivil(restart, earliest) > 0 ? restart : earliest;
+    applied += 1;
   }
 
-  return series;
+  if (applied === 0) return raw;
+
+  for (const occ of expandFrom(anchor)) {
+    out.push({ ...occ, occurrenceIndex: chainIndex + occ.occurrenceIndex });
+  }
+
+  /*
+   * A skip or a reschedule in a gap the re-anchoring removed is kept.
+   *
+   * Those dates are gone from every chain, so without this a row somebody had
+   * explicitly moved vanished from the agenda with no trace.
+   */
+  const present = new Set(out.map((occ) => occ.occurrenceKey));
+  for (const occ of raw) {
+    if (!present.has(occ.occurrenceKey) && hasException(occ.occurrenceKey)) out.push(occ);
+  }
+
+  return out;
 }

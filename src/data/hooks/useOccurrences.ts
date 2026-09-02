@@ -123,6 +123,53 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
 
   const members = useMembers();
 
+  /**
+   * Interval chores need **every** completion they have, not this window's.
+   *
+   * `anchorToCompletion` sets the phase of an "every N days" series from the
+   * last completion whenever it was, so filtering completions by `due_on` — as
+   * the windowed query above does, correctly, for everything else — feeds it a
+   * different input per screen and it computes different due dates for the same
+   * chore on each. Worse, the re-anchoring then *expired*: once a completion
+   * fell out of Today's two-week lookback the chore snapped back onto the fixed
+   * grid and the dates it had been rightly skipping reappeared as overdue.
+   *
+   * Only interval chores, because they are the only rule the anchoring touches,
+   * and a two-person household's ticks are a few kilobytes.
+   */
+  const intervalChoreIds = useMemo(
+    () =>
+      (choresQuery.data?.chores ?? [])
+        .filter((c) => c.schedule.rule.kind === 'daily')
+        .map((c) => c.id),
+    [choresQuery.data],
+  );
+
+  const intervalCompletionsQuery = useQuery({
+    queryKey: qk.completionsForChores(householdId ?? '__none__', intervalChoreIds),
+    queryFn:
+      householdId === null
+        ? skipToken
+        : () => listCompletionsForChores(householdId, intervalChoreIds),
+    enabled: householdId !== null && intervalChoreIds.length > 0,
+  });
+
+  /**
+   * The two completion queries, de-duplicated by occurrence key.
+   *
+   * They overlap: a recent completion of an interval chore is in both. Passing
+   * it twice would apply the same re-anchor twice and walk the series forward
+   * by an extra N days.
+   */
+  const completions = useMemo(() => {
+    const merged = new Map<string, CompletionInput>();
+    for (const c of (completionsQuery.data ?? []) as CompletionInput[])
+      merged.set(c.occurrenceKey, c);
+    for (const c of (intervalCompletionsQuery.data ?? []) as CompletionInput[])
+      merged.set(c.occurrenceKey, c);
+    return [...merged.values()];
+  }, [completionsQuery.data, intervalCompletionsQuery.data]);
+
   const projected = useMemo(() => {
     const chores = choresQuery.data?.chores ?? [];
     if (chores.length === 0) return [];
@@ -130,7 +177,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
     const projected = projectOccurrences(
       {
         chores,
-        completions: (completionsQuery.data ?? []) as CompletionInput[],
+        completions,
         exceptions: (exceptionsQuery.data ?? []) as ExceptionInput[],
         memberIds: (members.data ?? []).map((m) => m.userId),
         today,
@@ -139,15 +186,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
       window,
     );
     return projected;
-  }, [
-    choresQuery.data,
-    completionsQuery.data,
-    exceptionsQuery.data,
-    members.data,
-    today,
-    calendar,
-    window,
-  ]);
+  }, [choresQuery.data, completions, exceptionsQuery.data, members.data, today, calendar, window]);
 
   /**
    * Both views derive from the **projector's** output, not from each other.
@@ -182,10 +221,24 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
     today,
     window,
     calendar,
-    isLoading: choresQuery.isLoading || completionsQuery.isLoading || exceptionsQuery.isLoading,
+    /*
+     * The interval query counts, for both.
+     *
+     * Left out, a failed fetch silently put every interval chore back on the
+     * fixed grid — the precise bug this hook's second completions query exists
+     * to fix — with `error` null and nothing for pull-to-refresh to report. And
+     * omitting it from `isLoading` let the other three settle first, so rows
+     * painted on grid dates, flashed as overdue, then jumped.
+     */
+    isLoading:
+      choresQuery.isLoading ||
+      completionsQuery.isLoading ||
+      intervalCompletionsQuery.isLoading ||
+      exceptionsQuery.isLoading,
     error:
       (choresQuery.error as Error | null) ??
       (completionsQuery.error as Error | null) ??
+      (intervalCompletionsQuery.error as Error | null) ??
       (exceptionsQuery.error as Error | null),
     unreadable: choresQuery.data?.unreadable ?? [],
     refetch,
