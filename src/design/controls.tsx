@@ -194,8 +194,8 @@ export function ToggleChips<T extends string | number>({
             accessibilityState={{ checked: on }}
             accessibilityLabel={option.a11yLabel ?? option.label}
             style={{
-              minWidth: 40,
-              minHeight: 40,
+              minWidth: MIN_TARGET,
+              minHeight: MIN_TARGET,
               paddingHorizontal: space.sm,
               borderRadius: radius.sm,
               alignItems: 'center',

@@ -30,7 +30,7 @@ import { BackBar, Button, ErrorState, Field, LoadingState, Stack, Txt } from '@/
 import { FieldGroup } from '@/design/controls';
 import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { ReorderableList } from './ReorderableList';
 import { IconPicker } from '@/features/common/IconPicker';
 import { toIconName, type IconName } from '@/design/icons';
@@ -157,7 +157,7 @@ export function CategoriesScreen() {
                 onPress={() => startEdit(category)}
                 accessibilityRole="button"
                 accessibilityLabel={`Edit ${category.name}`}
-                style={{ minHeight: 40, minWidth: 40, justifyContent: 'center' }}
+                style={{ minHeight: MIN_TARGET, minWidth: MIN_TARGET, justifyContent: 'center' }}
               >
                 <Txt variant="small" tone="muted">
                   Edit
@@ -167,7 +167,7 @@ export function CategoriesScreen() {
                 onPress={() => remove.mutate({ categoryId: category.id })}
                 accessibilityRole="button"
                 accessibilityLabel={`Delete ${category.name}`}
-                style={{ minHeight: 40, minWidth: 40, justifyContent: 'center' }}
+                style={{ minHeight: MIN_TARGET, minWidth: MIN_TARGET, justifyContent: 'center' }}
               >
                 <Txt variant="small" tone="danger">
                   Delete
@@ -207,7 +207,7 @@ export function CategoriesScreen() {
                     accessibilityLabel={option.label}
                     style={{
                       minWidth: 44,
-                      minHeight: 44,
+                      minHeight: MIN_TARGET,
                       borderRadius: radius.sm,
                       alignItems: 'center',
                       justifyContent: 'center',

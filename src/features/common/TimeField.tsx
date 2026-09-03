@@ -26,7 +26,7 @@ import { Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { QUICK_TIMES } from '@/design/times';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 
 /**
  * A `Date` carrying the given wall time, on a day that does not matter.
@@ -95,7 +95,7 @@ export function TimeField({ value, onChange, defaultTime, silence = null }: Prop
                 accessibilityRole="button"
                 accessibilityLabel={`Remove the reminder at ${formatCivilTime(time)}`}
                 style={{
-                  minHeight: 40,
+                  minHeight: MIN_TARGET,
                   justifyContent: 'center',
                   paddingHorizontal: space.md,
                   borderRadius: radius.sm,
@@ -191,7 +191,7 @@ function AddButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       style={{
-        minHeight: 40,
+        minHeight: MIN_TARGET,
         justifyContent: 'center',
         paddingHorizontal: space.md,
         borderRadius: radius.sm,

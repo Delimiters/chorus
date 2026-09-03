@@ -17,7 +17,7 @@ import { Platform, Pressable, View } from 'react-native';
 import type { CivilTime } from '@/core/civil/types';
 import { Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { formatCivilTime } from '@/core/civil/time';
 import { fromPickerDate, toPickerDate } from './TimeField';
 
@@ -48,7 +48,7 @@ export function SingleTimeField({ value, onChange, label, presets }: Props) {
       accessibilityState={{ selected }}
       accessibilityLabel={accessibilityLabel}
       style={{
-        minHeight: 36,
+        minHeight: MIN_TARGET,
         justifyContent: 'center',
         paddingHorizontal: space.md,
         borderRadius: radius.sm,

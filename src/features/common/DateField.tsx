@@ -19,7 +19,7 @@ import { addDays, compareCivil, startOfWeek } from '@/core/civil/date';
 import type { CivilDate, Weekday } from '@/core/civil/types';
 import { Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { MonthGrid } from '../upcoming/MonthGrid';
 import { formatDayShort, formatRelativeDay } from '@/features/common/format';
 
@@ -96,7 +96,7 @@ export function DateField({ value, onChange, today, label, weekStartsOn = 0, ear
                 accessibilityState={{ selected }}
                 accessibilityLabel={`${label}: ${option.label}`}
                 style={{
-                  minHeight: 40,
+                  minHeight: MIN_TARGET,
                   justifyContent: 'center',
                   paddingHorizontal: space.md,
                   borderRadius: radius.sm,
@@ -122,7 +122,7 @@ export function DateField({ value, onChange, today, label, weekStartsOn = 0, ear
           accessibilityState={{ expanded: open }}
           accessibilityLabel={open ? 'Close the calendar' : 'Pick another date'}
           style={{
-            minHeight: 40,
+            minHeight: MIN_TARGET,
             justifyContent: 'center',
             paddingHorizontal: space.md,
             borderRadius: radius.sm,

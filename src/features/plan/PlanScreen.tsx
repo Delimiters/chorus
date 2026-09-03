@@ -32,7 +32,7 @@ import { positionBetween } from '@/core/plan/reorder';
 import { Sheet, SheetAction } from '@/design/Sheet';
 import { Button, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { useMembers } from '@/data/hooks/useHousehold';
@@ -404,7 +404,20 @@ export function PlanScreen({
               }}
               accessibilityRole="button"
               accessibilityLabel={`See ${theirName}'s day`}
-              hitSlop={8}
+              /*
+               * A real target, not a caption with hit-slop bolted on.
+               *
+               * This shipped as a 13pt line — about 32pt tall — and hit-slop
+               * does not make a control findable, only slightly easier to hit
+               * once you have guessed it is one. It is the sole way into your
+               * housemate's day.
+               */
+              style={{
+                minHeight: MIN_TARGET,
+                justifyContent: 'center',
+                alignSelf: 'flex-start',
+                paddingRight: space.sm,
+              }}
             >
               <Txt variant="small" tone="muted">
                 {theirCount === 0
