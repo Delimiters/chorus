@@ -58,6 +58,15 @@ const HOLD_MS = 220;
 /** Long enough to read as movement, short enough not to lag the finger. */
 const SHIFT_MS = 140;
 
+/**
+ * How far a finger may travel and still be holding rather than scrolling.
+ *
+ * Points of combined x+y movement. Small enough that a deliberate press is not
+ * cancelled by the wobble of a thumb, large enough that the start of a flick
+ * is.
+ */
+const SCROLL_SLOP = 8;
+
 interface Props<T> {
   items: readonly T[];
   keyOf: (item: T) => string;
@@ -110,6 +119,26 @@ export function DragList<T>({
    * the plan then could not be scrolled at all.
    */
   const holdTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  /*
+   * Where each touch began, keyed by row — not one shared origin.
+   *
+   * With a single ref, two fingers on two rows shared it: the second touch
+   * overwrote it, the first measured its travel against the wrong point, and
+   * cancelling either one nulled it for both. After that the slop guard simply
+   * stopped running, and the next flick re-froze the page — the very bug this
+   * guard exists to prevent, restored by a second finger.
+   */
+  const touchOrigins = useRef<Map<string, { x: number; y: number }>>(new Map());
+
+  const cancelHold = (key: string) => {
+    const pending = holdTimers.current.get(key);
+    if (pending !== undefined) {
+      clearTimeout(pending);
+      holdTimers.current.delete(key);
+    }
+    touchOrigins.current.delete(key);
+  };
   const order = useRef<readonly T[]>(items);
   order.current = items;
   const targetRef = useRef<number | null>(null);
@@ -313,9 +342,22 @@ export function DragList<T>({
             onLayout={(event) => {
               heights.current.set(key, event.nativeEvent.layout.height);
             }}
-            onTouchStart={() => {
+            onTouchStart={(event) => {
+              /*
+               * One drag at a time. A second finger landing on another row
+               * armed a hold that `onTouchMove` then refused to cancel — it
+               * returns early whenever anything is being dragged — so 220ms
+               * later that row was picked up too and the row actually in your
+               * hand snapped back to its slot mid-gesture.
+               */
+              if (dragging !== null) return;
               const existing = holdTimers.current.get(key);
               if (existing !== undefined) clearTimeout(existing);
+              // Where the finger went down, so a scroll can be told from a hold.
+              touchOrigins.current.set(key, {
+                x: event.nativeEvent.pageX,
+                y: event.nativeEvent.pageY,
+              });
               holdTimers.current.set(
                 key,
                 setTimeout(() => {
@@ -324,15 +366,45 @@ export function DragList<T>({
                 }, HOLD_MS),
               );
             }}
+            onTouchMove={(event) => {
+              /*
+               * A finger that has travelled is scrolling, not holding.
+               *
+               * Without this, pressing and then scrolling picked the row up
+               * 220ms in — and `scrollEnabled={!dragging}` then stopped the
+               * scroll dead, mid-flick. Jake: "it like gets stuck when you
+               * scroll randomly." The hold has to lose the race it was never
+               * meant to be in.
+               */
+              if (dragging !== null) return;
+              const origin = touchOrigins.current.get(key);
+              if (origin === undefined) return;
+              /*
+               * Vertical travel only. The list scrolls one way, so sideways
+               * movement can never be the start of a scroll — spending the slop
+               * budget on it just made a thumb that rolls slightly while
+               * pressing fail to pick anything up.
+               */
+              if (Math.abs(event.nativeEvent.pageY - origin.y) < SCROLL_SLOP) return;
+              cancelHold(key);
+            }}
             onTouchEnd={() => {
-              const pending = holdTimers.current.get(key);
-              if (pending !== undefined) {
-                clearTimeout(pending);
-                holdTimers.current.delete(key);
-              }
+              cancelHold(key);
               // A hold that never became a drag never reaches the responder, so
               // without this the row stays picked up until the next gesture.
               if (dragging === key && targetRef.current === null) stopDragging();
+            }}
+            /*
+             * The scroll view taking the gesture sends a *cancel*, not an end.
+             *
+             * That was the half that made it stick rather than merely stutter:
+             * once the row had been picked up, the only thing that put it down
+             * was `onTouchEnd`, which never came — so `scrollEnabled` stayed
+             * false and the plan could not be scrolled again at all.
+             */
+            onTouchCancel={() => {
+              cancelHold(key);
+              if (dragging === key) stopDragging();
             }}
             accessibilityActions={[
               { name: 'moveUp', label: `Move ${labelOf(item)} up` },

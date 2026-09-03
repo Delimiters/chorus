@@ -16,11 +16,12 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { planFor, progressOf } from '@/core/plan/plan';
+import { partitionSettled } from '@/core/plan/settle';
 import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
@@ -41,6 +42,7 @@ import {
   useRemoveFromPlan,
   useTheirPlanCount,
   useReorderPlan,
+  useTheirPlanEntries,
   useTheirPlanTotal,
 } from '@/data/hooks/usePlan';
 import { toPriority } from '@/core/chore/priority';
@@ -48,6 +50,15 @@ import { useUserId } from '@/stores/sessionStore';
 import { formatDayLong } from '@/features/common/format';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
 import { useRoutineStore } from '@/stores/routineStore';
+
+/**
+ * How long a just-finished row stays where it is before sinking.
+ *
+ * Long enough to watch the tick land and to think better of it, short enough
+ * that the list is tidy again by the time you look back up. Three seconds is a
+ * guess made on the sofa rather than a measurement; it is one number to change.
+ */
+const SETTLE_MS = 3000;
 
 interface PlanScreenProps {
   /** Everything outstanding or done today, from Today's own query. */
@@ -96,6 +107,39 @@ export function PlanScreen({
   const entries = useMyPlanEntries(today as never);
   const theirCount = useTheirPlanCount(today as never, available);
   const theirTotal = useTheirPlanTotal(today as never, available);
+  const theirEntries = useTheirPlanEntries(today as never, available);
+  const [showingTheirs, setShowingTheirs] = useState(false);
+
+  /**
+   * Their day, in their order, with what each row has become.
+   *
+   * Read-only, and the database is what makes it so — every write policy on
+   * `plan_entries` requires the row to be yours. This is the *seeing* half,
+   * which is the half that was missing: the screen could say "Emily has 3
+   * planned" and offer no way to find out what they were.
+   */
+  /*
+   * Skipped counts as finished, matching every other tally on this screen.
+   *
+   * `useTheirPlanCount` treats a skip as not-outstanding and `progressOf`
+   * counts it as done for your own day, but the sheet tested `completed` alone
+   * — so a housemate who skipped both their chores got "Sam has finished today"
+   * in the header and "0 of 2 done" in the sheet it opens. A skip is a
+   * decision, not a failure, and it closes the row either way.
+   */
+  const isSettled = (item: { status: string }) =>
+    item.status === 'completed' || item.status === 'skipped';
+
+  /** Capped against the screen, like the picker's list. */
+  const { height: screenHeight } = useWindowDimensions();
+  const theirSheetMaxHeight = Math.max(180, Math.min(420, screenHeight - 260));
+
+  const theirPlan = useMemo(() => {
+    const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
+    return theirEntries
+      .map((entry) => byKey.get(entry.occurrenceKey))
+      .filter((item): item is AgendaItem => item !== undefined);
+  }, [theirEntries, available]);
   const toggle = useToggleCompletion();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -113,9 +157,111 @@ export function PlanScreen({
     }
   }, [refetch]);
 
-  const planned = useMemo(
+  const inPlanOrder = useMemo(
     () => planFor(entries, today as never, available),
     [entries, today, available],
+  );
+
+  /*
+   * Rows just ticked, held in place before they sink.
+   *
+   * A row that leaves the instant you touch it takes its own feedback with it:
+   * you never see the tick land, and if it was the wrong row, undoing means
+   * hunting for it somewhere else. So completion and movement are two beats,
+   * a few seconds apart.
+   *
+   * Held keys live in state because the order depends on them, and the timers
+   * in a ref because they must survive re-renders — this screen re-renders on
+   * every query that feeds it.
+   */
+  const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set());
+  const holdTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  /*
+   * What each row looked like last time, so a *transition* can be recognised.
+   *
+   * The first attempt used a "have I looked once" flag, and a review showed it
+   * cannot survive the load race: the plan and the agenda are separate queries
+   * with no ordering between them, so the first run routinely sees an empty
+   * plan, burns the flag, and then treats every row that arrives already
+   * finished as freshly ticked — held mid-list for three seconds and jumping.
+   * The same held for midnight rolling the date over and for switching
+   * household, neither of which a one-shot flag re-arms.
+   *
+   * A key absent last time has just arrived and is not a tick, whatever its
+   * status. Only false → true is.
+   */
+  const wasDone = useRef<ReadonlyMap<string, boolean>>(new Map());
+
+  useEffect(() => {
+    const now = new Map(inPlanOrder.map((p) => [p.item.occurrenceKey, isSettled(p.item)] as const));
+
+    for (const [key, done] of now) {
+      const before = wasDone.current.get(key);
+      // Newly finished: present before, not done then, done now.
+      if (!done || before !== false || holdTimers.current.has(key)) continue;
+      setHeld((current) => new Set(current).add(key));
+      holdTimers.current.set(
+        key,
+        setTimeout(() => {
+          holdTimers.current.delete(key);
+          setHeld((current) => {
+            const next = new Set(current);
+            next.delete(key);
+            return next;
+          });
+        }, SETTLE_MS),
+      );
+    }
+
+    /*
+     * Unticked while still held, or gone from the day: release it. It is not
+     * finished any more, so it stays put on its own, and a stale timer would
+     * sink it seconds later for no reason anyone could see.
+     */
+    for (const [key, timer] of holdTimers.current) {
+      if (now.get(key) === true) continue;
+      clearTimeout(timer);
+      holdTimers.current.delete(key);
+      setHeld((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
+
+    wasDone.current = now;
+  }, [inPlanOrder]);
+
+  useEffect(
+    () => () => {
+      for (const timer of holdTimers.current.values()) clearTimeout(timer);
+      holdTimers.current.clear();
+    },
+    [],
+  );
+
+  /*
+   * Finished work leaves the draggable list rather than moving within it.
+   *
+   * The first version handed `DragList` a *display* order while positions came
+   * from the *stored* order, and once anything had sunk the two disagreed: a
+   * review found that picking any row up made every sunk row rise back into the
+   * middle of the list before the finger had moved, and that a VoiceOver "move
+   * down" on a settled list computed its new position from non-monotonic
+   * neighbours and sent the row to the *top* of the day — written to the
+   * database, not merely drawn wrong.
+   *
+   * Splitting them removes the disagreement instead of papering over it. What
+   * is draggable is always in stored order, so positions stay monotonic; what
+   * is finished is drawn below it and is not draggable, which is also the
+   * honest affordance — there is no order left to choose for work that is done.
+   */
+  const planned = inPlanOrder;
+
+  const { active, sunk } = useMemo(
+    () => partitionSettled(inPlanOrder, held, (p) => p.item),
+    [inPlanOrder, held],
   );
   const progress = useMemo(() => progressOf(planned), [planned]);
 
@@ -243,10 +389,29 @@ export function PlanScreen({
             {formatDayLong(today as never).toUpperCase()}
             {progress.total > 0 ? ` · ${progress.done} OF ${progress.total}` : ''}
           </Txt>
-          {theirCount > 0 ? (
-            <Txt variant="small" tone="muted">
-              {`${theirName} has ${theirCount} planned`}
-            </Txt>
+          {/*
+            Tappable, and shown whenever they have a day at all rather than only
+            when something is left on it. "Emily has 3 planned" with no way to
+            see what they were is a fact you can do nothing with — and once they
+            finish, the line used to vanish entirely, which reads as them not
+            having planned anything rather than as them being done.
+          */}
+          {theirTotal > 0 ? (
+            <Pressable
+              onPress={() => {
+                tapped();
+                setShowingTheirs(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`See ${theirName}'s day`}
+              hitSlop={8}
+            >
+              <Txt variant="small" tone="muted">
+                {theirCount === 0
+                  ? `${theirName} has finished today ›`
+                  : `${theirName} has ${theirCount} of ${theirTotal} left ›`}
+              </Txt>
+            </Pressable>
           ) : null}
         </Stack>
 
@@ -376,7 +541,7 @@ export function PlanScreen({
               count={progress.finished ? progress.done : progress.total - progress.done}
             />
             <DragList
-              items={planned}
+              items={active}
               keyOf={(p) => p.item.occurrenceKey}
               labelOf={(p) => p.item.choreTitle}
               renderItem={(p) => renderRow(p)}
@@ -388,17 +553,49 @@ export function PlanScreen({
                  * would be N writes and would turn two people reordering at once
                  * into a conflict.
                  */
-                const byKey = new Map(planned.map((p) => [p.item.occurrenceKey, p]));
+                const byKey = new Map(active.map((p) => [p.item.occurrenceKey, p]));
                 const positions = orderedKeys.map((k) => byKey.get(k)?.position ?? 0);
                 const movedAt = orderedKeys.indexOf(movedKey);
                 if (movedAt === -1) return;
 
-                reorderPlan.mutate(
-                  movedKey,
-                  positionBetween(positions[movedAt - 1] ?? null, positions[movedAt + 1] ?? null),
-                );
+                const before = positions[movedAt - 1] ?? null;
+                const after = positions[movedAt + 1] ?? null;
+                let next = positionBetween(before, after);
+
+                /*
+                 * At either end, clear the *whole* day rather than the
+                 * draggable part of it.
+                 *
+                 * Finished rows keep their stored positions while sitting below
+                 * the list, so moving something to the top of what is left
+                 * would otherwise land on the same number as something already
+                 * done — a tie that is invisible until that row is unticked and
+                 * the two swap for reasons nobody can see.
+                 */
+                const stored = planned.map((p) => p.position);
+                if (before === null && stored.length > 0) {
+                  next = Math.min(next, Math.min(...stored) - 1);
+                }
+                if (after === null && stored.length > 0) {
+                  next = Math.max(next, Math.max(...stored) + 1);
+                }
+
+                reorderPlan.mutate(movedKey, next);
               }}
             />
+
+            {/*
+              Finished work, below the line and not draggable.
+            
+              There is no order left to choose for something that is done, and
+              offering to reorder it is what let the display order and the
+              stored order drift apart in the first place.
+            */}
+            {sunk.map((entry) => (
+              <View key={entry.item.occurrenceKey} testID={`done-row:${entry.item.occurrenceKey}`}>
+                {renderRow(entry)}
+              </View>
+            ))}
 
             <View
               style={{
@@ -438,6 +635,75 @@ export function PlanScreen({
         opens with "Create a new chore" as its first row. The button stays on
         the Chores and Routines sub-tabs, where nothing else competes with it.
       */}
+
+      {/*
+        Their day, to look at.
+
+        A sheet rather than a section on this screen, because the plan's job is
+        to be *your* day and to be finishable — "That's today" stops being true
+        the moment somebody else's outstanding work is listed under it. This is
+        a glance, and glances belong in something you dismiss.
+      */}
+      <Sheet
+        visible={showingTheirs}
+        onClose={() => setShowingTheirs(false)}
+        title={`${theirName}'s day`}
+        subtitle={
+          theirPlan.length === 0
+            ? undefined
+            : `${theirPlan.filter(isSettled).length} of ${theirPlan.length} done · only ${theirName} can change this`
+        }
+      >
+        {/*
+          Scrolls, and is capped against the screen.
+        
+          `Sheet` says in its own header that it assumes short, static lists of
+          actions — and this list is neither. The plan auto-adds every recurring
+          chore due or late, so an uncurated day is the whole due list. Because
+          the sheet grows upward from the bottom, overflow clips the *top* of
+          their order: exactly the rows you opened it to see. Same shape as the
+          picker next door, for the same reason.
+        */}
+        <ScrollView
+          style={{ maxHeight: theirSheetMaxHeight }}
+          contentContainerStyle={{ gap: space.sm, paddingBottom: space.sm }}
+        >
+          {theirPlan.map((item) => {
+            const done = isSettled(item);
+            return (
+              <View
+                key={item.occurrenceKey}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+                // `accessible` as well as the label: a plain View is not an
+                // accessibility element, so the label was ignored and VoiceOver
+                // read the bullet as its own item.
+                accessible
+                accessibilityLabel={`${item.choreTitle}${done ? ', done' : ''}`}
+              >
+                {/*
+                  A mark, not a checkbox. A checkbox you cannot tick is an
+                  invitation to try, and the answer would have to be a refusal;
+                  the database would refuse it too, which is worse to discover
+                  by tapping.
+                */}
+                {/* `accessible` on the row merges these children into one
+                    element, so the bullet is not announced on its own. */}
+                <Txt variant="small" tone={done ? 'muted' : 'faint'}>
+                  {done ? '✓' : '·'}
+                </Txt>
+                <Txt
+                  variant="body"
+                  tone={done ? 'muted' : 'default'}
+                  numberOfLines={2}
+                  style={{ flex: 1, minWidth: 0 }}
+                >
+                  {item.choreTitle}
+                </Txt>
+              </View>
+            );
+          })}
+        </ScrollView>
+      </Sheet>
 
       <Sheet
         visible={removing !== null}

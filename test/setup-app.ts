@@ -2,9 +2,12 @@
  * Setup for the `app` (component) test project.
  *
  * @testing-library/react-native v12.4+ registers its jest matchers
- * automatically, so there is nothing to import for those. RNTL v14 is async:
- * `render`, `fireEvent` and `renderHook` all return promises and must be
- * awaited. See docs/TESTING.md.
+ * automatically, so there is nothing to import for those.
+ *
+ * This said RNTL v14 was async and that `render`, `fireEvent` and `renderHook`
+ * returned promises which had to be awaited. The installed version is 13.3.3
+ * and every test in the repo calls them synchronously, so the note described a
+ * version we are not on and a rule nothing follows. See docs/TESTING.md.
  */
 
 // Any module that reaches the Supabase client transitively imports env

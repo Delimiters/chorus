@@ -60,9 +60,15 @@ const styleOf = (key: string) =>
  * the props are present on the node and simply are not called — the same thing
  * that stopped `onAccessibilityAction` firing in the plan's tests.
  */
-const touch = (key: string, event: 'onTouchStart' | 'onTouchEnd') => {
+const touch = (
+  key: string,
+  event: 'onTouchStart' | 'onTouchMove' | 'onTouchEnd' | 'onTouchCancel',
+  // A finger has to be somewhere: `onTouchStart` records where, so a later move
+  // can be told apart from a hold.
+  at: { pageX: number; pageY: number } = { pageX: 100, pageY: 400 },
+) => {
   act(() => {
-    screen.getByTestId(`drag-row:${key}`).props[event]();
+    screen.getByTestId(`drag-row:${key}`).props[event]({ nativeEvent: at });
   });
 };
 
@@ -329,5 +335,102 @@ describe('a drag that cannot be finished by the finger that started it', () => {
     });
 
     expect(onDragStateChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe('scrolling past a row rather than picking it up', () => {
+  /*
+   * Reported from the phone: "the scrolling kinda sucks on that page, it like
+   * gets stuck when you scroll randomly." Two halves, both here.
+   */
+  it('does not pick a row up when the finger is travelling', () => {
+    /*
+     * Press, then scroll. The hold used to fire 220ms in regardless, and
+     * `scrollEnabled={!dragging}` then stopped the scroll dead mid-flick.
+     */
+    renderList();
+
+    touch('b', 'onTouchStart', { pageX: 100, pageY: 400 });
+    touch('b', 'onTouchMove', { pageX: 100, pageY: 360 });
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(styleOf('b').zIndex).toBe(0);
+    expect(onDragStateChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it('still picks up a finger that stays put', () => {
+    // The slop has to be small enough that a deliberate press survives the
+    // wobble of a thumb, or the feature is simply gone.
+    renderList();
+
+    touch('b', 'onTouchStart', { pageX: 100, pageY: 400 });
+    touch('b', 'onTouchMove', { pageX: 101, pageY: 402 });
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(styleOf('b').zIndex).toBe(2);
+  });
+
+  it('puts the row down when the scroll view takes the gesture', () => {
+    /*
+     * The half that made it stick rather than stutter. A scroll view claiming
+     * the responder sends a *cancel*, not an end — and only `onTouchEnd` put
+     * the row down, so `scrollEnabled` stayed false and the plan could not be
+     * scrolled again at all.
+     */
+    renderList();
+    pickUp('b');
+    expect(styleOf('b').zIndex).toBe(2);
+
+    touch('b', 'onTouchCancel');
+
+    expect(styleOf('b').zIndex).toBe(0);
+    expect(onDragStateChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe('a second finger', () => {
+  it('does not arm a hold on another row while one is already held', () => {
+    /*
+     * `onTouchMove` returns early whenever anything is being dragged, so a hold
+     * armed by a second finger could never be cancelled: 220ms later that row
+     * was picked up too, and the row actually in your hand snapped back to its
+     * slot mid-gesture.
+     */
+    renderList();
+    pickUp('b');
+
+    touch('c', 'onTouchStart');
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(styleOf('c').zIndex).toBe(0);
+    expect(styleOf('b').zIndex).toBe(2);
+  });
+
+  it('measures each row against its own starting point', () => {
+    /*
+     * One shared origin meant the second touch overwrote it, the first measured
+     * its travel from the wrong point, and cancelling either nulled it for
+     * both — after which the slop guard silently stopped running and the next
+     * flick re-froze the page. Which is the bug this guard exists to prevent.
+     */
+    renderList();
+
+    touch('a', 'onTouchStart', { pageX: 100, pageY: 200 });
+    touch('c', 'onTouchStart', { pageX: 100, pageY: 600 });
+    // `c` ends; `a` must keep its own origin and still be cancellable.
+    touch('c', 'onTouchEnd');
+    touch('a', 'onTouchMove', { pageX: 100, pageY: 240 });
+
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(styleOf('a').zIndex).toBe(0);
   });
 });

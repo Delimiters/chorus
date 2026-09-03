@@ -79,7 +79,13 @@ jest.mock('@/stores/sessionStore', () => ({
 }));
 
 // eslint-disable-next-line import/first
-import { useAddToPlan, useRemoveFromPlan, useReorderPlan, useTheirPlanTotal } from './usePlan';
+import {
+  useAddToPlan,
+  useRemoveFromPlan,
+  useReorderPlan,
+  useTheirPlanEntries,
+  useTheirPlanTotal,
+} from './usePlan';
 
 function harness() {
   const client = new QueryClient({
@@ -323,5 +329,72 @@ describe('reordering the day', () => {
 
     await waitFor(() => expect(positionWhenCancelled).toBeDefined());
     expect(positionWhenCancelled).toBe(5);
+  });
+});
+
+describe("your housemate's day, as data", () => {
+  /*
+   * The hook had no coverage at all: a review replaced its whole body with
+   * `return []` and every one of the 1235 tests still passed, because both
+   * screen tests mock `usePlan` wholesale. It is the entire data path for the
+   * feature, so every clause it makes is asserted here.
+   */
+  const available = [
+    { occurrenceKey: 'v1:bins' },
+    { occurrenceKey: 'v1:mopping' },
+    { occurrenceKey: 'v1:dishes' },
+  ];
+
+  const render = () => {
+    const { client, wrapper } = harness();
+    return { client, wrapper };
+  };
+
+  it('is their rows for today, in their order', async () => {
+    const { client, wrapper } = render();
+    seed(client, [row('v1:mopping', 20, THEM), row('v1:bins', 10, THEM), row('v1:dishes', 5, ME)]);
+
+    const { result } = renderHook(() => useTheirPlanEntries(TODAY, available), { wrapper });
+
+    await waitFor(() => expect(result.current.length).toBe(2));
+    // Sorted by position, and mine is not in it.
+    expect(result.current.map((r) => r.occurrenceKey)).toEqual(['v1:bins', 'v1:mopping']);
+  });
+
+  it('leaves out another day', async () => {
+    const { client, wrapper } = render();
+    seed(client, [row('v1:bins', 10, THEM), row('v1:mopping', 20, THEM, civilDate('2026-08-26'))]);
+
+    const { result } = renderHook(() => useTheirPlanEntries(TODAY, available), { wrapper });
+
+    await waitFor(() => expect(result.current.length).toBe(1));
+    expect(result.current[0]?.occurrenceKey).toBe('v1:bins');
+  });
+
+  it('drops an entry whose occurrence no longer exists', async () => {
+    /*
+     * An archived chore, or a schedule edited so the key moved. Without this
+     * the sheet renders a row with no title — a blank line in somebody else's
+     * day, which is unreadable and unexplainable.
+     */
+    const { client, wrapper } = render();
+    seed(client, [row('v1:bins', 10, THEM), row('v1:ghost', 20, THEM)]);
+
+    const { result } = renderHook(() => useTheirPlanEntries(TODAY, available), { wrapper });
+
+    await waitFor(() => expect(result.current.length).toBe(1));
+    expect(result.current[0]?.occurrenceKey).toBe('v1:bins');
+  });
+
+  it('breaks a tie by key, so both phones show one order', async () => {
+    // `position` alone is not a total order. `planFor`, which renders their own
+    // device, breaks ties by key; disagreeing here shows the same day two ways.
+    const { client, wrapper } = render();
+    seed(client, [row('v1:mopping', 10, THEM), row('v1:bins', 10, THEM)]);
+
+    const { result } = renderHook(() => useTheirPlanEntries(TODAY, available), { wrapper });
+
+    await waitFor(() => expect(result.current.length).toBe(2));
+    expect(result.current.map((r) => r.occurrenceKey)).toEqual(['v1:bins', 'v1:mopping']);
   });
 });
