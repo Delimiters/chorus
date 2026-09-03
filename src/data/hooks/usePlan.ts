@@ -172,7 +172,10 @@ export function useTheirPlanEntries(
       ...rows.filter(
         (row) => row.userId !== userId && row.plannedFor === today && live.has(row.occurrenceKey),
       ),
-    ].sort((a, b) => a.position - b.position);
+      // Tie broken by key, as `planFor` does when it renders their own device.
+      // `position` alone is not a total order, and two devices resolving a tie
+      // differently would show the same day in two orders.
+    ].sort((a, b) => a.position - b.position || a.occurrenceKey.localeCompare(b.occurrenceKey));
   }, [rows, userId, today, available]);
 }
 

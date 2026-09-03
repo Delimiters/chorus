@@ -16,11 +16,12 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { planFor, progressOf } from '@/core/plan/plan';
+import { settleOrder } from '@/core/plan/settle';
 import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
@@ -49,6 +50,15 @@ import { useUserId } from '@/stores/sessionStore';
 import { formatDayLong } from '@/features/common/format';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
 import { useRoutineStore } from '@/stores/routineStore';
+
+/**
+ * How long a just-finished row stays where it is before sinking.
+ *
+ * Long enough to watch the tick land and to think better of it, short enough
+ * that the list is tidy again by the time you look back up. Three seconds is a
+ * guess made on the sofa rather than a measurement; it is one number to change.
+ */
+const SETTLE_MS = 3000;
 
 interface PlanScreenProps {
   /** Everything outstanding or done today, from Today's own query. */
@@ -108,6 +118,22 @@ export function PlanScreen({
    * which is the half that was missing: the screen could say "Emily has 3
    * planned" and offer no way to find out what they were.
    */
+  /*
+   * Skipped counts as finished, matching every other tally on this screen.
+   *
+   * `useTheirPlanCount` treats a skip as not-outstanding and `progressOf`
+   * counts it as done for your own day, but the sheet tested `completed` alone
+   * — so a housemate who skipped both their chores got "Sam has finished today"
+   * in the header and "0 of 2 done" in the sheet it opens. A skip is a
+   * decision, not a failure, and it closes the row either way.
+   */
+  const isSettled = (item: { status: string }) =>
+    item.status === 'completed' || item.status === 'skipped';
+
+  /** Capped against the screen, like the picker's list. */
+  const { height: screenHeight } = useWindowDimensions();
+  const theirSheetMaxHeight = Math.max(180, Math.min(420, screenHeight - 260));
+
   const theirPlan = useMemo(() => {
     const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
     return theirEntries
@@ -131,9 +157,103 @@ export function PlanScreen({
     }
   }, [refetch]);
 
-  const planned = useMemo(
+  const inPlanOrder = useMemo(
     () => planFor(entries, today as never, available),
     [entries, today, available],
+  );
+
+  /*
+   * Rows just ticked, held in place before they sink.
+   *
+   * A row that leaves the instant you touch it takes its own feedback with it:
+   * you never see the tick land, and if it was the wrong row, undoing means
+   * hunting for it somewhere else. So completion and movement are two beats,
+   * a few seconds apart.
+   *
+   * Held keys live in state because the order depends on them, and the timers
+   * in a ref because they must survive re-renders — this screen re-renders on
+   * every query that feeds it.
+   */
+  const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set());
+  const holdTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const wasDone = useRef<ReadonlySet<string>>(new Set());
+
+  /*
+   * Whether the first look has happened yet.
+   *
+   * Without it, every row already ticked when the screen opens counts as
+   * just-ticked: they sit in their old places for three seconds and then jump,
+   * on every single open. The hold is for work *you* finish while looking at
+   * it, so the first pass only records what was already done.
+   */
+  const seenOnce = useRef(false);
+
+  useEffect(() => {
+    const done = new Set(
+      inPlanOrder
+        .filter((p) => p.item.status === 'completed' || p.item.status === 'skipped')
+        .map((p) => p.item.occurrenceKey),
+    );
+
+    if (!seenOnce.current) {
+      seenOnce.current = true;
+      wasDone.current = done;
+      return;
+    }
+
+    for (const key of done) {
+      // Newly finished, and not already counting down.
+      if (wasDone.current.has(key) || holdTimers.current.has(key)) continue;
+      setHeld((current) => new Set(current).add(key));
+      holdTimers.current.set(
+        key,
+        setTimeout(() => {
+          holdTimers.current.delete(key);
+          setHeld((current) => {
+            const next = new Set(current);
+            next.delete(key);
+            return next;
+          });
+        }, SETTLE_MS),
+      );
+    }
+
+    /*
+     * Unticked while it was still being held: release it immediately. It is not
+     * finished any more, so it stays where it is on its own, and leaving a
+     * stale timer would sink it seconds later for no reason.
+     */
+    for (const [key, timer] of holdTimers.current) {
+      if (done.has(key)) continue;
+      clearTimeout(timer);
+      holdTimers.current.delete(key);
+      setHeld((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
+
+    wasDone.current = done;
+  }, [inPlanOrder]);
+
+  useEffect(
+    () => () => {
+      for (const timer of holdTimers.current.values()) clearTimeout(timer);
+      holdTimers.current.clear();
+    },
+    [],
+  );
+
+  /*
+   * Nothing sinks while a row is in your hand.
+   *
+   * The list reordering itself under a live drag moves the rows you are aiming
+   * at, and the one you are holding along with them.
+   */
+  const planned = useMemo(
+    () => (dragging ? inPlanOrder : settleOrder(inPlanOrder, held, (p) => p.item)),
+    [inPlanOrder, held, dragging],
   );
   const progress = useMemo(() => progressOf(planned), [planned]);
 
@@ -491,16 +611,33 @@ export function PlanScreen({
         subtitle={
           theirPlan.length === 0
             ? undefined
-            : `${theirPlan.filter((i) => i.status === 'completed').length} of ${theirPlan.length} done · only ${theirName} can change this`
+            : `${theirPlan.filter(isSettled).length} of ${theirPlan.length} done · only ${theirName} can change this`
         }
       >
-        <View style={{ gap: space.sm, paddingBottom: space.sm }}>
+        {/*
+          Scrolls, and is capped against the screen.
+        
+          `Sheet` says in its own header that it assumes short, static lists of
+          actions — and this list is neither. The plan auto-adds every recurring
+          chore due or late, so an uncurated day is the whole due list. Because
+          the sheet grows upward from the bottom, overflow clips the *top* of
+          their order: exactly the rows you opened it to see. Same shape as the
+          picker next door, for the same reason.
+        */}
+        <ScrollView
+          style={{ maxHeight: theirSheetMaxHeight }}
+          contentContainerStyle={{ gap: space.sm, paddingBottom: space.sm }}
+        >
           {theirPlan.map((item) => {
-            const done = item.status === 'completed';
+            const done = isSettled(item);
             return (
               <View
                 key={item.occurrenceKey}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+                // `accessible` as well as the label: a plain View is not an
+                // accessibility element, so the label was ignored and VoiceOver
+                // read the bullet as its own item.
+                accessible
                 accessibilityLabel={`${item.choreTitle}${done ? ', done' : ''}`}
               >
                 {/*
@@ -509,6 +646,8 @@ export function PlanScreen({
                   the database would refuse it too, which is worse to discover
                   by tapping.
                 */}
+                {/* `accessible` on the row merges these children into one
+                    element, so the bullet is not announced on its own. */}
                 <Txt variant="small" tone={done ? 'muted' : 'faint'}>
                   {done ? '✓' : '·'}
                 </Txt>
@@ -523,7 +662,7 @@ export function PlanScreen({
               </View>
             );
           })}
-        </View>
+        </ScrollView>
       </Sheet>
 
       <Sheet

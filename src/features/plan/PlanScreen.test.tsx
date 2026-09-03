@@ -271,20 +271,56 @@ describe('a plan in progress', () => {
 
     fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
 
+    // The positive control first: without it these two assertions pass just as
+    // happily against a sheet that rendered nothing at all.
+    expect(screen.getByText('Bins')).toBeOnTheScreen();
     expect(screen.queryByRole('checkbox', { name: /Bins/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Bins/ })).toBeNull();
   });
 
-  it('says nothing when they have finished', () => {
-    // The count used to tally raw rows, so it kept saying "Sam has 3 planned"
-    // after Sam had done all three — a number meaning something different from
-    // the identical-looking one directly above it.
+  it('counts a skipped chore as done, like everything else on this screen', () => {
+    /*
+     * `useTheirPlanCount` treats a skip as not-outstanding and `progressOf`
+     * counts it as done for your own day; the sheet tested `completed` alone.
+     * So a housemate who skipped both their chores got "Sam has finished today"
+     * in the header and "0 of 2 done" in the sheet it opens — the same screen
+     * disagreeing with itself about the same two rows.
+     */
+    mockTheirCount = 0;
+    mockTheirTotal = 2;
+    mockTheirEntries = [
+      { occurrenceKey: 'v1:bins', position: 1 },
+      { occurrenceKey: 'v1:mopping', position: 2 },
+    ];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('bins', 'Bins', 'skipped'),
+      item('mopping', 'Mopping', 'completed'),
+    ]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.getByText(/2 of 2 done/)).toBeOnTheScreen();
+  });
+
+  it('says nothing when they planned nothing at all', () => {
+    /*
+     * Retitled, because the old name is now the opposite of the truth: a
+     * finished housemate *does* get a line, twenty lines above this. What must
+     * still stay silent is a housemate with no plan.
+     *
+     * As written this asserted against an empty subtree — `theirTotal = 0`
+     * renders the whole branch as null — so it passed for any copy whatsoever.
+     * The positive control below is what makes it about the condition.
     mockTheirCount = 0;
     mockTheirTotal = 0;
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
 
-    expect(screen.queryByText(/has \d+ planned/)).toBeNull();
+    // The control: the screen did render, so the absence below means something.
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.queryByText(/Sam has/)).toBeNull();
   });
 
   it('can be reordered without a drag gesture', () => {
@@ -602,5 +638,121 @@ describe('a planned occurrence that no longer exists', () => {
     // denominator either, which is what would make the day unfinishable.
     expect(screen.getByText(/0 OF 1/)).toBeOnTheScreen();
     expect(screen.getByText('Dishes')).toBeOnTheScreen();
+  });
+});
+
+describe('finished work sinking to the bottom', () => {
+  /*
+   * Fake timers, because the delay is the design. The tick and the move are two
+   * beats: a row that leaves at the instant you touch it takes its own feedback
+   * with it, and if it was the wrong row, undo means hunting for it elsewhere.
+   */
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const titles = () =>
+    screen.getAllByTestId(/^drag-row:/).map((row) => row.props.testID.replace('drag-row:v1:', ''));
+
+  const rerenderWith = (rerender: (ui: React.ReactElement) => void, available: AgendaItem[]) => {
+    act(() => {
+      rerender(
+        <ThemeProvider>
+          <PlanScreen
+            available={available}
+            chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+            today={TODAY}
+            refetch={async () => {}}
+            onAdd={onAdd}
+            proposal={null}
+            onAcceptProposal={onAcceptProposal}
+          />
+        </ThemeProvider>,
+      );
+    });
+  };
+
+  it('holds a just-ticked row in place, then sinks it', () => {
+    mockEntries = [entry('dishes', 1), entry('trash', 2), entry('bins', 3)];
+    const { rerender } = renderScreen([
+      item('dishes', 'Dishes'),
+      item('trash', 'Trash'),
+      item('bins', 'Bins'),
+    ]);
+
+    // Ticked while you are looking at it, which is the only case that holds.
+    rerenderWith(rerender, [
+      item('dishes', 'Dishes', 'completed'),
+      item('trash', 'Trash'),
+      item('bins', 'Bins'),
+    ]);
+
+    expect(titles()).toEqual(['dishes', 'trash', 'bins']);
+
+    /*
+     * Still there half a second later. Without this step the test cannot tell a
+     * three-second delay from no delay at all — under fake timers a zero-length
+     * timeout is equally unfired until time is advanced, and the delay is the
+     * entire design.
+     */
+    act(() => {
+      jest.advanceTimersByTime(500);
+    });
+    expect(titles()).toEqual(['dishes', 'trash', 'bins']);
+
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+
+    expect(titles()).toEqual(['trash', 'bins', 'dishes']);
+  });
+
+  it('does not hold work that was already done when the screen opened', () => {
+    /*
+     * Otherwise every row you finished earlier sits in its old place for three
+     * seconds and then jumps, every single time you open the app. The hold is
+     * for work you finish while looking at it.
+     */
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    renderScreen([item('dishes', 'Dishes', 'completed'), item('trash', 'Trash')]);
+
+    expect(titles()).toEqual(['trash', 'dishes']);
+  });
+
+  it('puts a row back where it was if you untick it', () => {
+    /*
+     * The reason this is a display rule rather than a stored position: unticking
+     * something that had sunk must return it to its place in the day, not leave
+     * it at the bottom having quietly destroyed the order you built.
+     */
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    const { rerender } = renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    rerenderWith(rerender, [item('dishes', 'Dishes', 'completed'), item('trash', 'Trash')]);
+    act(() => {
+      jest.advanceTimersByTime(3500);
+    });
+    expect(titles()).toEqual(['trash', 'dishes']);
+
+    rerenderWith(rerender, [item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    expect(titles()).toEqual(['dishes', 'trash']);
+  });
+
+  it('leaves an untouched day alone', () => {
+    // Nothing was ticked this session, so nothing is held and nothing moves —
+    // but a day that arrives already finished must not shuffle on open either.
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    act(() => {
+      jest.advanceTimersByTime(3500);
+    });
+
+    expect(titles()).toEqual(['dishes', 'trash']);
   });
 });

@@ -60,9 +60,15 @@ const styleOf = (key: string) =>
  * the props are present on the node and simply are not called — the same thing
  * that stopped `onAccessibilityAction` firing in the plan's tests.
  */
-const touch = (key: string, event: 'onTouchStart' | 'onTouchEnd') => {
+const touch = (
+  key: string,
+  event: 'onTouchStart' | 'onTouchMove' | 'onTouchEnd' | 'onTouchCancel',
+  // A finger has to be somewhere: `onTouchStart` records where, so a later move
+  // can be told apart from a hold.
+  at: { pageX: number; pageY: number } = { pageX: 100, pageY: 400 },
+) => {
   act(() => {
-    screen.getByTestId(`drag-row:${key}`).props[event]();
+    screen.getByTestId(`drag-row:${key}`).props[event]({ nativeEvent: at });
   });
 };
 
@@ -328,6 +334,60 @@ describe('a drag that cannot be finished by the finger that started it', () => {
       unmount();
     });
 
+    expect(onDragStateChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe('scrolling past a row rather than picking it up', () => {
+  /*
+   * Reported from the phone: "the scrolling kinda sucks on that page, it like
+   * gets stuck when you scroll randomly." Two halves, both here.
+   */
+  it('does not pick a row up when the finger is travelling', () => {
+    /*
+     * Press, then scroll. The hold used to fire 220ms in regardless, and
+     * `scrollEnabled={!dragging}` then stopped the scroll dead mid-flick.
+     */
+    renderList();
+
+    touch('b', 'onTouchStart', { pageX: 100, pageY: 400 });
+    touch('b', 'onTouchMove', { pageX: 100, pageY: 360 });
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(styleOf('b').zIndex).toBe(0);
+    expect(onDragStateChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it('still picks up a finger that stays put', () => {
+    // The slop has to be small enough that a deliberate press survives the
+    // wobble of a thumb, or the feature is simply gone.
+    renderList();
+
+    touch('b', 'onTouchStart', { pageX: 100, pageY: 400 });
+    touch('b', 'onTouchMove', { pageX: 101, pageY: 402 });
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(styleOf('b').zIndex).toBe(2);
+  });
+
+  it('puts the row down when the scroll view takes the gesture', () => {
+    /*
+     * The half that made it stick rather than stutter. A scroll view claiming
+     * the responder sends a *cancel*, not an end — and only `onTouchEnd` put
+     * the row down, so `scrollEnabled` stayed false and the plan could not be
+     * scrolled again at all.
+     */
+    renderList();
+    pickUp('b');
+    expect(styleOf('b').zIndex).toBe(2);
+
+    touch('b', 'onTouchCancel');
+
+    expect(styleOf('b').zIndex).toBe(0);
     expect(onDragStateChange).toHaveBeenLastCalledWith(false);
   });
 });
