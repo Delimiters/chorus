@@ -21,7 +21,7 @@ import { Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { planFor, progressOf } from '@/core/plan/plan';
-import { settleOrder } from '@/core/plan/settle';
+import { partitionSettled } from '@/core/plan/settle';
 import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
@@ -176,34 +176,30 @@ export function PlanScreen({
    */
   const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set());
   const holdTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const wasDone = useRef<ReadonlySet<string>>(new Set());
 
   /*
-   * Whether the first look has happened yet.
+   * What each row looked like last time, so a *transition* can be recognised.
    *
-   * Without it, every row already ticked when the screen opens counts as
-   * just-ticked: they sit in their old places for three seconds and then jump,
-   * on every single open. The hold is for work *you* finish while looking at
-   * it, so the first pass only records what was already done.
+   * The first attempt used a "have I looked once" flag, and a review showed it
+   * cannot survive the load race: the plan and the agenda are separate queries
+   * with no ordering between them, so the first run routinely sees an empty
+   * plan, burns the flag, and then treats every row that arrives already
+   * finished as freshly ticked — held mid-list for three seconds and jumping.
+   * The same held for midnight rolling the date over and for switching
+   * household, neither of which a one-shot flag re-arms.
+   *
+   * A key absent last time has just arrived and is not a tick, whatever its
+   * status. Only false → true is.
    */
-  const seenOnce = useRef(false);
+  const wasDone = useRef<ReadonlyMap<string, boolean>>(new Map());
 
   useEffect(() => {
-    const done = new Set(
-      inPlanOrder
-        .filter((p) => p.item.status === 'completed' || p.item.status === 'skipped')
-        .map((p) => p.item.occurrenceKey),
-    );
+    const now = new Map(inPlanOrder.map((p) => [p.item.occurrenceKey, isSettled(p.item)] as const));
 
-    if (!seenOnce.current) {
-      seenOnce.current = true;
-      wasDone.current = done;
-      return;
-    }
-
-    for (const key of done) {
-      // Newly finished, and not already counting down.
-      if (wasDone.current.has(key) || holdTimers.current.has(key)) continue;
+    for (const [key, done] of now) {
+      const before = wasDone.current.get(key);
+      // Newly finished: present before, not done then, done now.
+      if (!done || before !== false || holdTimers.current.has(key)) continue;
       setHeld((current) => new Set(current).add(key));
       holdTimers.current.set(
         key,
@@ -219,12 +215,12 @@ export function PlanScreen({
     }
 
     /*
-     * Unticked while it was still being held: release it immediately. It is not
-     * finished any more, so it stays where it is on its own, and leaving a
-     * stale timer would sink it seconds later for no reason.
+     * Unticked while still held, or gone from the day: release it. It is not
+     * finished any more, so it stays put on its own, and a stale timer would
+     * sink it seconds later for no reason anyone could see.
      */
     for (const [key, timer] of holdTimers.current) {
-      if (done.has(key)) continue;
+      if (now.get(key) === true) continue;
       clearTimeout(timer);
       holdTimers.current.delete(key);
       setHeld((current) => {
@@ -234,7 +230,7 @@ export function PlanScreen({
       });
     }
 
-    wasDone.current = done;
+    wasDone.current = now;
   }, [inPlanOrder]);
 
   useEffect(
@@ -246,14 +242,26 @@ export function PlanScreen({
   );
 
   /*
-   * Nothing sinks while a row is in your hand.
+   * Finished work leaves the draggable list rather than moving within it.
    *
-   * The list reordering itself under a live drag moves the rows you are aiming
-   * at, and the one you are holding along with them.
+   * The first version handed `DragList` a *display* order while positions came
+   * from the *stored* order, and once anything had sunk the two disagreed: a
+   * review found that picking any row up made every sunk row rise back into the
+   * middle of the list before the finger had moved, and that a VoiceOver "move
+   * down" on a settled list computed its new position from non-monotonic
+   * neighbours and sent the row to the *top* of the day — written to the
+   * database, not merely drawn wrong.
+   *
+   * Splitting them removes the disagreement instead of papering over it. What
+   * is draggable is always in stored order, so positions stay monotonic; what
+   * is finished is drawn below it and is not draggable, which is also the
+   * honest affordance — there is no order left to choose for work that is done.
    */
-  const planned = useMemo(
-    () => (dragging ? inPlanOrder : settleOrder(inPlanOrder, held, (p) => p.item)),
-    [inPlanOrder, held, dragging],
+  const planned = inPlanOrder;
+
+  const { active, sunk } = useMemo(
+    () => partitionSettled(inPlanOrder, held, (p) => p.item),
+    [inPlanOrder, held],
   );
   const progress = useMemo(() => progressOf(planned), [planned]);
 
@@ -533,7 +541,7 @@ export function PlanScreen({
               count={progress.finished ? progress.done : progress.total - progress.done}
             />
             <DragList
-              items={planned}
+              items={active}
               keyOf={(p) => p.item.occurrenceKey}
               labelOf={(p) => p.item.choreTitle}
               renderItem={(p) => renderRow(p)}
@@ -545,17 +553,49 @@ export function PlanScreen({
                  * would be N writes and would turn two people reordering at once
                  * into a conflict.
                  */
-                const byKey = new Map(planned.map((p) => [p.item.occurrenceKey, p]));
+                const byKey = new Map(active.map((p) => [p.item.occurrenceKey, p]));
                 const positions = orderedKeys.map((k) => byKey.get(k)?.position ?? 0);
                 const movedAt = orderedKeys.indexOf(movedKey);
                 if (movedAt === -1) return;
 
-                reorderPlan.mutate(
-                  movedKey,
-                  positionBetween(positions[movedAt - 1] ?? null, positions[movedAt + 1] ?? null),
-                );
+                const before = positions[movedAt - 1] ?? null;
+                const after = positions[movedAt + 1] ?? null;
+                let next = positionBetween(before, after);
+
+                /*
+                 * At either end, clear the *whole* day rather than the
+                 * draggable part of it.
+                 *
+                 * Finished rows keep their stored positions while sitting below
+                 * the list, so moving something to the top of what is left
+                 * would otherwise land on the same number as something already
+                 * done — a tie that is invisible until that row is unticked and
+                 * the two swap for reasons nobody can see.
+                 */
+                const stored = planned.map((p) => p.position);
+                if (before === null && stored.length > 0) {
+                  next = Math.min(next, Math.min(...stored) - 1);
+                }
+                if (after === null && stored.length > 0) {
+                  next = Math.max(next, Math.max(...stored) + 1);
+                }
+
+                reorderPlan.mutate(movedKey, next);
               }}
             />
+
+            {/*
+              Finished work, below the line and not draggable.
+            
+              There is no order left to choose for something that is done, and
+              offering to reorder it is what let the display order and the
+              stored order drift apart in the first place.
+            */}
+            {sunk.map((entry) => (
+              <View key={entry.item.occurrenceKey} testID={`done-row:${entry.item.occurrenceKey}`}>
+                {renderRow(entry)}
+              </View>
+            ))}
 
             <View
               style={{

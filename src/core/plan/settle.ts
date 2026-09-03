@@ -29,28 +29,34 @@ export interface Settleable {
 }
 
 /**
- * The order to draw the day in.
+ * The day split into what is still yours to arrange, and what is done.
  *
- * Everything unfinished keeps its position, in order; everything finished and
- * no longer held goes after it, also in order. Stable within each group, so
- * nothing shuffles for a reason nobody asked for.
+ * Two lists rather than one ordered list, because the caller does different
+ * things with them: `active` is draggable and `sunk` is not. Returning a single
+ * concatenated order was the first attempt, and it put the screen in the
+ * position of handing its drag list a *display* order while computing positions
+ * from the *stored* one — which is how a "move down" ended up writing a
+ * position that sent the row to the top.
+ *
+ * Both keep their incoming order, so nothing shuffles for a reason nobody
+ * asked for.
  */
-export function settleOrder<T>(
+export function partitionSettled<T>(
   items: readonly T[],
   held: ReadonlySet<string>,
   // The plan wraps each row with the position it was given, so what is being
-  // ordered is not itself the thing whose status decides the order.
+  // partitioned is not itself the thing whose status decides the answer.
   settleableOf: (item: T) => Settleable,
-): readonly T[] {
-  const staying: T[] = [];
-  const sinking: T[] = [];
+): { readonly active: readonly T[]; readonly sunk: readonly T[] } {
+  const active: T[] = [];
+  const sunk: T[] = [];
 
   for (const item of items) {
     const { occurrenceKey, status } = settleableOf(item);
     const done = status === 'completed' || status === 'skipped';
-    if (done && !held.has(occurrenceKey)) sinking.push(item);
-    else staying.push(item);
+    if (done && !held.has(occurrenceKey)) sunk.push(item);
+    else active.push(item);
   }
 
-  return [...staying, ...sinking];
+  return { active, sunk };
 }

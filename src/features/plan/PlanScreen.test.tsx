@@ -313,6 +313,7 @@ describe('a plan in progress', () => {
      * As written this asserted against an empty subtree — `theirTotal = 0`
      * renders the whole branch as null — so it passed for any copy whatsoever.
      * The positive control below is what makes it about the condition.
+     */
     mockTheirCount = 0;
     mockTheirTotal = 0;
     mockEntries = [entry('dishes', 1)];
@@ -655,8 +656,15 @@ describe('finished work sinking to the bottom', () => {
     jest.useRealTimers();
   });
 
+  /*
+   * Both halves, in the order they are drawn. Finished rows leave the draggable
+   * list entirely, so reading only `drag-row:` would make a sunk row look like
+   * a deleted one — and would not notice one landing in the wrong half.
+   */
   const titles = () =>
-    screen.getAllByTestId(/^drag-row:/).map((row) => row.props.testID.replace('drag-row:v1:', ''));
+    screen
+      .getAllByTestId(/^(drag|done)-row:/)
+      .map((row) => row.props.testID.replace(/^(drag|done)-row:v1:/, ''));
 
   const rerenderWith = (rerender: (ui: React.ReactElement) => void, available: AgendaItem[]) => {
     act(() => {
@@ -744,8 +752,7 @@ describe('finished work sinking to the bottom', () => {
   });
 
   it('leaves an untouched day alone', () => {
-    // Nothing was ticked this session, so nothing is held and nothing moves —
-    // but a day that arrives already finished must not shuffle on open either.
+    // Nothing finished, so nothing to sink and nothing to hold.
     mockEntries = [entry('dishes', 1), entry('trash', 2)];
     renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
 
@@ -754,5 +761,112 @@ describe('finished work sinking to the bottom', () => {
     });
 
     expect(titles()).toEqual(['dishes', 'trash']);
+  });
+
+  it('does not hold work that arrives already finished after the plan loads', () => {
+    /*
+     * The load race. The plan and the agenda are separate queries with no
+     * ordering between them, so the first render routinely has an empty plan.
+     *
+     * A "have I looked once" flag is burned by that empty render, and every row
+     * that then arrives already finished counts as freshly ticked — held
+     * mid-list for three seconds and jumping. The same happens at midnight when
+     * the date rolls over, and on switching household. Holding on the
+     * transition rather than on a flag is what makes all three behave.
+     */
+    mockEntries = [];
+    const { rerender } = renderScreen([
+      item('dishes', 'Dishes', 'completed'),
+      item('trash', 'Trash'),
+      item('bins', 'Bins'),
+    ]);
+
+    // The plan entries land a moment after the agenda did.
+    mockEntries = [entry('dishes', 1), entry('trash', 2), entry('bins', 3)];
+    rerenderWith(rerender, [
+      item('dishes', 'Dishes', 'completed'),
+      item('trash', 'Trash'),
+      item('bins', 'Bins'),
+    ]);
+
+    expect(titles()).toEqual(['trash', 'bins', 'dishes']);
+  });
+});
+
+describe('reordering a day that has finished work in it', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  /*
+   * The shape a review caught, and the reason finished rows leave the draggable
+   * list rather than moving within it.
+   *
+   * When the drag list was handed the *display* order, its positions were no
+   * longer monotonic — a sunk row sat at the end carrying a low position. A
+   * VoiceOver "move down" then averaged the wrong neighbours and wrote a
+   * position that sent the row to the *top* of the day, in the database.
+   */
+  it('writes a position derived from the stored order, not the drawn one', () => {
+    mockEntries = [entry('dishes', 1), entry('trash', 2), entry('bins', 3)];
+    renderScreen([
+      item('dishes', 'Dishes', 'completed'),
+      item('trash', 'Trash'),
+      item('bins', 'Bins'),
+    ]);
+
+    // Dishes is done, so it is not in the draggable list at all.
+    expect(screen.queryByTestId('drag-row:v1:dishes')).toBeNull();
+
+    act(() => {
+      screen
+        .getByTestId('drag-row:v1:bins')
+        .props.onAccessibilityAction({ nativeEvent: { actionName: 'moveUp' } });
+    });
+
+    /*
+     * Above everything left, and clear of the whole stored day — not merely of
+     * the draggable part of it. Dishes is finished and keeps position 1 while
+     * sitting below the list, so landing *on* 1 would be a tie that only
+     * surfaces when Dishes is unticked and the two swap inexplicably.
+     */
+    expect(mockReorder).toHaveBeenCalledWith('v1:bins', expect.any(Number));
+    const written = mockReorder.mock.calls[0]?.[1] as number;
+    expect(written).toBeLessThan(1);
+  });
+
+  it('does not reshuffle the list when a row is picked up', () => {
+    /*
+     * Freezing the drag by reverting to the raw plan order made every sunk row
+     * rise back into the middle of the list the moment a row lifted — before
+     * the finger had moved a pixel — and drop back on release.
+     */
+    mockEntries = [entry('dishes', 1), entry('trash', 2), entry('bins', 3)];
+    renderScreen([
+      item('dishes', 'Dishes', 'completed'),
+      item('trash', 'Trash'),
+      item('bins', 'Bins'),
+    ]);
+
+    const before = screen
+      .getAllByTestId(/^(drag|done)-row:/)
+      .map((row) => row.props.testID as string);
+
+    act(() => {
+      screen.getByTestId('drag-row:v1:trash').props.onTouchStart({
+        nativeEvent: { pageX: 100, pageY: 400 },
+      });
+    });
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(
+      screen.getAllByTestId(/^(drag|done)-row:/).map((row) => row.props.testID as string),
+    ).toEqual(before);
   });
 });

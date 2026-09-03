@@ -120,8 +120,16 @@ export function DragList<T>({
    */
   const holdTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  /** Where the current touch began, for telling a scroll from a hold. */
-  const touchOrigin = useRef<{ x: number; y: number } | null>(null);
+  /*
+   * Where each touch began, keyed by row — not one shared origin.
+   *
+   * With a single ref, two fingers on two rows shared it: the second touch
+   * overwrote it, the first measured its travel against the wrong point, and
+   * cancelling either one nulled it for both. After that the slop guard simply
+   * stopped running, and the next flick re-froze the page — the very bug this
+   * guard exists to prevent, restored by a second finger.
+   */
+  const touchOrigins = useRef<Map<string, { x: number; y: number }>>(new Map());
 
   const cancelHold = (key: string) => {
     const pending = holdTimers.current.get(key);
@@ -129,7 +137,7 @@ export function DragList<T>({
       clearTimeout(pending);
       holdTimers.current.delete(key);
     }
-    touchOrigin.current = null;
+    touchOrigins.current.delete(key);
   };
   const order = useRef<readonly T[]>(items);
   order.current = items;
@@ -335,13 +343,21 @@ export function DragList<T>({
               heights.current.set(key, event.nativeEvent.layout.height);
             }}
             onTouchStart={(event) => {
+              /*
+               * One drag at a time. A second finger landing on another row
+               * armed a hold that `onTouchMove` then refused to cancel — it
+               * returns early whenever anything is being dragged — so 220ms
+               * later that row was picked up too and the row actually in your
+               * hand snapped back to its slot mid-gesture.
+               */
+              if (dragging !== null) return;
               const existing = holdTimers.current.get(key);
               if (existing !== undefined) clearTimeout(existing);
               // Where the finger went down, so a scroll can be told from a hold.
-              touchOrigin.current = {
+              touchOrigins.current.set(key, {
                 x: event.nativeEvent.pageX,
                 y: event.nativeEvent.pageY,
-              };
+              });
               holdTimers.current.set(
                 key,
                 setTimeout(() => {
@@ -361,12 +377,15 @@ export function DragList<T>({
                * meant to be in.
                */
               if (dragging !== null) return;
-              const origin = touchOrigin.current;
-              if (origin === null) return;
-              const moved =
-                Math.abs(event.nativeEvent.pageX - origin.x) +
-                Math.abs(event.nativeEvent.pageY - origin.y);
-              if (moved < SCROLL_SLOP) return;
+              const origin = touchOrigins.current.get(key);
+              if (origin === undefined) return;
+              /*
+               * Vertical travel only. The list scrolls one way, so sideways
+               * movement can never be the start of a scroll — spending the slop
+               * budget on it just made a thumb that rolls slightly while
+               * pressing fail to pick anything up.
+               */
+              if (Math.abs(event.nativeEvent.pageY - origin.y) < SCROLL_SLOP) return;
               cancelHold(key);
             }}
             onTouchEnd={() => {
