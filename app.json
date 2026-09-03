@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.delimiters.chorus",
-      "buildNumber": "33",
+      "buildNumber": "34",
       "supportsTablet": false
     },
     "android": {
