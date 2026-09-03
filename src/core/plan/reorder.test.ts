@@ -1,4 +1,4 @@
-import { positionBetween, reorder, targetIndex } from './reorder';
+import { clampToList, positionBetween, reorder, shiftFor, targetIndex } from './reorder';
 
 // Deliberately uneven: uniform heights make every off-by-one in the cumulative
 // arithmetic invisible, because every row is its own neighbour's size.
@@ -104,6 +104,121 @@ describe('the position a moved row takes', () => {
       expect(mid).toBeGreaterThan(low);
       expect(mid).toBeLessThan(high);
       low = mid;
+    }
+  });
+});
+
+describe('rows getting out of the way', () => {
+  const H = 60;
+
+  it('does not move the row being dragged', () => {
+    expect(shiftFor(0, 3, 0, H)).toBe(0);
+  });
+
+  it('slides passed rows up when dragging down', () => {
+    // Dragging row 0 down to 2: rows 1 and 2 move up into the gap it left,
+    // and row 3 — which it never reached — stays put.
+    expect(shiftFor(0, 2, 1, H)).toBe(-H);
+    expect(shiftFor(0, 2, 2, H)).toBe(-H);
+    expect(shiftFor(0, 2, 3, H)).toBe(0);
+  });
+
+  it('slides passed rows down when dragging up', () => {
+    // Dragging row 3 up to 1: rows 1 and 2 move down. Direction is the thing
+    // an off-by-one here gets wrong, and it looks like the list fighting you.
+    expect(shiftFor(3, 1, 1, H)).toBe(H);
+    expect(shiftFor(3, 1, 2, H)).toBe(H);
+    expect(shiftFor(3, 1, 0, H)).toBe(0);
+  });
+
+  it('moves nothing when the row has not left its place', () => {
+    expect(shiftFor(2, 2, 0, H)).toBe(0);
+    expect(shiftFor(2, 2, 3, H)).toBe(0);
+  });
+
+  it('opens exactly one row-height of space, whatever the row is', () => {
+    // The gap is the *dragged* row's height, not the passed row's — the whole
+    // reason this list measures rows instead of assuming a uniform height.
+    expect(shiftFor(0, 1, 1, 120)).toBe(-120);
+  });
+});
+
+describe('keeping the dragged row inside the list', () => {
+  // 40, 80, 40, 120, 40 — the same uneven set the rest of this file uses.
+  it('allows a drag that stays within the list', () => {
+    expect(clampToList(HEIGHTS, 2, 50)).toBe(50);
+    expect(clampToList(HEIGHTS, 2, -50)).toBe(-50);
+  });
+
+  it('stops at the top and the bottom', () => {
+    // Row 2 has 120 above it (40 + 80) and 160 below (120 + 40).
+    expect(clampToList(HEIGHTS, 2, -500)).toBe(-120);
+    expect(clampToList(HEIGHTS, 2, 500)).toBe(160);
+  });
+
+  it('measures the room, rather than assuming a row height', () => {
+    // The first row has nothing above it and everything below.
+    expect(clampToList(HEIGHTS, 0, -10)).toBe(0);
+    expect(clampToList(HEIGHTS, 0, 9999)).toBe(280);
+  });
+
+  it('leaves an index that is not in the list alone', () => {
+    expect(clampToList(HEIGHTS, 9, 500)).toBe(500);
+  });
+});
+
+describe('the ends of the list are reachable', () => {
+  const UNIFORM = [60, 60, 60];
+
+  it('reaches the last slot at the furthest a row can be dragged', () => {
+    /*
+     * Held inside the list, the top row's furthest travel is 120 — which puts
+     * its centre at 150, exactly the last row's midpoint. A strictly-greater
+     * comparison made the last slot unreachable however hard you dragged, and
+     * clamping the drag is what exposed it.
+     */
+    const furthest = clampToList(UNIFORM, 0, 9999);
+    expect(targetIndex(UNIFORM, 0, furthest)).toBe(2);
+  });
+
+  it('reaches the first slot in the same way', () => {
+    const furthest = clampToList(UNIFORM, 2, -9999);
+    expect(targetIndex(UNIFORM, 2, furthest)).toBe(0);
+  });
+});
+
+describe('the ends stay reachable for a row that is not average height', () => {
+  /*
+   * A two-line chore among one-line ones — the case this list measures rows
+   * for in the first place, and the case a uniform fixture cannot see.
+   *
+   * Clamping to the summed heights above and below stopped the tall row's
+   * centre short of the midpoint it had to cross, so it could not be dragged to
+   * either end at all. The reachability test written alongside that clamp used
+   * three identical rows, the one shape where the arithmetic coincides.
+   */
+  const TALL_SECOND = [56, 88, 56, 56];
+
+  it('can be dragged to the top', () => {
+    const furthest = clampToList(TALL_SECOND, 1, -9999);
+    expect(targetIndex(TALL_SECOND, 1, furthest)).toBe(0);
+  });
+
+  it('can be dragged to the bottom', () => {
+    const furthest = clampToList(TALL_SECOND, 1, 9999);
+    expect(targetIndex(TALL_SECOND, 1, furthest)).toBe(3);
+  });
+
+  it('holds for every row of every uneven list', () => {
+    // The property, rather than two examples: from anywhere, dragging as far as
+    // the clamp allows must reach the end you are dragging towards.
+    for (const heights of [TALL_SECOND, HEIGHTS, [120, 40, 40], [40, 40, 120]]) {
+      for (let from = 0; from < heights.length; from += 1) {
+        expect(targetIndex(heights, from, clampToList(heights, from, -9999))).toBe(0);
+        expect(targetIndex(heights, from, clampToList(heights, from, 9999))).toBe(
+          heights.length - 1,
+        );
+      }
     }
   });
 });

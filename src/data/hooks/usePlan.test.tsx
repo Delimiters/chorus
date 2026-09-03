@@ -46,6 +46,7 @@ let mockServer: PlanEntryRow[] = [];
 
 jest.mock('../api/plan', () => ({
   listPlanEntries: jest.fn(async () => mockServer),
+  movePlanEntry: jest.fn(async () => {}),
   addToPlan: jest.fn(
     async (entries: readonly (Written & { userId: string; choreId: string })[]) => {
       for (const entry of entries) {
@@ -78,7 +79,7 @@ jest.mock('@/stores/sessionStore', () => ({
 }));
 
 // eslint-disable-next-line import/first
-import { useAddToPlan, useRemoveFromPlan, useTheirPlanTotal } from './usePlan';
+import { useAddToPlan, useRemoveFromPlan, useReorderPlan, useTheirPlanTotal } from './usePlan';
 
 function harness() {
   const client = new QueryClient({
@@ -283,5 +284,44 @@ describe('taking something off the plan', () => {
         client.getQueryData<readonly PlanEntryRow[]>(qk.plan(HOUSE, FROM, TODAY)) ?? [];
       expect(cached.map((r) => r.userId)).toEqual([THEM]);
     });
+  });
+});
+
+describe('reordering the day', () => {
+  it('shows the new order before it awaits anything', async () => {
+    /*
+     * The order of the two lines in `onMutate`, which is what a drop's
+     * smoothness rests on.
+     *
+     * Awaiting `cancelQueries` before writing pushed the reordered rows past
+     * the frame in which the finger lifted, so the row visibly returned to
+     * where it started and then jumped to where it had been put — reported from
+     * the phone as "jumpy when you drop it". `cancelQueries` is stubbed here to
+     * a promise that never settles, which is the exaggerated version of the
+     * same delay: the cache must already be right regardless.
+     */
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:dishes', 10), row('v1:trash', 20)]);
+
+    const positionOf = () =>
+      client
+        .getQueryData<readonly PlanEntryRow[]>(qk.plan(HOUSE, FROM, TODAY))
+        ?.find((r) => r.occurrenceKey === 'v1:trash')?.position;
+
+    // Read at the moment the cancel is *requested*, which is the instant the
+    // old ordering had not yet written anything.
+    let positionWhenCancelled: number | undefined;
+    jest.spyOn(client, 'cancelQueries').mockImplementation(async () => {
+      positionWhenCancelled = positionOf();
+    });
+
+    const { result } = renderHook(() => useReorderPlan(TODAY), { wrapper });
+
+    act(() => {
+      result.current.mutate('v1:trash', 5);
+    });
+
+    await waitFor(() => expect(positionWhenCancelled).toBeDefined());
+    expect(positionWhenCancelled).toBe(5);
   });
 });

@@ -324,15 +324,27 @@ export function useReorderPlan(today: CivilDate) {
       await movePlanEntry(id, position);
     },
 
+    /*
+     * Written first, cancelled second — the order is what makes a drop settle.
+     *
+     * `cancelQueries` aborts in-flight fetches, and awaiting it before touching
+     * the cache pushed the optimistic reorder a frame or more past the moment
+     * the finger lifted. So the row visibly returned to where it started and
+     * then jumped to where it had been put: Jake's "jumpy when you drop it".
+     * The write is local and synchronous; nothing about it needs the
+     * cancellation to have finished, and cancelling immediately afterwards
+     * still stops an in-flight refetch overwriting it.
+     */
     onMutate: async ({ id, position }) => {
       if (householdId === null) return;
       const key = qk.plan(householdId, from, today);
-      await queryClient.cancelQueries({ queryKey: key });
       const snapshot = queryClient.getQueryData<readonly PlanEntryRow[]>(key);
 
       queryClient.setQueryData<readonly PlanEntryRow[]>(key, (existing = []) =>
         existing.map((row) => (row.id === id ? { ...row, position } : row)),
       );
+
+      await queryClient.cancelQueries({ queryKey: key });
       return { snapshot };
     },
 
