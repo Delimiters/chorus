@@ -17,7 +17,7 @@
 
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { planFor, progressOf } from '@/core/plan/plan';
@@ -41,6 +41,7 @@ import {
   useRemoveFromPlan,
   useTheirPlanCount,
   useReorderPlan,
+  useTheirPlanEntries,
   useTheirPlanTotal,
 } from '@/data/hooks/usePlan';
 import { toPriority } from '@/core/chore/priority';
@@ -96,6 +97,23 @@ export function PlanScreen({
   const entries = useMyPlanEntries(today as never);
   const theirCount = useTheirPlanCount(today as never, available);
   const theirTotal = useTheirPlanTotal(today as never, available);
+  const theirEntries = useTheirPlanEntries(today as never, available);
+  const [showingTheirs, setShowingTheirs] = useState(false);
+
+  /**
+   * Their day, in their order, with what each row has become.
+   *
+   * Read-only, and the database is what makes it so — every write policy on
+   * `plan_entries` requires the row to be yours. This is the *seeing* half,
+   * which is the half that was missing: the screen could say "Emily has 3
+   * planned" and offer no way to find out what they were.
+   */
+  const theirPlan = useMemo(() => {
+    const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
+    return theirEntries
+      .map((entry) => byKey.get(entry.occurrenceKey))
+      .filter((item): item is AgendaItem => item !== undefined);
+  }, [theirEntries, available]);
   const toggle = useToggleCompletion();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -243,10 +261,29 @@ export function PlanScreen({
             {formatDayLong(today as never).toUpperCase()}
             {progress.total > 0 ? ` · ${progress.done} OF ${progress.total}` : ''}
           </Txt>
-          {theirCount > 0 ? (
-            <Txt variant="small" tone="muted">
-              {`${theirName} has ${theirCount} planned`}
-            </Txt>
+          {/*
+            Tappable, and shown whenever they have a day at all rather than only
+            when something is left on it. "Emily has 3 planned" with no way to
+            see what they were is a fact you can do nothing with — and once they
+            finish, the line used to vanish entirely, which reads as them not
+            having planned anything rather than as them being done.
+          */}
+          {theirTotal > 0 ? (
+            <Pressable
+              onPress={() => {
+                tapped();
+                setShowingTheirs(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`See ${theirName}'s day`}
+              hitSlop={8}
+            >
+              <Txt variant="small" tone="muted">
+                {theirCount === 0
+                  ? `${theirName} has finished today ›`
+                  : `${theirName} has ${theirCount} of ${theirTotal} left ›`}
+              </Txt>
+            </Pressable>
           ) : null}
         </Stack>
 
@@ -438,6 +475,56 @@ export function PlanScreen({
         opens with "Create a new chore" as its first row. The button stays on
         the Chores and Routines sub-tabs, where nothing else competes with it.
       */}
+
+      {/*
+        Their day, to look at.
+
+        A sheet rather than a section on this screen, because the plan's job is
+        to be *your* day and to be finishable — "That's today" stops being true
+        the moment somebody else's outstanding work is listed under it. This is
+        a glance, and glances belong in something you dismiss.
+      */}
+      <Sheet
+        visible={showingTheirs}
+        onClose={() => setShowingTheirs(false)}
+        title={`${theirName}'s day`}
+        subtitle={
+          theirPlan.length === 0
+            ? undefined
+            : `${theirPlan.filter((i) => i.status === 'completed').length} of ${theirPlan.length} done · only ${theirName} can change this`
+        }
+      >
+        <View style={{ gap: space.sm, paddingBottom: space.sm }}>
+          {theirPlan.map((item) => {
+            const done = item.status === 'completed';
+            return (
+              <View
+                key={item.occurrenceKey}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+                accessibilityLabel={`${item.choreTitle}${done ? ', done' : ''}`}
+              >
+                {/*
+                  A mark, not a checkbox. A checkbox you cannot tick is an
+                  invitation to try, and the answer would have to be a refusal;
+                  the database would refuse it too, which is worse to discover
+                  by tapping.
+                */}
+                <Txt variant="small" tone={done ? 'muted' : 'faint'}>
+                  {done ? '✓' : '·'}
+                </Txt>
+                <Txt
+                  variant="body"
+                  tone={done ? 'muted' : 'default'}
+                  numberOfLines={2}
+                  style={{ flex: 1, minWidth: 0 }}
+                >
+                  {item.choreTitle}
+                </Txt>
+              </View>
+            );
+          })}
+        </View>
+      </Sheet>
 
       <Sheet
         visible={removing !== null}

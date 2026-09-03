@@ -22,6 +22,7 @@ const YESTERDAY = civilDate('2026-08-26');
 let mockEntries: PlanEntry[] = [];
 let mockTheirCount = 0;
 let mockTheirTotal = 0;
+let mockTheirEntries: { occurrenceKey: string; position: number }[] = [];
 const mockRemove = jest.fn();
 const mockReorder = jest.fn();
 const mockToggle = jest.fn();
@@ -32,6 +33,7 @@ jest.mock('@/data/hooks/usePlan', () => ({
   useMyPlanEntries: () => mockEntries,
   useTheirPlanCount: () => mockTheirCount,
   useTheirPlanTotal: () => mockTheirTotal,
+  useTheirPlanEntries: () => mockTheirEntries,
   useRemoveFromPlan: () => ({ mutate: mockRemove }),
   useReorderPlan: () => ({ mutate: mockReorder }),
 }));
@@ -131,6 +133,7 @@ beforeEach(() => {
   mockEntries = [];
   mockTheirCount = 0;
   mockTheirTotal = 0;
+  mockTheirEntries = [];
   mockTapped.mockClear();
   mockFinished.mockClear();
   mockCelebrated.mockClear();
@@ -213,7 +216,63 @@ describe('a plan in progress', () => {
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
 
-    expect(screen.getByText('Sam has 3 planned')).toBeOnTheScreen();
+    expect(screen.getByText('Sam has 3 of 3 left ›')).toBeOnTheScreen();
+  });
+
+  it('still says something once they have finished', () => {
+    /*
+     * The line used to be about what they had *left*, so it vanished the moment
+     * they were done — which reads as them having planned nothing, not as them
+     * having finished. Two very different things to learn about your housemate.
+     */
+    mockTheirCount = 0;
+    mockTheirTotal = 4;
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByText('Sam has finished today ›')).toBeOnTheScreen();
+  });
+
+  it('shows their day when you tap it', () => {
+    // The seeing half. The screen could say "Sam has 3 planned" and offer no
+    // way at all to find out what they were.
+    mockTheirCount = 1;
+    mockTheirTotal = 2;
+    mockTheirEntries = [
+      { occurrenceKey: 'v1:bins', position: 1 },
+      { occurrenceKey: 'v1:mopping', position: 2 },
+    ];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('bins', 'Bins', 'completed'),
+      item('mopping', 'Mopping'),
+    ]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.getByText('Bins')).toBeOnTheScreen();
+    expect(screen.getByText('Mopping')).toBeOnTheScreen();
+    expect(screen.getByText(/1 of 2 done · only Sam can change this/)).toBeOnTheScreen();
+  });
+
+  it('offers no way to tick their rows', () => {
+    /*
+     * Read-only is enforced by the database — every write policy on
+     * `plan_entries` requires the row to be yours, and `plan.test.sql` proves
+     * Bob can neither reorder nor delete Alice's day. So the UI must not offer
+     * a control whose only possible outcome is a refusal.
+     */
+    mockTheirCount = 1;
+    mockTheirTotal = 1;
+    mockTheirEntries = [{ occurrenceKey: 'v1:bins', position: 1 }];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.queryByRole('checkbox', { name: /Bins/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Bins/ })).toBeNull();
   });
 
   it('says nothing when they have finished', () => {

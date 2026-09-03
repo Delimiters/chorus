@@ -65,6 +65,7 @@ jest.mock('@/data/hooks/usePlan', () => ({
   usePlanLoading: () => mockEntriesLoading,
   useTheirPlanCount: () => 0,
   useTheirPlanTotal: () => 0,
+  useTheirPlanEntries: () => [],
   useRemoveFromPlan: () => ({ mutate: jest.fn() }),
   useReorderPlan: () => ({ mutate: mockReorder }),
   useAddToPlan: () => ({ mutate: mockAdd }),

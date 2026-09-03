@@ -141,6 +141,41 @@ export function useTheirPlanTotal(
   }, [rows, userId, today, available]);
 }
 
+/**
+ * Your housemate's day, in the order they put it in.
+ *
+ * Readable and not writable, and that asymmetry is enforced in the database
+ * rather than by a disabled control: `plan_entries` is selectable by any
+ * household member but every write policy requires `user_id = auth.uid()`, and
+ * `plan.test.sql` asserts that Bob can neither reorder nor delete Alice's day.
+ * So there is nothing to hide here — only something to show.
+ *
+ * Cross-checked against what still exists, exactly as the two count hooks are:
+ * an entry whose chore was archived, or whose schedule moved the occurrence
+ * key, would otherwise render as a row with no title.
+ */
+export function useTheirPlanEntries(
+  today: CivilDate,
+  available: readonly { occurrenceKey: string }[],
+): readonly PlanEntryRow[] {
+  const rows = usePlanEntries(today);
+  const userId = useUserId();
+  return useMemo(() => {
+    const live = new Set(available.map((item) => item.occurrenceKey));
+    /*
+     * `[...].sort` rather than `toSorted`: nothing else in this codebase uses
+     * the ES2023 copying methods, and whether Hermes ships them on this RN is
+     * an assumption rather than something checked. `filter` already returns a
+     * fresh array, so the spread is free of consequence either way.
+     */
+    return [
+      ...rows.filter(
+        (row) => row.userId !== userId && row.plannedFor === today && live.has(row.occurrenceKey),
+      ),
+    ].sort((a, b) => a.position - b.position);
+  }, [rows, userId, today, available]);
+}
+
 interface Addable {
   readonly occurrenceKey: string;
   readonly choreId: string;
