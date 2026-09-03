@@ -119,18 +119,33 @@ export function shiftFor(from: number, to: number, index: number, draggedHeight:
  * and then teleports back on release — and the further you overshot, the larger
  * the jump. Stopping at the ends also says, honestly, that there is nowhere
  * further to go.
+ *
+ * The limit is where the dragged row's **centre** may travel: no further than
+ * the first and last rows' midpoints, which is exactly what {@link targetIndex}
+ * compares against. Clamping to the summed heights above and below instead —
+ * which is the intuitive reading of "inside the list" — silently made the ends
+ * unreachable for any row taller than the one at the end: a two-line chore
+ * stopped 16pt short of the midpoint it needed to cross and simply would not go
+ * to the top, however hard it was dragged. Non-uniform rows are the entire
+ * reason this list measures anything, so that was the ordinary case.
  */
 export function clampToList(heights: readonly number[], from: number, dy: number): number {
-  if (from < 0 || from >= heights.length) return dy;
+  if (heights.length === 0 || from < 0 || from >= heights.length) return dy;
 
-  let above = 0;
-  let below = 0;
+  const midpoints: number[] = [];
+  let running = 0;
+  let own = 0;
   for (const [index, height] of heights.entries()) {
-    if (index < from) above += height;
-    if (index > from) below += height;
+    const midpoint = running + height / 2;
+    midpoints.push(midpoint);
+    if (index === from) own = midpoint;
+    running += height;
   }
+
+  const first = midpoints[0] ?? own;
+  const last = midpoints[midpoints.length - 1] ?? own;
 
   // `+ 0` normalises the negative zero `Math.max(-0, …)` produces at the top of
   // the list, which is harmless in a transform and confusing in a test.
-  return Math.max(-above, Math.min(below, dy)) + 0;
+  return Math.max(first - own, Math.min(last - own, dy)) + 0;
 }

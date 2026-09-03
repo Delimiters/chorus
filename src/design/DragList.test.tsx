@@ -30,13 +30,16 @@ const onReorder = jest.fn();
  * A component rather than an inline element, so a re-render can be driven with
  * the same tree — which is what the interrupted-tap test needs.
  */
-const Harness = () => (
+const onDragStateChange = jest.fn();
+
+const Harness = ({ items = ITEMS }: { items?: typeof ITEMS }) => (
   <DragList
-    items={ITEMS}
+    items={items}
     keyOf={(i) => i.key}
     labelOf={(i) => i.title}
     renderItem={(i) => <Text>{i.title}</Text>}
     onReorder={onReorder}
+    onDragStateChange={onDragStateChange}
   />
 );
 
@@ -74,6 +77,7 @@ const pickUp = (key: string) => {
 beforeEach(() => {
   jest.useFakeTimers();
   onReorder.mockClear();
+  onDragStateChange.mockClear();
 });
 
 afterEach(() => {
@@ -200,6 +204,30 @@ describe('a whole drag, driven through the responder', () => {
     jest.restoreAllMocks();
   });
 
+  it('does not let one interrupted gap stop the others', () => {
+    /*
+     * `Animated.parallel` stops every member when one is interrupted, and
+     * re-animating a value interrupts it. With the guard that skips rows whose
+     * target has not changed — which is exactly the set that got stopped — a
+     * wobble across two slots and back inside the 140ms animation left a row
+     * frozen mid-shift, overlapping its neighbour, for the rest of the drag.
+     *
+     * Asserted on the wiring, because the stub below makes every animation
+     * finish instantly and so cannot reproduce the interruption. The behaviour
+     * itself was reproduced with real timers before this was written.
+     */
+    const parallel = jest.spyOn(Animated, 'parallel');
+    renderList();
+    setHeights(60);
+    pickUp('a');
+
+    act(() => {
+      configFor(0).onPanResponderMove?.({} as never, { dy: 90 } as never);
+    });
+
+    expect(parallel).toHaveBeenLastCalledWith(expect.anything(), { stopTogether: false });
+  });
+
   it('opens a gap under the row it is being dragged over', () => {
     renderList();
     setHeights(60);
@@ -269,5 +297,37 @@ describe('a whole drag, driven through the responder', () => {
     });
 
     expect(onReorder).toHaveBeenCalledWith(['b', 'c', 'a'], 'a');
+  });
+});
+
+describe('a drag that cannot be finished by the finger that started it', () => {
+  it('ends when the held row leaves the list', () => {
+    /*
+     * The row's responder and its `onTouchEnd` go with it, so nothing was left
+     * that could put it down. `dragging` stayed set forever and the plan's
+     * `scrollEnabled={!dragging}` meant the screen could not be scrolled again
+     * until another row was picked up and dropped. Reachable whenever the other
+     * phone takes something off the day mid-drag.
+     */
+    const { rerender } = renderList();
+    pickUp('b');
+    expect(onDragStateChange).toHaveBeenLastCalledWith(true);
+
+    act(() => {
+      rerender(<Harness items={ITEMS.filter((i) => i.key !== 'b')} />);
+    });
+
+    expect(onDragStateChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('hands the scroll view back when it unmounts mid-drag', () => {
+    const { unmount } = renderList();
+    pickUp('b');
+
+    act(() => {
+      unmount();
+    });
+
+    expect(onDragStateChange).toHaveBeenLastCalledWith(false);
   });
 });

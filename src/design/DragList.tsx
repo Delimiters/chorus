@@ -149,6 +149,23 @@ export function DragList<T>({
   }, [dragging, onDragStateChange]);
 
   /*
+   * A row that disappears while it is being held ends the drag.
+   *
+   * Its responder and its `onTouchEnd` go with it, so nothing was left that
+   * could put it down: `dragging` stayed set forever and the surrounding
+   * `scrollEnabled={!dragging}` meant the plan could not be scrolled again
+   * until another row was picked up and dropped. Reachable whenever the other
+   * phone removes something from the day mid-drag.
+   */
+  useEffect(() => {
+    if (dragging === null) return;
+    if (items.some((item) => keyOf(item) === dragging)) return;
+    stopDragging();
+    // `stopDragging` is stable in effect: it only touches refs and setState.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, dragging, keyOf]);
+
+  /*
    * Unmounting mid-drag otherwise left `onDragStateChange` last told `true`,
    * so the surrounding `scrollEnabled={!dragging}` stayed off, and a pending
    * hold timer fired into a component that no longer exists.
@@ -195,7 +212,17 @@ export function DragList<T>({
       ];
     });
 
-    if (animations.length > 0) Animated.parallel(animations).start();
+    /*
+     * `stopTogether: false`, and it is load-bearing.
+     *
+     * `Animated.parallel` defaults to stopping every member the moment one of
+     * them is interrupted — and re-animating a value interrupts it. Combined
+     * with the `applied` guard, which deliberately does *not* re-issue rows
+     * whose target has not changed, that froze those rows partway: an ordinary
+     * wobble across two slots and back within the animation's 140ms left a row
+     * stopped mid-shift, overlapping its neighbour, for the rest of the drag.
+     */
+    if (animations.length > 0) Animated.parallel(animations, { stopTogether: false }).start();
   }, [dragging, target, items, keyOf]);
 
   const stopDragging = () => {

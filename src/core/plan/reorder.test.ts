@@ -186,3 +186,39 @@ describe('the ends of the list are reachable', () => {
     expect(targetIndex(UNIFORM, 2, furthest)).toBe(0);
   });
 });
+
+describe('the ends stay reachable for a row that is not average height', () => {
+  /*
+   * A two-line chore among one-line ones — the case this list measures rows
+   * for in the first place, and the case a uniform fixture cannot see.
+   *
+   * Clamping to the summed heights above and below stopped the tall row's
+   * centre short of the midpoint it had to cross, so it could not be dragged to
+   * either end at all. The reachability test written alongside that clamp used
+   * three identical rows, the one shape where the arithmetic coincides.
+   */
+  const TALL_SECOND = [56, 88, 56, 56];
+
+  it('can be dragged to the top', () => {
+    const furthest = clampToList(TALL_SECOND, 1, -9999);
+    expect(targetIndex(TALL_SECOND, 1, furthest)).toBe(0);
+  });
+
+  it('can be dragged to the bottom', () => {
+    const furthest = clampToList(TALL_SECOND, 1, 9999);
+    expect(targetIndex(TALL_SECOND, 1, furthest)).toBe(3);
+  });
+
+  it('holds for every row of every uneven list', () => {
+    // The property, rather than two examples: from anywhere, dragging as far as
+    // the clamp allows must reach the end you are dragging towards.
+    for (const heights of [TALL_SECOND, HEIGHTS, [120, 40, 40], [40, 40, 120]]) {
+      for (let from = 0; from < heights.length; from += 1) {
+        expect(targetIndex(heights, from, clampToList(heights, from, -9999))).toBe(0);
+        expect(targetIndex(heights, from, clampToList(heights, from, 9999))).toBe(
+          heights.length - 1,
+        );
+      }
+    }
+  });
+});
