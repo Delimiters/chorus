@@ -67,6 +67,25 @@ export function usePlanLoading(today: CivilDate): boolean {
   return query.isLoading;
 }
 
+/**
+ * Whether the plan is unknown rather than empty.
+ *
+ * `usePlanEntries` returns `EMPTY` for loading, for a failed fetch and for a
+ * genuinely empty day alike, which is fine for "what do I add to" and wrong for
+ * anything that makes a *claim*. Saying "Sam hasn't planned today" while the
+ * query is in flight — or has failed — is a confident, checkable statement
+ * about another person, made out of not having asked yet.
+ */
+export function usePlanUnavailable(today: CivilDate): boolean {
+  const householdId = useActiveHouseholdId();
+  const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
+  const query = useQuery({
+    queryKey: qk.plan(householdId ?? '__none__', from, today),
+    queryFn: householdId === null ? skipToken : () => listPlanEntries(householdId, from, today),
+  });
+  return query.isLoading || query.isError;
+}
+
 /** Only yours. Both plans are visible, but the screen is about your day. */
 export function useMyPlanEntries(today: CivilDate): readonly PlanEntry[] {
   const rows = usePlanEntries(today);

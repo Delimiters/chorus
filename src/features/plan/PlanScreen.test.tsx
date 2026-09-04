@@ -22,6 +22,7 @@ const YESTERDAY = civilDate('2026-08-26');
 let mockEntries: PlanEntry[] = [];
 let mockTheirCount = 0;
 let mockTheirTotal = 0;
+let mockPlanUnknown = false;
 let mockTheirEntries: { occurrenceKey: string; position: number }[] = [];
 const mockRemove = jest.fn();
 const mockReorder = jest.fn();
@@ -34,6 +35,7 @@ jest.mock('@/data/hooks/usePlan', () => ({
   useTheirPlanCount: () => mockTheirCount,
   useTheirPlanTotal: () => mockTheirTotal,
   useTheirPlanEntries: () => mockTheirEntries,
+  usePlanUnavailable: () => mockPlanUnknown,
   useRemoveFromPlan: () => ({ mutate: mockRemove }),
   useReorderPlan: () => ({ mutate: mockReorder }),
 }));
@@ -77,7 +79,12 @@ jest.mock('@/stores/routineStore', () => ({
 }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
 
-const item = (id: string, title: string, status = 'due'): AgendaItem =>
+const item = (
+  id: string,
+  title: string,
+  status = 'due',
+  assignee: unknown = { kind: 'anyone' },
+): AgendaItem =>
   ({
     occurrenceKey: `v1:${id}`,
     choreId: id,
@@ -87,7 +94,7 @@ const item = (id: string, title: string, status = 'due'): AgendaItem =>
     daysOverdue: 0,
     missedBefore: 0,
     completedBy: null,
-    assignee: { kind: 'anyone' },
+    assignee,
   }) as unknown as AgendaItem;
 
 const entry = (id: string, position: number): PlanEntry => ({
@@ -119,6 +126,7 @@ function renderScreen(
       <PlanScreen
         available={available}
         chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+        recurringChoreIds={new Set(available.map((i) => i.choreId))}
         today={TODAY}
         refetch={async () => {}}
         onAdd={onAdd}
@@ -134,6 +142,7 @@ beforeEach(() => {
   mockTheirCount = 0;
   mockTheirTotal = 0;
   mockTheirEntries = [];
+  mockPlanUnknown = false;
   mockTapped.mockClear();
   mockFinished.mockClear();
   mockCelebrated.mockClear();
@@ -304,24 +313,103 @@ describe('a plan in progress', () => {
     expect(screen.getByText(/2 of 2 done/)).toBeOnTheScreen();
   });
 
-  it('says nothing when they planned nothing at all', () => {
+  it('says so when they have planned nothing, rather than vanishing', () => {
     /*
-     * Retitled, because the old name is now the opposite of the truth: a
-     * finished housemate *does* get a line, twenty lines above this. What must
-     * still stay silent is a housemate with no plan.
+     * This used to render nothing at all, which made "Emily hasn't planned
+     * today" and "this feature was never built" identical on screen. Jake read
+     * it the second way and asked whether it had been pushed. It had; she had
+     * no plan.
      *
-     * As written this asserted against an empty subtree — `theirTotal = 0`
-     * renders the whole branch as null — so it passed for any copy whatsoever.
-     * The positive control below is what makes it about the condition.
+     * Her day is built on *her* phone when she opens the app, so an empty plan
+     * usually means an app she has not opened — not a decision she made.
      */
+    mockTheirCount = 0;
+    mockTheirTotal = 0;
+    mockTheirEntries = [];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByText("Sam hasn't planned today ›")).toBeOnTheScreen();
+  });
+
+  it('forecasts what will fill their day, by the same rule that fills it', () => {
+    /*
+     * Jake: *"is it going to show me the stuff that will automatically be on
+     * her list regardless of if she's logged in?"* It is, and by construction —
+     * this runs the same `autoPlannable` the auto-plan runs, for them.
+     *
+     * `anyone` work counts for both of you, so it is in their forecast too; the
+     * only thing excluded is work assigned to somebody else.
+     */
+    mockTheirCount = 0;
+    mockTheirTotal = 0;
+    mockTheirEntries = [];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('bins', 'Bins', 'due', { kind: 'member', memberId: THEM }),
+      item('gutters', 'Gutters', 'due', { kind: 'member', memberId: ME }),
+    ]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.getByText(/Will go on their day when Sam opens the app/)).toBeOnTheScreen();
+    expect(screen.getByText('Bins')).toBeOnTheScreen();
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    // Mine, and therefore never hers. Without this the filter can be deleted
+    // outright and the test still passes — which a review proved.
+    expect(screen.queryByText('Gutters')).toBeNull();
+  });
+
+  it('does not forecast next week as though it were today', () => {
+    /*
+     * `showFrom` marks a chore `due` before its date arrives, so the status
+     * test alone puts next week on the forecast.
+     */
+    mockTheirCount = 0;
+    mockTheirTotal = 0;
+    mockTheirEntries = [];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      { ...item('gutters', 'Gutters'), dueOn: '2026-09-20' } as AgendaItem,
+    ]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.queryByText('Gutters')).toBeNull();
+  });
+
+  it('says nothing about their day while the plan is still unknown', () => {
+    /*
+     * `usePlanEntries` returns an empty list for loading, for a failed fetch and
+     * for a genuinely empty day alike. Saying "Sam hasn't planned today" out of
+     * not having asked yet is a confident, checkable claim about another person.
+     */
+    mockPlanUnknown = true;
     mockTheirCount = 0;
     mockTheirTotal = 0;
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
 
-    // The control: the screen did render, so the absence below means something.
     expect(screen.getByText('Dishes')).toBeOnTheScreen();
-    expect(screen.queryByText(/Sam has/)).toBeNull();
+    expect(screen.queryByText(/Sam/)).toBeNull();
+  });
+
+  it('does not offer what is due when they have a plan of their own', () => {
+    // The suggestions are for an empty day. Under a real plan they are noise,
+    // and a review found the gate untested.
+    mockTheirCount = 1;
+    mockTheirTotal = 1;
+    mockTheirEntries = [{ occurrenceKey: 'v1:bins', position: 1 }];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins'), item('mopping', 'Mopping')]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.getByText('Bins')).toBeOnTheScreen();
+    // The forecast is for an empty day; under a real plan it is noise.
+    expect(screen.queryByText(/Will go on their day/)).toBeNull();
   });
 
   it('can be reordered without a drag gesture', () => {
@@ -548,6 +636,7 @@ describe('the finish moment', () => {
         <PlanScreen
           available={[item('dishes', 'Dishes', 'completed')]}
           chores={[chore('dishes', 'Dishes')]}
+          recurringChoreIds={new Set(['dishes'])}
           today={TODAY}
           refetch={async () => {}}
           onAdd={onAdd}
@@ -673,6 +762,7 @@ describe('finished work sinking to the bottom', () => {
           <PlanScreen
             available={available}
             chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+            recurringChoreIds={new Set(available.map((i) => i.choreId))}
             today={TODAY}
             refetch={async () => {}}
             onAdd={onAdd}

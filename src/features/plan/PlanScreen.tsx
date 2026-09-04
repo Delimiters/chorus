@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { autoPlannable } from '@/core/plan/autoplan';
 import { planFor, progressOf } from '@/core/plan/plan';
 import { partitionSettled } from '@/core/plan/settle';
 import { celebrationFor } from '@/core/plan/celebrate';
@@ -42,6 +43,7 @@ import {
   useRemoveFromPlan,
   useTheirPlanCount,
   useReorderPlan,
+  usePlanUnavailable,
   useTheirPlanEntries,
   useTheirPlanTotal,
 } from '@/data/hooks/usePlan';
@@ -84,6 +86,8 @@ interface PlanScreenProps {
   readonly proposal?: { items: readonly AgendaItem[]; reason: string } | null;
   readonly onAcceptProposal?: (items: readonly AgendaItem[]) => void;
   readonly onAdd: () => void;
+  /** Which chores recur — the screen's own `chores` prop has no schedules. */
+  readonly recurringChoreIds: ReadonlySet<string>;
 }
 
 export function PlanScreen({
@@ -92,6 +96,7 @@ export function PlanScreen({
   today,
   refetch,
   onAdd,
+  recurringChoreIds,
   proposal = null,
   onAcceptProposal,
 }: PlanScreenProps) {
@@ -107,7 +112,22 @@ export function PlanScreen({
   const entries = useMyPlanEntries(today as never);
   const theirCount = useTheirPlanCount(today as never, available);
   const theirTotal = useTheirPlanTotal(today as never, available);
+  /*
+   * The housemate themselves, not just their name.
+   *
+   * `undefined` covers both "living alone" and "members have not loaded yet",
+   * and both must render nothing rather than a line about "They" — which is
+   * what the old `?? 'They'` fallback produced for the second or so before the
+   * query landed, in three places, two of them possessives.
+   */
+  const housemate = useMemo(
+    () => (members.data ?? []).find((m) => m.userId !== userId),
+    [members.data, userId],
+  );
+  const theirName = housemate?.displayName ?? 'They';
+
   const theirEntries = useTheirPlanEntries(today as never, available);
+  const planUnknown = usePlanUnavailable(today as never);
   const [showingTheirs, setShowingTheirs] = useState(false);
 
   /**
@@ -133,6 +153,41 @@ export function PlanScreen({
   /** Capped against the screen, like the picker's list. */
   const { height: screenHeight } = useWindowDimensions();
   const theirSheetMaxHeight = Math.max(180, Math.min(420, screenHeight - 260));
+
+  /*
+   * What is due for them, for when they have not planned.
+   *
+   * The auto-plan runs on *their* device when they open the app, so a housemate
+   * who has not opened it has no plan at all — which is not the same as having
+   * nothing to do, and "Emily hasn't planned today" reads like a choice she
+   * made rather than an app she has not opened since Tuesday.
+   *
+   * Shown only in the empty case, and labelled as due rather than planned:
+   * inventing a plan she never made and calling it hers would be a lie about a
+   * decision, which is the one thing this screen is *for*.
+   */
+  /*
+   * Exactly what their day will be filled with when they next open the app.
+   *
+   * Jake: *"is it going to show me the stuff that will automatically be on her
+   * list regardless of if she's logged in?"* It is now, and by construction:
+   * this runs the same `autoPlannable` that does the filling, for them instead
+   * of for you. An approximation assembled separately would drift from what
+   * actually lands, and drift in a preview is invisible until it misleads.
+   *
+   * Their plan is built on their phone — nothing on this device or on the
+   * server writes it — so until they open the app this is a forecast, and it is
+   * labelled as one rather than as their plan.
+   */
+  const willFillTheirDay = useMemo(() => {
+    if (housemate === undefined) return [];
+    return autoPlannable(available, {
+      userId: housemate.userId,
+      on: today as never,
+      planned: new Set(theirEntries.map((e) => e.occurrenceKey)),
+      recurring: (item) => recurringChoreIds.has(item.choreId),
+    });
+  }, [available, housemate, today, theirEntries, recurringChoreIds]);
 
   const theirPlan = useMemo(() => {
     const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
@@ -328,10 +383,6 @@ export function PlanScreen({
     () => new Map((members.data ?? []).map((m) => [m.userId, m.displayName])),
     [members.data],
   );
-  const theirName = useMemo(
-    () => (members.data ?? []).find((m) => m.userId !== userId)?.displayName ?? 'They',
-    [members.data, userId],
-  );
 
   const renderRow = ({ item }: { item: AgendaItem }) => {
     const meta = choreMeta.get(item.choreId);
@@ -390,13 +441,16 @@ export function PlanScreen({
             {progress.total > 0 ? ` · ${progress.done} OF ${progress.total}` : ''}
           </Txt>
           {/*
-            Tappable, and shown whenever they have a day at all rather than only
-            when something is left on it. "Emily has 3 planned" with no way to
-            see what they were is a fact you can do nothing with — and once they
-            finish, the line used to vanish entirely, which reads as them not
-            having planned anything rather than as them being done.
+            Shown whenever there is somebody to show it for — including when
+            they have planned nothing.
+          
+            Gating this on `theirTotal > 0` made "Emily hasn't planned today"
+            and "this feature was never built" identical on screen, and Jake
+            read it the second way: *"Did you push it? I don't see Emily's
+            plan."* It was pushed; she had no plan. An affordance that vanishes
+            when its subject is empty cannot tell you which of those is true.
           */}
-          {theirTotal > 0 ? (
+          {housemate !== undefined && !planUnknown ? (
             <Pressable
               onPress={() => {
                 tapped();
@@ -420,9 +474,11 @@ export function PlanScreen({
               }}
             >
               <Txt variant="small" tone="muted">
-                {theirCount === 0
-                  ? `${theirName} has finished today ›`
-                  : `${theirName} has ${theirCount} of ${theirTotal} left ›`}
+                {theirTotal === 0
+                  ? `${theirName} hasn't planned today ›`
+                  : theirCount === 0
+                    ? `${theirName} has finished today ›`
+                    : `${theirName} has ${theirCount} of ${theirTotal} left ›`}
               </Txt>
             </Pressable>
           ) : null}
@@ -663,7 +719,7 @@ export function PlanScreen({
         title={`${theirName}'s day`}
         subtitle={
           theirPlan.length === 0
-            ? undefined
+            ? `Only ${theirName} can put things on it`
             : `${theirPlan.filter(isSettled).length} of ${theirPlan.length} done · only ${theirName} can change this`
         }
       >
@@ -681,6 +737,27 @@ export function PlanScreen({
           style={{ maxHeight: theirSheetMaxHeight }}
           contentContainerStyle={{ gap: space.sm, paddingBottom: space.sm }}
         >
+          {theirPlan.length === 0 ? (
+            <View style={{ gap: space.sm, paddingVertical: space.xs }}>
+              <Txt variant="small" tone="muted">
+                {`${theirName} hasn't planned today — the day is built on their phone when they open the app.`}
+              </Txt>
+
+              {willFillTheirDay.length === 0 ? null : (
+                <>
+                  <Txt variant="label" tone="faint">
+                    {`Will go on their day when ${theirName} opens the app`}
+                  </Txt>
+                  {willFillTheirDay.map((item) => (
+                    <Txt key={item.occurrenceKey} variant="body" numberOfLines={2}>
+                      {item.choreTitle}
+                    </Txt>
+                  ))}
+                </>
+              )}
+            </View>
+          ) : null}
+
           {theirPlan.map((item) => {
             const done = isSettled(item);
             return (
