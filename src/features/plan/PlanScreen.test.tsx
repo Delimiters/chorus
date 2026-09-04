@@ -22,6 +22,7 @@ const YESTERDAY = civilDate('2026-08-26');
 let mockEntries: PlanEntry[] = [];
 let mockTheirCount = 0;
 let mockTheirTotal = 0;
+let mockPlanUnknown = false;
 let mockTheirEntries: { occurrenceKey: string; position: number }[] = [];
 const mockRemove = jest.fn();
 const mockReorder = jest.fn();
@@ -34,6 +35,7 @@ jest.mock('@/data/hooks/usePlan', () => ({
   useTheirPlanCount: () => mockTheirCount,
   useTheirPlanTotal: () => mockTheirTotal,
   useTheirPlanEntries: () => mockTheirEntries,
+  usePlanUnavailable: () => mockPlanUnknown,
   useRemoveFromPlan: () => ({ mutate: mockRemove }),
   useReorderPlan: () => ({ mutate: mockReorder }),
 }));
@@ -139,6 +141,7 @@ beforeEach(() => {
   mockTheirCount = 0;
   mockTheirTotal = 0;
   mockTheirEntries = [];
+  mockPlanUnknown = false;
   mockTapped.mockClear();
   mockFinished.mockClear();
   mockCelebrated.mockClear();
@@ -347,7 +350,89 @@ describe('a plan in progress', () => {
 
     expect(screen.getByText('Due for Sam')).toBeOnTheScreen();
     expect(screen.getByText('Bins')).toBeOnTheScreen();
-    expect(screen.getByText(/hasn't planned today/)).toBeOnTheScreen();
+    /*
+     * The negative control, and the reason this test is worth having: without
+     * it, "filters to work assigned to them" and "does not filter at all"
+     * produce identical output, and a review proved exactly that by deleting
+     * the whole assignee clause and watching all 576 tests pass.
+     *
+     * `Dishes` is `anyone`, so it must not appear under *their* heading.
+     */
+    expect(screen.queryAllByText('Dishes')).toHaveLength(0);
+  });
+
+  it('does not list next week under what is due today', () => {
+    /*
+     * `showFrom` marks a chore `due` before its date arrives, so the status
+     * test alone lets tomorrow's work in — presented as outstanding now.
+     */
+    mockTheirCount = 0;
+    mockTheirTotal = 0;
+    mockTheirEntries = [];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      {
+        ...item('gutters', 'Gutters', 'due', { kind: 'member', memberId: THEM }),
+        dueOn: '2026-09-20',
+      } as AgendaItem,
+    ]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.queryByText('Gutters')).toBeNull();
+  });
+
+  it('lists shared work neither of you has picked up', () => {
+    /*
+     * Most of this household's chores are `anyone`, so a sheet showing only
+     * work assigned *to them* is empty on an ordinary day — the feature doing
+     * nothing precisely when it is needed. Shared work is listed as what it is,
+     * never as though it were theirs.
+     */
+    mockTheirCount = 0;
+    mockTheirTotal = 0;
+    mockTheirEntries = [];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('mopping', 'Mopping')]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.getByText('Neither of you has picked up')).toBeOnTheScreen();
+    expect(screen.getByText('Mopping')).toBeOnTheScreen();
+    // Dishes is on my own plan, so I have picked it up.
+    expect(screen.queryByText('Dishes')).toBeNull();
+  });
+
+  it('says nothing about their day while the plan is still unknown', () => {
+    /*
+     * `usePlanEntries` returns an empty list for loading, for a failed fetch and
+     * for a genuinely empty day alike. Saying "Sam hasn't planned today" out of
+     * not having asked yet is a confident, checkable claim about another person.
+     */
+    mockPlanUnknown = true;
+    mockTheirCount = 0;
+    mockTheirTotal = 0;
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.queryByText(/Sam/)).toBeNull();
+  });
+
+  it('does not offer what is due when they have a plan of their own', () => {
+    // The suggestions are for an empty day. Under a real plan they are noise,
+    // and a review found the gate untested.
+    mockTheirCount = 1;
+    mockTheirTotal = 1;
+    mockTheirEntries = [{ occurrenceKey: 'v1:bins', position: 1 }];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins'), item('mopping', 'Mopping')]);
+
+    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+
+    expect(screen.getByText('Bins')).toBeOnTheScreen();
+    expect(screen.queryByText('Neither of you has picked up')).toBeNull();
   });
 
   it('can be reordered without a drag gesture', () => {

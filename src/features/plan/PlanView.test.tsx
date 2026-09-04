@@ -37,6 +37,7 @@ let mockView: {
 let mockChores: { id: string; title: string; schedule: unknown }[];
 let mockEntries: { occurrenceKey: string; choreId: string; plannedFor: string; position: number }[];
 let mockIsLoading = false;
+let mockPlanUnknown = false;
 let mockEntriesLoading = false;
 let mockAutoPlannedOn: string | null = null;
 let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
@@ -62,6 +63,7 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
 
 jest.mock('@/data/hooks/usePlan', () => ({
   useMyPlanEntries: () => mockEntries,
+  usePlanUnavailable: () => mockPlanUnknown,
   usePlanLoading: () => mockEntriesLoading,
   useTheirPlanCount: () => 0,
   useTheirPlanTotal: () => 0,

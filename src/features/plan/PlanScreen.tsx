@@ -42,6 +42,7 @@ import {
   useRemoveFromPlan,
   useTheirPlanCount,
   useReorderPlan,
+  usePlanUnavailable,
   useTheirPlanEntries,
   useTheirPlanTotal,
 } from '@/data/hooks/usePlan';
@@ -59,6 +60,16 @@ import { useRoutineStore } from '@/stores/routineStore';
  * guess made on the sofa rather than a measurement; it is one number to change.
  */
 const SETTLE_MS = 3000;
+
+/**
+ * Outstanding, and outstanding *now*.
+ *
+ * The date test is not redundant with the status test: `showFrom` makes a chore
+ * `due` before its date arrives, so without it these lists are next week's work
+ * presented as today's.
+ */
+const outstandingOn = (item: AgendaItem, on: string) =>
+  (item.status === 'due' || item.status === 'overdue') && item.dueOn <= on;
 
 interface PlanScreenProps {
   /** Everything outstanding or done today, from Today's own query. */
@@ -122,6 +133,7 @@ export function PlanScreen({
   const theirName = housemate?.displayName ?? 'They';
 
   const theirEntries = useTheirPlanEntries(today as never, available);
+  const planUnknown = usePlanUnavailable(today as never);
   const [showingTheirs, setShowingTheirs] = useState(false);
 
   /**
@@ -166,10 +178,31 @@ export function PlanScreen({
       (item) =>
         item.assignee.kind === 'member' &&
         item.assignee.memberId === housemate.userId &&
-        (item.status === 'due' || item.status === 'overdue') &&
-        item.dueOn <= (today as string),
+        outstandingOn(item, today),
     );
   }, [available, housemate, today]);
+
+  /*
+   * Shared work neither of you has claimed.
+   *
+   * Without this the sheet was usually empty and said nothing: most of this
+   * household's chores are `anyone`, so filtering to work assigned *to them*
+   * leaves a handful of fixed and rotation turns and often none at all — the
+   * feature doing nothing precisely on the ordinary day.
+   *
+   * `anyone` work is not "due for them" and is not listed as though it were.
+   * It is listed as what it is: outstanding, and nobody has picked it up.
+   * Anything already on your own plan is excluded, because you have.
+   */
+  const unclaimed = useMemo(() => {
+    const mine = new Set(entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey));
+    return available.filter(
+      (item) =>
+        item.assignee.kind === 'anyone' &&
+        outstandingOn(item, today) &&
+        !mine.has(item.occurrenceKey),
+    );
+  }, [available, entries, today]);
 
   const theirPlan = useMemo(() => {
     const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
@@ -423,13 +456,6 @@ export function PlanScreen({
             {progress.total > 0 ? ` · ${progress.done} OF ${progress.total}` : ''}
           </Txt>
           {/*
-            Tappable, and shown whenever they have a day at all rather than only
-            when something is left on it. "Emily has 3 planned" with no way to
-            see what they were is a fact you can do nothing with — and once they
-            finish, the line used to vanish entirely, which reads as them not
-            having planned anything rather than as them being done.
-          */}
-          {/*
             Shown whenever there is somebody to show it for — including when
             they have planned nothing.
           
@@ -439,7 +465,7 @@ export function PlanScreen({
             plan."* It was pushed; she had no plan. An affordance that vanishes
             when its subject is empty cannot tell you which of those is true.
           */}
-          {housemate !== undefined ? (
+          {housemate !== undefined && !planUnknown ? (
             <Pressable
               onPress={() => {
                 tapped();
@@ -738,6 +764,19 @@ export function PlanScreen({
                     {`Due for ${theirName}`}
                   </Txt>
                   {dueForThem.map((item) => (
+                    <Txt key={item.occurrenceKey} variant="body" numberOfLines={2}>
+                      {item.choreTitle}
+                    </Txt>
+                  ))}
+                </>
+              )}
+
+              {unclaimed.length === 0 ? null : (
+                <>
+                  <Txt variant="label" tone="faint">
+                    Neither of you has picked up
+                  </Txt>
+                  {unclaimed.map((item) => (
                     <Txt key={item.occurrenceKey} variant="body" numberOfLines={2}>
                       {item.choreTitle}
                     </Txt>
