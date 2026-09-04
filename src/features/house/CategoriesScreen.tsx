@@ -121,6 +121,16 @@ export function CategoriesScreen() {
           onReorder={(orderedIds) => reorder.mutate({ orderedIds })}
           onDragStateChange={setDragging}
           renderItem={(category, isDragging) => (
+            /*
+             * Height budget, because the container cannot grow.
+             *
+             * `ReorderableList` fixes every row at `ROW_HEIGHT` (56) and its
+             * drag arithmetic divides by that number, so a row that outgrows it
+             * both clips and desyncs the reorder. The 44pt targets below, plus
+             * this padding and margin, come to exactly 56 — it fits, with
+             * nothing to spare. Anything added here needs `ROW_HEIGHT` raised
+             * to match.
+             */
             <View
               style={{
                 flexDirection: 'row',
@@ -206,7 +216,7 @@ export function CategoriesScreen() {
                     accessibilityState={{ selected }}
                     accessibilityLabel={option.label}
                     style={{
-                      minWidth: 44,
+                      minWidth: MIN_TARGET,
                       minHeight: MIN_TARGET,
                       borderRadius: radius.sm,
                       alignItems: 'center',

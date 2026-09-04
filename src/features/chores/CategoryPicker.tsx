@@ -158,7 +158,7 @@ export function CategoryAndPriorityPicker({
                     accessibilityState={{ selected }}
                     accessibilityLabel={`Colour: ${option.label}`}
                     style={{
-                      minWidth: 44,
+                      minWidth: MIN_TARGET,
                       minHeight: MIN_TARGET,
                       borderRadius: radius.sm,
                       alignItems: 'center',

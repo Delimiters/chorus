@@ -99,7 +99,7 @@ export function IconPicker({ value, onChange }: Props) {
                         accessibilityLabel={icon.replace(/-/g, ' ')}
                         style={{
                           width: MIN_TARGET,
-                          height: 44,
+                          height: MIN_TARGET,
                           alignItems: 'center',
                           justifyContent: 'center',
                           borderRadius: radius.sm,
