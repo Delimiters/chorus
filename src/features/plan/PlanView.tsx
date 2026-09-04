@@ -14,6 +14,8 @@ import type { CivilDate } from '@/core/civil/types';
 import { splitByUrgency, type AgendaItem } from '@/core/occurrence/agenda';
 import { unfinishedBefore } from '@/core/plan/plan';
 import { proposeDay } from '@/core/plan/propose';
+import { autoPlannable } from '@/core/plan/autoplan';
+import { useUserId } from '@/stores/sessionStore';
 import { isRecurring } from '@/core/chore/kind';
 import { useMyFlags } from '@/data/hooks/useFlags';
 import { useScheduleToday } from '@/data/hooks/useChores';
@@ -50,6 +52,7 @@ const PICKER_WEEKS_FORWARD = 13;
 
 export function PlanView() {
   const router = useRouter();
+  const userId = useUserId();
   const { view, chores, today, isLoading, error, refetch } = useToday_View();
   const categories = useCategoryList();
   const entries = useMyPlanEntries(today);
@@ -130,6 +133,11 @@ export function PlanView() {
             }) as unknown as AgendaItem,
         ),
     [chores, today],
+  );
+
+  const recurringChoreIds = useMemo(
+    () => new Set(chores.filter((c) => isRecurring(c.schedule)).map((c) => c.id)),
+    [chores],
   );
 
   const available = useMemo(
@@ -386,18 +394,19 @@ export function PlanView() {
      * carries anything `showFrom` has pulled forward — those are not late, they
      * are early, and auto-adding them puts next week on today.
      */
-    const due = view.mine.filter(
-      (item) =>
-        item.dueOn <= today &&
-        // Defensive rather than load-bearing: `buildTodayView` already builds
-        // `mine` from due-or-overdue items, so nothing completed or skipped
-        // reaches here today. Kept because this filter is the only thing
-        // standing between a change in that function and the plan claiming
-        // work is left that isn't.
-        (item.status === 'due' || item.status === 'overdue') &&
-        !planned.has(item.occurrenceKey) &&
+    /*
+     * The rule itself lives in `core/plan/autoplan`, because the plan screen
+     * also previews a housemate's day with it — what will be added when they
+     * open the app. Two copies would drift, and the preview would quietly stop
+     * matching what actually lands.
+     */
+    const due = autoPlannable(view.mine, {
+      userId: userId ?? '',
+      on: today,
+      planned,
+      recurring: (item) =>
         isRecurring(chores.find((c) => c.id === item.choreId)?.schedule ?? FALLBACK_SCHEDULE),
-    );
+    });
 
     if (due.length === 0) {
       markAutoPlanned(today);
@@ -429,6 +438,7 @@ export function PlanView() {
     chores,
     add,
     markAutoPlanned,
+    userId,
   ]);
 
   /*
@@ -502,6 +512,13 @@ export function PlanView() {
       <PlanScreen
         available={available}
         chores={chores}
+        /*
+         * Which chores recur, decided here because this is the layer that has
+         * their schedules — the screen's `chores` prop is a lighter shape. The
+         * screen needs it to forecast a housemate's day with the same rule that
+         * fills it.
+         */
+        recurringChoreIds={recurringChoreIds}
         today={today}
         refetch={refetch}
         onAdd={() => setPicking(true)}

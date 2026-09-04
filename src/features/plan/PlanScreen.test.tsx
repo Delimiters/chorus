@@ -126,6 +126,7 @@ function renderScreen(
       <PlanScreen
         available={available}
         chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+        recurringChoreIds={new Set(available.map((i) => i.choreId))}
         today={TODAY}
         refetch={async () => {}}
         onAdd={onAdd}
@@ -331,11 +332,14 @@ describe('a plan in progress', () => {
     expect(screen.getByText("Sam hasn't planned today ›")).toBeOnTheScreen();
   });
 
-  it('shows what is due for them when they have not planned', () => {
+  it('forecasts what will fill their day, by the same rule that fills it', () => {
     /*
-     * Labelled as due, never as planned. Inventing a plan they did not make and
-     * calling it theirs would be a lie about a decision, which is the one thing
-     * this screen exists to record.
+     * Jake: *"is it going to show me the stuff that will automatically be on
+     * her list regardless of if she's logged in?"* It is, and by construction —
+     * this runs the same `autoPlannable` the auto-plan runs, for them.
+     *
+     * `anyone` work counts for both of you, so it is in their forecast too; the
+     * only thing excluded is work assigned to somebody else.
      */
     mockTheirCount = 0;
     mockTheirTotal = 0;
@@ -344,27 +348,23 @@ describe('a plan in progress', () => {
     renderScreen([
       item('dishes', 'Dishes'),
       item('bins', 'Bins', 'due', { kind: 'member', memberId: THEM }),
+      item('gutters', 'Gutters', 'due', { kind: 'member', memberId: ME }),
     ]);
 
     fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
 
-    expect(screen.getByText('Due for Sam')).toBeOnTheScreen();
+    expect(screen.getByText(/Will go on their day when Sam opens the app/)).toBeOnTheScreen();
     expect(screen.getByText('Bins')).toBeOnTheScreen();
-    /*
-     * The negative control, and the reason this test is worth having: without
-     * it, "filters to work assigned to them" and "does not filter at all"
-     * produce identical output, and a review proved exactly that by deleting
-     * the whole assignee clause and watching all 576 tests pass.
-     *
-     * `Dishes` is `anyone`, so it must not appear under *their* heading.
-     */
-    expect(screen.queryAllByText('Dishes')).toHaveLength(0);
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    // Mine, and therefore never hers. Without this the filter can be deleted
+    // outright and the test still passes — which a review proved.
+    expect(screen.queryByText('Gutters')).toBeNull();
   });
 
-  it('does not list next week under what is due today', () => {
+  it('does not forecast next week as though it were today', () => {
     /*
      * `showFrom` marks a chore `due` before its date arrives, so the status
-     * test alone lets tomorrow's work in — presented as outstanding now.
+     * test alone puts next week on the forecast.
      */
     mockTheirCount = 0;
     mockTheirTotal = 0;
@@ -372,36 +372,12 @@ describe('a plan in progress', () => {
     mockEntries = [entry('dishes', 1)];
     renderScreen([
       item('dishes', 'Dishes'),
-      {
-        ...item('gutters', 'Gutters', 'due', { kind: 'member', memberId: THEM }),
-        dueOn: '2026-09-20',
-      } as AgendaItem,
+      { ...item('gutters', 'Gutters'), dueOn: '2026-09-20' } as AgendaItem,
     ]);
 
     fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
 
     expect(screen.queryByText('Gutters')).toBeNull();
-  });
-
-  it('lists shared work neither of you has picked up', () => {
-    /*
-     * Most of this household's chores are `anyone`, so a sheet showing only
-     * work assigned *to them* is empty on an ordinary day — the feature doing
-     * nothing precisely when it is needed. Shared work is listed as what it is,
-     * never as though it were theirs.
-     */
-    mockTheirCount = 0;
-    mockTheirTotal = 0;
-    mockTheirEntries = [];
-    mockEntries = [entry('dishes', 1)];
-    renderScreen([item('dishes', 'Dishes'), item('mopping', 'Mopping')]);
-
-    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
-
-    expect(screen.getByText('Neither of you has picked up')).toBeOnTheScreen();
-    expect(screen.getByText('Mopping')).toBeOnTheScreen();
-    // Dishes is on my own plan, so I have picked it up.
-    expect(screen.queryByText('Dishes')).toBeNull();
   });
 
   it('says nothing about their day while the plan is still unknown', () => {
@@ -432,7 +408,8 @@ describe('a plan in progress', () => {
     fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
 
     expect(screen.getByText('Bins')).toBeOnTheScreen();
-    expect(screen.queryByText('Neither of you has picked up')).toBeNull();
+    // The forecast is for an empty day; under a real plan it is noise.
+    expect(screen.queryByText(/Will go on their day/)).toBeNull();
   });
 
   it('can be reordered without a drag gesture', () => {
@@ -659,6 +636,7 @@ describe('the finish moment', () => {
         <PlanScreen
           available={[item('dishes', 'Dishes', 'completed')]}
           chores={[chore('dishes', 'Dishes')]}
+          recurringChoreIds={new Set(['dishes'])}
           today={TODAY}
           refetch={async () => {}}
           onAdd={onAdd}
@@ -784,6 +762,7 @@ describe('finished work sinking to the bottom', () => {
           <PlanScreen
             available={available}
             chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+            recurringChoreIds={new Set(available.map((i) => i.choreId))}
             today={TODAY}
             refetch={async () => {}}
             onAdd={onAdd}

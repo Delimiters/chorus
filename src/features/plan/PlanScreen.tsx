@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { autoPlannable } from '@/core/plan/autoplan';
 import { planFor, progressOf } from '@/core/plan/plan';
 import { partitionSettled } from '@/core/plan/settle';
 import { celebrationFor } from '@/core/plan/celebrate';
@@ -61,16 +62,6 @@ import { useRoutineStore } from '@/stores/routineStore';
  */
 const SETTLE_MS = 3000;
 
-/**
- * Outstanding, and outstanding *now*.
- *
- * The date test is not redundant with the status test: `showFrom` makes a chore
- * `due` before its date arrives, so without it these lists are next week's work
- * presented as today's.
- */
-const outstandingOn = (item: AgendaItem, on: string) =>
-  (item.status === 'due' || item.status === 'overdue') && item.dueOn <= on;
-
 interface PlanScreenProps {
   /** Everything outstanding or done today, from Today's own query. */
   readonly available: readonly AgendaItem[];
@@ -95,6 +86,8 @@ interface PlanScreenProps {
   readonly proposal?: { items: readonly AgendaItem[]; reason: string } | null;
   readonly onAcceptProposal?: (items: readonly AgendaItem[]) => void;
   readonly onAdd: () => void;
+  /** Which chores recur — the screen's own `chores` prop has no schedules. */
+  readonly recurringChoreIds: ReadonlySet<string>;
 }
 
 export function PlanScreen({
@@ -103,6 +96,7 @@ export function PlanScreen({
   today,
   refetch,
   onAdd,
+  recurringChoreIds,
   proposal = null,
   onAcceptProposal,
 }: PlanScreenProps) {
@@ -172,37 +166,28 @@ export function PlanScreen({
    * inventing a plan she never made and calling it hers would be a lie about a
    * decision, which is the one thing this screen is *for*.
    */
-  const dueForThem = useMemo(() => {
-    if (housemate === undefined) return [];
-    return available.filter(
-      (item) =>
-        item.assignee.kind === 'member' &&
-        item.assignee.memberId === housemate.userId &&
-        outstandingOn(item, today),
-    );
-  }, [available, housemate, today]);
-
   /*
-   * Shared work neither of you has claimed.
+   * Exactly what their day will be filled with when they next open the app.
    *
-   * Without this the sheet was usually empty and said nothing: most of this
-   * household's chores are `anyone`, so filtering to work assigned *to them*
-   * leaves a handful of fixed and rotation turns and often none at all — the
-   * feature doing nothing precisely on the ordinary day.
+   * Jake: *"is it going to show me the stuff that will automatically be on her
+   * list regardless of if she's logged in?"* It is now, and by construction:
+   * this runs the same `autoPlannable` that does the filling, for them instead
+   * of for you. An approximation assembled separately would drift from what
+   * actually lands, and drift in a preview is invisible until it misleads.
    *
-   * `anyone` work is not "due for them" and is not listed as though it were.
-   * It is listed as what it is: outstanding, and nobody has picked it up.
-   * Anything already on your own plan is excluded, because you have.
+   * Their plan is built on their phone — nothing on this device or on the
+   * server writes it — so until they open the app this is a forecast, and it is
+   * labelled as one rather than as their plan.
    */
-  const unclaimed = useMemo(() => {
-    const mine = new Set(entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey));
-    return available.filter(
-      (item) =>
-        item.assignee.kind === 'anyone' &&
-        outstandingOn(item, today) &&
-        !mine.has(item.occurrenceKey),
-    );
-  }, [available, entries, today]);
+  const willFillTheirDay = useMemo(() => {
+    if (housemate === undefined) return [];
+    return autoPlannable(available, {
+      userId: housemate.userId,
+      on: today as never,
+      planned: new Set(theirEntries.map((e) => e.occurrenceKey)),
+      recurring: (item) => recurringChoreIds.has(item.choreId),
+    });
+  }, [available, housemate, today, theirEntries, recurringChoreIds]);
 
   const theirPlan = useMemo(() => {
     const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
@@ -758,25 +743,12 @@ export function PlanScreen({
                 {`${theirName} hasn't planned today — the day is built on their phone when they open the app.`}
               </Txt>
 
-              {dueForThem.length === 0 ? null : (
+              {willFillTheirDay.length === 0 ? null : (
                 <>
                   <Txt variant="label" tone="faint">
-                    {`Due for ${theirName}`}
+                    {`Will go on their day when ${theirName} opens the app`}
                   </Txt>
-                  {dueForThem.map((item) => (
-                    <Txt key={item.occurrenceKey} variant="body" numberOfLines={2}>
-                      {item.choreTitle}
-                    </Txt>
-                  ))}
-                </>
-              )}
-
-              {unclaimed.length === 0 ? null : (
-                <>
-                  <Txt variant="label" tone="faint">
-                    Neither of you has picked up
-                  </Txt>
-                  {unclaimed.map((item) => (
+                  {willFillTheirDay.map((item) => (
                     <Txt key={item.occurrenceKey} variant="body" numberOfLines={2}>
                       {item.choreTitle}
                     </Txt>
