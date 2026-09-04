@@ -107,6 +107,20 @@ export function PlanScreen({
   const entries = useMyPlanEntries(today as never);
   const theirCount = useTheirPlanCount(today as never, available);
   const theirTotal = useTheirPlanTotal(today as never, available);
+  /*
+   * The housemate themselves, not just their name.
+   *
+   * `undefined` covers both "living alone" and "members have not loaded yet",
+   * and both must render nothing rather than a line about "They" — which is
+   * what the old `?? 'They'` fallback produced for the second or so before the
+   * query landed, in three places, two of them possessives.
+   */
+  const housemate = useMemo(
+    () => (members.data ?? []).find((m) => m.userId !== userId),
+    [members.data, userId],
+  );
+  const theirName = housemate?.displayName ?? 'They';
+
   const theirEntries = useTheirPlanEntries(today as never, available);
   const [showingTheirs, setShowingTheirs] = useState(false);
 
@@ -133,6 +147,29 @@ export function PlanScreen({
   /** Capped against the screen, like the picker's list. */
   const { height: screenHeight } = useWindowDimensions();
   const theirSheetMaxHeight = Math.max(180, Math.min(420, screenHeight - 260));
+
+  /*
+   * What is due for them, for when they have not planned.
+   *
+   * The auto-plan runs on *their* device when they open the app, so a housemate
+   * who has not opened it has no plan at all — which is not the same as having
+   * nothing to do, and "Emily hasn't planned today" reads like a choice she
+   * made rather than an app she has not opened since Tuesday.
+   *
+   * Shown only in the empty case, and labelled as due rather than planned:
+   * inventing a plan she never made and calling it hers would be a lie about a
+   * decision, which is the one thing this screen is *for*.
+   */
+  const dueForThem = useMemo(() => {
+    if (housemate === undefined) return [];
+    return available.filter(
+      (item) =>
+        item.assignee.kind === 'member' &&
+        item.assignee.memberId === housemate.userId &&
+        (item.status === 'due' || item.status === 'overdue') &&
+        item.dueOn <= (today as string),
+    );
+  }, [available, housemate, today]);
 
   const theirPlan = useMemo(() => {
     const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
@@ -328,10 +365,6 @@ export function PlanScreen({
     () => new Map((members.data ?? []).map((m) => [m.userId, m.displayName])),
     [members.data],
   );
-  const theirName = useMemo(
-    () => (members.data ?? []).find((m) => m.userId !== userId)?.displayName ?? 'They',
-    [members.data, userId],
-  );
 
   const renderRow = ({ item }: { item: AgendaItem }) => {
     const meta = choreMeta.get(item.choreId);
@@ -396,7 +429,17 @@ export function PlanScreen({
             finish, the line used to vanish entirely, which reads as them not
             having planned anything rather than as them being done.
           */}
-          {theirTotal > 0 ? (
+          {/*
+            Shown whenever there is somebody to show it for — including when
+            they have planned nothing.
+          
+            Gating this on `theirTotal > 0` made "Emily hasn't planned today"
+            and "this feature was never built" identical on screen, and Jake
+            read it the second way: *"Did you push it? I don't see Emily's
+            plan."* It was pushed; she had no plan. An affordance that vanishes
+            when its subject is empty cannot tell you which of those is true.
+          */}
+          {housemate !== undefined ? (
             <Pressable
               onPress={() => {
                 tapped();
@@ -420,9 +463,11 @@ export function PlanScreen({
               }}
             >
               <Txt variant="small" tone="muted">
-                {theirCount === 0
-                  ? `${theirName} has finished today ›`
-                  : `${theirName} has ${theirCount} of ${theirTotal} left ›`}
+                {theirTotal === 0
+                  ? `${theirName} hasn't planned today ›`
+                  : theirCount === 0
+                    ? `${theirName} has finished today ›`
+                    : `${theirName} has ${theirCount} of ${theirTotal} left ›`}
               </Txt>
             </Pressable>
           ) : null}
@@ -663,7 +708,7 @@ export function PlanScreen({
         title={`${theirName}'s day`}
         subtitle={
           theirPlan.length === 0
-            ? undefined
+            ? `Only ${theirName} can put things on it`
             : `${theirPlan.filter(isSettled).length} of ${theirPlan.length} done · only ${theirName} can change this`
         }
       >
@@ -681,6 +726,27 @@ export function PlanScreen({
           style={{ maxHeight: theirSheetMaxHeight }}
           contentContainerStyle={{ gap: space.sm, paddingBottom: space.sm }}
         >
+          {theirPlan.length === 0 ? (
+            <View style={{ gap: space.sm, paddingVertical: space.xs }}>
+              <Txt variant="small" tone="muted">
+                {`${theirName} hasn't planned today — the day is built on their phone when they open the app.`}
+              </Txt>
+
+              {dueForThem.length === 0 ? null : (
+                <>
+                  <Txt variant="label" tone="faint">
+                    {`Due for ${theirName}`}
+                  </Txt>
+                  {dueForThem.map((item) => (
+                    <Txt key={item.occurrenceKey} variant="body" numberOfLines={2}>
+                      {item.choreTitle}
+                    </Txt>
+                  ))}
+                </>
+              )}
+            </View>
+          ) : null}
+
           {theirPlan.map((item) => {
             const done = isSettled(item);
             return (
