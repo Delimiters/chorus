@@ -64,6 +64,15 @@ export function SegmentedControl<T extends string>({
               flex: scrollable ? undefined : 1,
               paddingHorizontal: scrollable ? space.md : space.sm,
               paddingVertical: 9,
+              /*
+               * Sized by padding alone, this came to about 36pt — and it is the
+               * mode switch, the most-tapped control in the app. A source scan
+               * for undersized heights cannot see a control whose height is the
+               * sum of its padding and its line box, which is how the audit
+               * that raised everything else walked straight past it.
+               */
+              minHeight: MIN_TARGET,
+              justifyContent: 'center',
               borderRadius: radius.sm,
               alignItems: 'center',
               backgroundColor: selected ? colors.surface : 'transparent',
@@ -123,10 +132,18 @@ export function Stepper({ value, onChange, min = 1, max = 30, label, unit }: Ste
       accessibilityRole="button"
       accessibilityLabel={`${action} ${label}`}
       accessibilityState={{ disabled }}
+      /*
+       * Sized properly rather than padded out with hit-slop.
+       *
+       * This sat eight lines from a comment arguing that hit-slop does not make
+       * a control findable, only slightly easier to hit once you have guessed
+       * it is one — and then did exactly that. The slop stays as a courtesy on
+       * top of a real target, not in place of one.
+       */
       hitSlop={8}
       style={{
-        width: 34,
-        height: 34,
+        width: MIN_TARGET,
+        height: MIN_TARGET,
         borderRadius: radius.sm,
         alignItems: 'center',
         justifyContent: 'center',
@@ -194,8 +211,8 @@ export function ToggleChips<T extends string | number>({
             accessibilityState={{ checked: on }}
             accessibilityLabel={option.a11yLabel ?? option.label}
             style={{
-              minWidth: 40,
-              minHeight: 40,
+              minWidth: MIN_TARGET,
+              minHeight: MIN_TARGET,
               paddingHorizontal: space.sm,
               borderRadius: radius.sm,
               alignItems: 'center',

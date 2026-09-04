@@ -17,7 +17,7 @@ import type { Chore } from '@/data/api/chores';
 import { Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 
 interface Props {
   chores: readonly Chore[];
@@ -74,7 +74,7 @@ export function ChoreLinkPicker({ chores, value, onChange }: Props) {
         accessibilityState={{ selected }}
         accessibilityLabel={`Linked chore: ${label}`}
         style={{
-          minHeight: 40,
+          minHeight: MIN_TARGET,
           justifyContent: 'center',
           paddingHorizontal: space.md,
           borderRadius: radius.sm,

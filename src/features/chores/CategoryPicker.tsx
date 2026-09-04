@@ -27,7 +27,7 @@ import type { IconName } from '@/design/icons';
 import { FieldGroup } from '@/design/controls';
 import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 
 interface Props {
   categories: readonly Category[];
@@ -158,8 +158,8 @@ export function CategoryAndPriorityPicker({
                     accessibilityState={{ selected }}
                     accessibilityLabel={`Colour: ${option.label}`}
                     style={{
-                      minWidth: 44,
-                      minHeight: 44,
+                      minWidth: MIN_TARGET,
+                      minHeight: MIN_TARGET,
                       borderRadius: radius.sm,
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -235,7 +235,7 @@ function Chip({
       accessibilityState={{ selected }}
       accessibilityLabel={accessibilityLabel}
       style={{
-        minHeight: 40,
+        minHeight: MIN_TARGET,
         justifyContent: 'center',
         paddingHorizontal: space.md,
         borderRadius: radius.sm,

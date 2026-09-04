@@ -17,7 +17,7 @@ import { Pressable, TextInput, View } from 'react-native';
 import { Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 
 export interface SubtaskDraft {
   /** Absent for a step that has not been saved yet. */
@@ -58,7 +58,7 @@ export function SubtaskEditor({ value, onChange }: Props) {
               maxLength={120}
               style={{
                 flex: 1,
-                minHeight: 40,
+                minHeight: MIN_TARGET,
                 paddingHorizontal: space.md,
                 borderRadius: radius.sm,
                 backgroundColor: colors.sunken,
@@ -84,7 +84,7 @@ export function SubtaskEditor({ value, onChange }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Add a step"
           style={{
-            minHeight: 40,
+            minHeight: MIN_TARGET,
             justifyContent: 'center',
             paddingHorizontal: space.md,
             borderRadius: radius.sm,

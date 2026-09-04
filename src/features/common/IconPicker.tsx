@@ -20,7 +20,7 @@ import { Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { ICON_GROUPS, type IconName } from '@/design/icons';
 import { useTheme } from '@/design/theme';
-import { radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 
 interface Props {
   value: IconName | null;
@@ -40,7 +40,7 @@ export function IconPicker({ value, onChange }: Props) {
             accessibilityRole="button"
             accessibilityLabel={open ? 'Close the icon list' : 'Choose an icon'}
             style={{
-              minHeight: 44,
+              minHeight: MIN_TARGET,
               flexDirection: 'row',
               alignItems: 'center',
               gap: space.sm,
@@ -62,7 +62,11 @@ export function IconPicker({ value, onChange }: Props) {
               onPress={() => onChange(null)}
               accessibilityRole="button"
               accessibilityLabel="Remove the icon"
-              style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm }}
+              style={{
+                minHeight: MIN_TARGET,
+                justifyContent: 'center',
+                paddingHorizontal: space.sm,
+              }}
             >
               <Txt variant="small" tone="faint">
                 Remove
@@ -94,8 +98,8 @@ export function IconPicker({ value, onChange }: Props) {
                         // label rather than being treated as decoration.
                         accessibilityLabel={icon.replace(/-/g, ' ')}
                         style={{
-                          width: 44,
-                          height: 44,
+                          width: MIN_TARGET,
+                          height: MIN_TARGET,
                           alignItems: 'center',
                           justifyContent: 'center',
                           borderRadius: radius.sm,
