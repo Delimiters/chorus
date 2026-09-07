@@ -64,10 +64,20 @@ jobs:
       - run: npm ci
         if: steps.scope.outputs.run == 'true'
 
+      # Pinned, because one step below diffs this CLI's *generated output*
+      # against a file committed to the repo. At `latest` that check fails the
+      # moment the CLI changes its code generator, on a branch that touched
+      # nothing to do with it — which is exactly what happened on 2026-09-07,
+      # when a newer CLI started emitting an extra pair of parentheses in the
+      # `TableName extends (...)` boilerplate and a policy-only migration went
+      # red for it.
+      #
+      # Bump this deliberately, and regenerate `src/data/database.types.ts` in
+      # the same commit.
       - uses: supabase/setup-cli@v1
         if: steps.scope.outputs.run == 'true'
         with:
-          version: latest
+          version: 2.110.0
 
       - name: Start Supabase
         if: steps.scope.outputs.run == 'true'
