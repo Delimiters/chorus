@@ -67,6 +67,25 @@ export function usePlanLoading(today: CivilDate): boolean {
   return query.isLoading;
 }
 
+/**
+ * Whether the plan is unknown rather than empty.
+ *
+ * `usePlanEntries` returns `EMPTY` for loading, for a failed fetch and for a
+ * genuinely empty day alike, which is fine for "what do I add to" and wrong for
+ * anything that makes a *claim*. Saying "Sam hasn't planned today" while the
+ * query is in flight — or has failed — is a confident, checkable statement
+ * about another person, made out of not having asked yet.
+ */
+export function usePlanUnavailable(today: CivilDate): boolean {
+  const householdId = useActiveHouseholdId();
+  const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
+  const query = useQuery({
+    queryKey: qk.plan(householdId ?? '__none__', from, today),
+    queryFn: householdId === null ? skipToken : () => listPlanEntries(householdId, from, today),
+  });
+  return query.isLoading || query.isError;
+}
+
 /** Only yours. Both plans are visible, but the screen is about your day. */
 export function useMyPlanEntries(today: CivilDate): readonly PlanEntry[] {
   const rows = usePlanEntries(today);
@@ -144,11 +163,10 @@ export function useTheirPlanTotal(
 /**
  * Your housemate's day, in the order they put it in.
  *
- * Readable and not writable, and that asymmetry is enforced in the database
- * rather than by a disabled control: `plan_entries` is selectable by any
- * household member but every write policy requires `user_id = auth.uid()`, and
- * `plan.test.sql` asserts that Bob can neither reorder nor delete Alice's day.
- * So there is nothing to hide here — only something to show.
+ * Editable, as of 2026-09-07 — see docs/DECISIONS.md. This used to say the
+ * opposite, and said it confidently: every write policy required
+ * `user_id = auth.uid()` and `plan.test.sql` asserted that Bob could neither
+ * reorder nor delete Alice's day. Both were true then and neither is now.
  *
  * Cross-checked against what still exists, exactly as the two count hooks are:
  * an entry whose chore was archived, or whose schedule moved the occurrence
@@ -179,14 +197,26 @@ export function useTheirPlanEntries(
   }, [rows, userId, today, available]);
 }
 
+/** Which row, on whose day. `ownerId` absent means your own. */
+export interface PlanTarget {
+  readonly occurrenceKey: string;
+  readonly ownerId?: string | undefined;
+}
+
 interface Addable {
   readonly occurrenceKey: string;
   readonly choreId: string;
 }
 
-export function useAddToPlan(today: CivilDate) {
+export function useAddToPlan(today: CivilDate, ownerId?: string) {
   const householdId = useActiveHouseholdId();
-  const userId = useUserId();
+  const me = useUserId();
+  /*
+   * Whose day is being added to. Both plans are editable, and this was the one
+   * mutation never threaded — so "Add something" under your housemate's section
+   * silently wrote to your own, which reads as a dead button.
+   */
+  const userId = ownerId ?? me;
   const queryClient = useQueryClient();
   const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
 
@@ -292,14 +322,22 @@ export function useRemoveFromPlan(today: CivilDate) {
   const queryClient = useQueryClient();
   const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
 
+  /*
+   * Takes whose day to remove from, defaulting to your own.
+   *
+   * Both plans are editable by either housemate — see docs/DECISIONS.md — so a
+   * mutation hard-wired to `auth.uid()` can only ever edit half the screen.
+   */
   return useMutation({
-    mutationFn: async (occurrenceKey: string) => {
-      if (userId === null) throw new Error('Please sign in again.');
-      await removeFromPlan(userId, occurrenceKey, today);
+    mutationFn: async ({ occurrenceKey, ownerId }: PlanTarget) => {
+      const owner = ownerId ?? userId;
+      if (owner === null) throw new Error('Please sign in again.');
+      await removeFromPlan(owner, occurrenceKey, today);
     },
 
-    onMutate: async (occurrenceKey) => {
-      if (householdId === null || userId === null) return;
+    onMutate: async ({ occurrenceKey, ownerId }) => {
+      const owner = ownerId ?? userId;
+      if (householdId === null || owner === null) return;
       const key = qk.plan(householdId, from, today);
       await queryClient.cancelQueries({ queryKey: key });
       const snapshot = queryClient.getQueryData<readonly PlanEntryRow[]>(key);
@@ -308,7 +346,7 @@ export function useRemoveFromPlan(today: CivilDate) {
         existing.filter(
           (row) =>
             !(
-              row.userId === userId &&
+              row.userId === owner &&
               row.occurrenceKey === occurrenceKey &&
               row.plannedFor === today
             ),
@@ -347,14 +385,16 @@ export function useReorderPlan(today: CivilDate) {
   const queryClient = useQueryClient();
   const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
 
-  const rowFor = (occurrenceKey: string) =>
-    (
+  const rowFor = (occurrenceKey: string, ownerId?: string) => {
+    const owner = ownerId ?? userId;
+    return (
       queryClient.getQueryData<readonly PlanEntryRow[]>(
         qk.plan(householdId ?? '__none__', from, today),
       ) ?? []
     ).find(
-      (r) => r.userId === userId && r.occurrenceKey === occurrenceKey && r.plannedFor === today,
+      (r) => r.userId === owner && r.occurrenceKey === occurrenceKey && r.plannedFor === today,
     );
+  };
 
   const mutation = useMutation({
     mutationFn: async ({ id, position }: { id: string; position: number }) => {
@@ -404,8 +444,8 @@ export function useReorderPlan(today: CivilDate) {
      * flag hook and the add hook both got wrong by re-deriving inside
      * `mutationFn`, which runs *after* `onMutate` has already changed the cache.
      */
-    mutate: (occurrenceKey: string, position: number) => {
-      const row = rowFor(occurrenceKey);
+    mutate: (occurrenceKey: string, position: number, ownerId?: string | undefined) => {
+      const row = rowFor(occurrenceKey, ownerId);
       if (row === undefined) return;
       mutation.mutate({ id: row.id, position });
     },

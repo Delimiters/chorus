@@ -27,6 +27,12 @@ an App Store release is on the table.
 - `docs/WHERE-THINGS-STAND.md` — what is actually true as of the end of the
   autonomous build, as opposed to what was planned. **Read before believing the
   roadmap.**
+- `docs/DECISIONS.md` — why things are as they are, and which earlier decisions
+  were deliberately **reversed**. **Read before undoing something that looks
+  obviously wrong** — several entries are things that are wrong by some
+  reasonable standard and were asked for anyway. Jake does not read the code, so
+  this is where the reasoning lives; add an entry whenever a decision is
+  overturned, and say what it cost.
 
 ## Non-negotiable invariants
 

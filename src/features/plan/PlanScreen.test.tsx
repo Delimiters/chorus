@@ -22,7 +22,8 @@ const YESTERDAY = civilDate('2026-08-26');
 let mockEntries: PlanEntry[] = [];
 let mockTheirCount = 0;
 let mockTheirTotal = 0;
-let mockTheirEntries: { occurrenceKey: string; position: number }[] = [];
+let mockPlanUnknown = false;
+let mockTheirEntries: { occurrenceKey: string; position: number; plannedFor: string }[] = [];
 const mockRemove = jest.fn();
 const mockReorder = jest.fn();
 const mockToggle = jest.fn();
@@ -34,6 +35,7 @@ jest.mock('@/data/hooks/usePlan', () => ({
   useTheirPlanCount: () => mockTheirCount,
   useTheirPlanTotal: () => mockTheirTotal,
   useTheirPlanEntries: () => mockTheirEntries,
+  usePlanUnavailable: () => mockPlanUnknown,
   useRemoveFromPlan: () => ({ mutate: mockRemove }),
   useReorderPlan: () => ({ mutate: mockReorder }),
 }));
@@ -77,7 +79,12 @@ jest.mock('@/stores/routineStore', () => ({
 }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush }) }));
 
-const item = (id: string, title: string, status = 'due'): AgendaItem =>
+const item = (
+  id: string,
+  title: string,
+  status = 'due',
+  assignee: unknown = { kind: 'anyone' },
+): AgendaItem =>
   ({
     occurrenceKey: `v1:${id}`,
     choreId: id,
@@ -87,7 +94,7 @@ const item = (id: string, title: string, status = 'due'): AgendaItem =>
     daysOverdue: 0,
     missedBefore: 0,
     completedBy: null,
-    assignee: { kind: 'anyone' },
+    assignee,
   }) as unknown as AgendaItem;
 
 const entry = (id: string, position: number): PlanEntry => ({
@@ -107,6 +114,7 @@ const chore = (id: string, title: string) => ({
 });
 
 const onAdd = jest.fn();
+const mockAddFor = jest.fn();
 
 const onAcceptProposal = jest.fn();
 
@@ -122,6 +130,7 @@ function renderScreen(
         today={TODAY}
         refetch={async () => {}}
         onAdd={onAdd}
+        onAddFor={mockAddFor}
         proposal={proposal}
         onAcceptProposal={onAcceptProposal}
       />
@@ -129,11 +138,32 @@ function renderScreen(
   );
 }
 
+/** Re-render with a new agenda, which is how a tick arrives from the server. */
+const rerenderWith = (rerender: (ui: React.ReactElement) => void, available: AgendaItem[]) => {
+  act(() => {
+    rerender(
+      <ThemeProvider>
+        <PlanScreen
+          available={available}
+          chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+          today={TODAY}
+          refetch={async () => {}}
+          onAdd={onAdd}
+          onAddFor={mockAddFor}
+          proposal={null}
+          onAcceptProposal={onAcceptProposal}
+        />
+      </ThemeProvider>,
+    );
+  });
+};
+
 beforeEach(() => {
   mockEntries = [];
   mockTheirCount = 0;
   mockTheirTotal = 0;
   mockTheirEntries = [];
+  mockPlanUnknown = false;
   mockTapped.mockClear();
   mockFinished.mockClear();
   mockCelebrated.mockClear();
@@ -143,6 +173,7 @@ beforeEach(() => {
   mockReorder.mockClear();
   mockToggle.mockClear();
   onAdd.mockClear();
+  mockAddFor.mockClear();
   onAcceptProposal.mockClear();
   mockPush.mockClear();
 });
@@ -210,118 +241,89 @@ describe('a plan in progress', () => {
     expect(screen.getByText(/1 OF 2/)).toBeOnTheScreen();
   });
 
-  it('says what the other person has taken on', () => {
-    mockTheirCount = 3;
-    mockTheirTotal = 3;
-    mockEntries = [entry('dishes', 1)];
-    renderScreen([item('dishes', 'Dishes')]);
-
-    expect(screen.getByText('Sam has 3 of 3 left ›')).toBeOnTheScreen();
-  });
-
-  it('still says something once they have finished', () => {
+  it('states where the other person is, without being a way in', () => {
     /*
-     * The line used to be about what they had *left*, so it vanished the moment
-     * they were done — which reads as them having planned nothing, not as them
-     * having finished. Two very different things to learn about your housemate.
+     * Their day is a section on this screen now, not a sheet, so this line is a
+     * status and not a button. It still appears when they have planned nothing,
+     * because a line that vanishes on an empty subject cannot tell you whether
+     * the subject is empty or the feature is missing.
      */
-    mockTheirCount = 0;
-    mockTheirTotal = 4;
-    mockEntries = [entry('dishes', 1)];
-    renderScreen([item('dishes', 'Dishes')]);
-
-    expect(screen.getByText('Sam has finished today ›')).toBeOnTheScreen();
-  });
-
-  it('shows their day when you tap it', () => {
-    // The seeing half. The screen could say "Sam has 3 planned" and offer no
-    // way at all to find out what they were.
-    mockTheirCount = 1;
-    mockTheirTotal = 2;
     mockTheirEntries = [
-      { occurrenceKey: 'v1:bins', position: 1 },
-      { occurrenceKey: 'v1:mopping', position: 2 },
+      { occurrenceKey: 'v1:bins', position: 1, plannedFor: TODAY },
+      { occurrenceKey: 'v1:mopping', position: 2, plannedFor: TODAY },
     ];
     mockEntries = [entry('dishes', 1)];
-    renderScreen([
-      item('dishes', 'Dishes'),
-      item('bins', 'Bins', 'completed'),
-      item('mopping', 'Mopping'),
-    ]);
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins'), item('mopping', 'Mopping')]);
 
-    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
-
-    expect(screen.getByText('Bins')).toBeOnTheScreen();
-    expect(screen.getByText('Mopping')).toBeOnTheScreen();
-    expect(screen.getByText(/1 of 2 done · only Sam can change this/)).toBeOnTheScreen();
+    expect(screen.getByText('Sam has 2 of 2 left')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: "See Sam's day" })).toBeNull();
   });
 
-  it('offers no way to tick their rows', () => {
+  it('says so when they have planned nothing', () => {
+    mockTheirEntries = [];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByText("Sam hasn't planned today")).toBeOnTheScreen();
+  });
+
+  it('says nothing about their day while the plan is still unknown', () => {
     /*
-     * Read-only is enforced by the database — every write policy on
-     * `plan_entries` requires the row to be yours, and `plan.test.sql` proves
-     * Bob can neither reorder nor delete Alice's day. So the UI must not offer
-     * a control whose only possible outcome is a refusal.
+     * An empty list means "loading", "failed" and "genuinely empty" alike, and
+     * only the third is worth stating. Saying "Sam hasn't planned today" out of
+     * not having asked yet is a confident claim about another person.
      */
-    mockTheirCount = 1;
-    mockTheirTotal = 1;
-    mockTheirEntries = [{ occurrenceKey: 'v1:bins', position: 1 }];
+    mockPlanUnknown = true;
+    mockTheirEntries = [];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.queryByText(/Sam/)).toBeNull();
+  });
+
+  it('shows their day as a section under yours', () => {
+    // "Just show mine and then emily's below."
+    mockTheirEntries = [{ occurrenceKey: 'v1:bins', position: 1, plannedFor: TODAY }];
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
 
-    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
-
-    // The positive control first: without it these two assertions pass just as
-    // happily against a sheet that rendered nothing at all.
-    expect(screen.getByText('Bins')).toBeOnTheScreen();
-    expect(screen.queryByRole('checkbox', { name: /Bins/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Bins/ })).toBeNull();
+    expect(screen.getByText("Sam's day")).toBeOnTheScreen();
+    expect(screen.getByTestId('drag-row:v1:bins')).toBeOnTheScreen();
+    expect(screen.getByTestId('drag-row:v1:dishes')).toBeOnTheScreen();
   });
 
-  it('counts a skipped chore as done, like everything else on this screen', () => {
+  it('reorders their day against their rows, not yours', () => {
     /*
-     * `useTheirPlanCount` treats a skip as not-outstanding and `progressOf`
-     * counts it as done for your own day; the sheet tested `completed` alone.
-     * So a housemate who skipped both their chores got "Sam has finished today"
-     * in the header and "0 of 2 done" in the sheet it opens — the same screen
-     * disagreeing with itself about the same two rows.
+     * The reversal: their plan is editable. The owner has to be carried into
+     * the write, or the reorder is computed from your positions and applied to
+     * a row that is not on your day at all.
      */
-    mockTheirCount = 0;
-    mockTheirTotal = 2;
     mockTheirEntries = [
-      { occurrenceKey: 'v1:bins', position: 1 },
-      { occurrenceKey: 'v1:mopping', position: 2 },
+      { occurrenceKey: 'v1:bins', position: 10, plannedFor: TODAY },
+      { occurrenceKey: 'v1:mopping', position: 20, plannedFor: TODAY },
     ];
     mockEntries = [entry('dishes', 1)];
-    renderScreen([
-      item('dishes', 'Dishes'),
-      item('bins', 'Bins', 'skipped'),
-      item('mopping', 'Mopping', 'completed'),
-    ]);
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins'), item('mopping', 'Mopping')]);
 
-    fireEvent.press(screen.getByRole('button', { name: "See Sam's day" }));
+    act(() => {
+      screen
+        .getByTestId('drag-row:v1:mopping')
+        .props.onAccessibilityAction({ nativeEvent: { actionName: 'moveUp' } });
+    });
 
-    expect(screen.getByText(/2 of 2 done/)).toBeOnTheScreen();
+    expect(mockReorder).toHaveBeenCalledWith('v1:mopping', 9, THEM);
   });
 
-  it('says nothing when they planned nothing at all', () => {
-    /*
-     * Retitled, because the old name is now the opposite of the truth: a
-     * finished housemate *does* get a line, twenty lines above this. What must
-     * still stay silent is a housemate with no plan.
-     *
-     * As written this asserted against an empty subtree — `theirTotal = 0`
-     * renders the whole branch as null — so it passed for any copy whatsoever.
-     * The positive control below is what makes it about the condition.
-     */
-    mockTheirCount = 0;
-    mockTheirTotal = 0;
+  it('takes something off their day, from their day', () => {
+    mockTheirEntries = [{ occurrenceKey: 'v1:bins', position: 1, plannedFor: TODAY }];
     mockEntries = [entry('dishes', 1)];
-    renderScreen([item('dishes', 'Dishes')]);
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
 
-    // The control: the screen did render, so the absence below means something.
-    expect(screen.getByText('Dishes')).toBeOnTheScreen();
-    expect(screen.queryByText(/Sam has/)).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: /^Bins, .*Open options\.$/ }));
+    fireEvent.press(screen.getByRole('button', { name: /Take off today/ }));
+
+    expect(mockRemove).toHaveBeenCalledWith({ occurrenceKey: 'v1:bins', ownerId: THEM });
   });
 
   it('can be reordered without a drag gesture', () => {
@@ -349,7 +351,7 @@ describe('a plan in progress', () => {
     // The exact value, not merely "smaller": Dishes sits at 10 and Trash is
     // landing above it with nothing before, so the position is 9. Asserting
     // "less than 10" also passes for a hardcoded 1, which is no averaging at all.
-    expect(mockReorder).toHaveBeenCalledWith('v1:trash', 9);
+    expect(mockReorder).toHaveBeenCalledWith('v1:trash', 9, ME);
   });
 
   it('writes the row that actually moved when it moves down', () => {
@@ -370,7 +372,7 @@ describe('a plan in progress', () => {
     });
 
     // Between Trash (20) and Mail (30), not below Trash.
-    expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 25);
+    expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 25, ME);
   });
 
   it('takes something off the day without completing or skipping it', () => {
@@ -381,7 +383,7 @@ describe('a plan in progress', () => {
     fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
     fireEvent.press(screen.getByRole('button', { name: /Take off today/ }));
 
-    expect(mockRemove).toHaveBeenCalledWith('v1:dishes');
+    expect(mockRemove).toHaveBeenCalledWith({ occurrenceKey: 'v1:dishes', ownerId: ME });
     expect(mockToggle).not.toHaveBeenCalled();
   });
 });
@@ -551,6 +553,7 @@ describe('the finish moment', () => {
           today={TODAY}
           refetch={async () => {}}
           onAdd={onAdd}
+          onAddFor={mockAddFor}
         />
       </ThemeProvider>,
     );
@@ -665,24 +668,6 @@ describe('finished work sinking to the bottom', () => {
     screen
       .getAllByTestId(/^(drag|done)-row:/)
       .map((row) => row.props.testID.replace(/^(drag|done)-row:v1:/, ''));
-
-  const rerenderWith = (rerender: (ui: React.ReactElement) => void, available: AgendaItem[]) => {
-    act(() => {
-      rerender(
-        <ThemeProvider>
-          <PlanScreen
-            available={available}
-            chores={available.map((i) => chore(i.choreId, i.choreTitle))}
-            today={TODAY}
-            refetch={async () => {}}
-            onAdd={onAdd}
-            proposal={null}
-            onAcceptProposal={onAcceptProposal}
-          />
-        </ThemeProvider>,
-      );
-    });
-  };
 
   it('holds a just-ticked row in place, then sinks it', () => {
     mockEntries = [entry('dishes', 1), entry('trash', 2), entry('bins', 3)];
@@ -834,7 +819,7 @@ describe('reordering a day that has finished work in it', () => {
      * sitting below the list, so landing *on* 1 would be a tie that only
      * surfaces when Dishes is unticked and the two swap inexplicably.
      */
-    expect(mockReorder).toHaveBeenCalledWith('v1:bins', expect.any(Number));
+    expect(mockReorder).toHaveBeenCalledWith('v1:bins', expect.any(Number), ME);
     const written = mockReorder.mock.calls[0]?.[1] as number;
     expect(written).toBeLessThan(1);
   });
@@ -868,5 +853,65 @@ describe('reordering a day that has finished work in it', () => {
     expect(
       screen.getAllByTestId(/^(drag|done)-row:/).map((row) => row.props.testID as string),
     ).toEqual(before);
+  });
+});
+
+describe('two days on one screen', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('offers a labelled way to add to each day', () => {
+    /*
+     * The add button used to sit unlabelled below both lists and write to yours
+     * whatever it looked like it meant — the one mutation never threaded with
+     * an owner. Under a housemate's section that reads as a dead button.
+     */
+    mockTheirEntries = [{ occurrenceKey: 'v1:bins', position: 1, plannedFor: TODAY }];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
+
+    fireEvent.press(screen.getByRole('button', { name: "Add to Sam's day" }));
+    expect(mockAddFor).toHaveBeenCalledWith(THEM);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Add to my day' }));
+    expect(onAdd).toHaveBeenCalled();
+  });
+
+  it('holds a row ticked on their day, exactly as on yours', () => {
+    /*
+     * `held` was fed from your plan alone and applied to both sections, so a
+     * row ticked on theirs sank the instant it was touched — the tick never
+     * landed visibly and undoing meant hunting for it below the line.
+     */
+    mockTheirEntries = [
+      { occurrenceKey: 'v1:bins', position: 1, plannedFor: TODAY },
+      { occurrenceKey: 'v1:mopping', position: 2, plannedFor: TODAY },
+    ];
+    mockEntries = [entry('dishes', 1)];
+    const { rerender } = renderScreen([
+      item('dishes', 'Dishes'),
+      item('bins', 'Bins'),
+      item('mopping', 'Mopping'),
+    ]);
+
+    rerenderWith(rerender, [
+      item('dishes', 'Dishes'),
+      item('bins', 'Bins', 'completed'),
+      item('mopping', 'Mopping'),
+    ]);
+
+    // Still in the draggable half, where it was.
+    expect(screen.queryByTestId('drag-row:v1:bins')).not.toBeNull();
+
+    act(() => {
+      jest.advanceTimersByTime(3500);
+    });
+
+    expect(screen.queryByTestId('done-row:v1:bins')).not.toBeNull();
   });
 });

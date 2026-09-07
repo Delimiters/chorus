@@ -12,12 +12,16 @@ create extension if not exists pgtap with schema extensions;
 -- would otherwise count something Bob is not allowed to know exists.
 
 begin;
-select plan(9);
+select plan(14);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
   ('a1111111-1111-1111-1111-111111111111', 'pgtap-pl-alice@example.test', '{"display_name":"Alice"}'),
-  ('a2222222-2222-2222-2222-222222222222', 'pgtap-pl-bob@example.test',   '{"display_name":"Bob"}');
+  ('a2222222-2222-2222-2222-222222222222', 'pgtap-pl-bob@example.test',   '{"display_name":"Bob"}'),
+  -- In no household. She is the control for "whose day is this?": without a
+  -- real outsider, an assertion about who a row may belong to is an assertion
+  -- about the fixture having only one household.
+  ('a3333333-3333-3333-3333-333333333333', 'pgtap-pl-carol@example.test', '{"display_name":"Carol"}');
 
 insert into public.households (id, name, created_by, time_zone)
 values ('aa000000-0000-0000-0000-000000000001', 'Plan House',
@@ -67,16 +71,19 @@ select lives_ok(
   'and can reorder it, which is the commonest write this table takes'
 );
 
-select throws_ok(
+/*
+ * Alice planning Bob's day is now allowed, and this file asserted the opposite
+ * until 2026-09-07. See docs/DECISIONS.md — putting something on your
+ * housemate's day is the point of the change, not a hole in it.
+ */
+select lives_ok(
   $$ insert into public.plan_entries
        (household_id, user_id, chore_id, occurrence_key, planned_for, position)
      values ('aa000000-0000-0000-0000-000000000001',
              'a2222222-2222-2222-2222-222222222222',
              'ab000000-0000-0000-0000-000000000001',
              'v1:dishes:2026-08-28:0:-', '2026-08-28', 1) $$,
-  '42501',
-  null,
-  'Alice cannot plan Bob''s day for him'
+  'Alice can plan Bob''s day for him'
 );
 
 select throws_ok(
@@ -120,19 +127,107 @@ select is(
   'the private chore''s entry is invisible to him specifically'
 );
 
+/*
+ * Bob may now edit Alice's day, which is a reversal — this file asserted the
+ * opposite until 2026-09-07. See docs/DECISIONS.md: for a two-person household
+ * that trusts each other, owner-only writes made "she's out, I'll take that off
+ * her day" impossible and protected nothing that needed protecting.
+ */
 with touched as (
   update public.plan_entries set position = 99
    where user_id = 'a1111111-1111-1111-1111-111111111111'
+     and chore_id = 'ab000000-0000-0000-0000-000000000001'
+     and planned_for = '2026-08-27'
   returning 1
 )
-select is((select count(*)::int from touched), 0, 'Bob cannot reorder Alice''s day');
+select is((select count(*)::int from touched), 1, 'Bob can reorder Alice''s day');
+
+/*
+ * But not onto a chore he cannot see. Widening *who* may write must not widen
+ * *what* they may write about — the private chore is the whole reason
+ * `chore_is_visible` is on the check as well as the select.
+ */
+select throws_ok(
+  $$ update public.plan_entries
+        set chore_id = 'ab000000-0000-0000-0000-000000000002'
+      where user_id = 'a1111111-1111-1111-1111-111111111111'
+        and chore_id = 'ab000000-0000-0000-0000-000000000001'
+        and planned_for = '2026-08-27' $$,
+  '42501',
+  'new row violates row-level security policy for table "plan_entries"',
+  'and cannot repoint one at a chore he is not allowed to know exists'
+);
 
 with deleted as (
   delete from public.plan_entries
    where user_id = 'a1111111-1111-1111-1111-111111111111'
+     and chore_id = 'ab000000-0000-0000-0000-000000000001'
+     and planned_for = '2026-08-27'
   returning 1
 )
-select is((select count(*)::int from deleted), 0, 'nor take something off it');
+select is((select count(*)::int from deleted), 1, 'and can take something off it');
+
+/*
+ * Whose day it is has to be somebody in the house.
+ *
+ * The owner-only policy got this for free: `user_id = auth.uid()` plus a
+ * membership test meant the owner was a member. Widening the writer left
+ * `user_id` constrained only by its foreign key, which points at `profiles` —
+ * every user of the app. A review planted a row on a stranger and moved one of
+ * Alice's into a household she is not in, both against a live database.
+ *
+ * Carol (`a3333333…`) exists and is in no household here, which is what makes
+ * these two assertions about the policy rather than about the fixture — the
+ * previous version of this test compared a count against a single-household
+ * fixture and passed with RLS switched off entirely.
+ */
+select throws_ok(
+  $$ insert into public.plan_entries
+       (household_id, user_id, chore_id, occurrence_key, planned_for, position)
+     values ('aa000000-0000-0000-0000-000000000001',
+             'a3333333-3333-3333-3333-333333333333',
+             'ab000000-0000-0000-0000-000000000001',
+             'v1:dishes:2026-08-29:0:-', '2026-08-29', 1) $$,
+  '42501',
+  'new row violates row-level security policy for table "plan_entries"',
+  'a row cannot be planted on somebody outside the household'
+);
+
+select throws_ok(
+  $$ update public.plan_entries
+        set user_id = 'a3333333-3333-3333-3333-333333333333'
+      where user_id = 'a1111111-1111-1111-1111-111111111111'
+        and planned_for = '2026-08-28' $$,
+  '42501',
+  'new row violates row-level security policy for table "plan_entries"',
+  'nor handed to one by an update'
+);
+
+/*
+ * A delete with no WHERE clause, which is the case the delete policy's
+ * `chore_is_visible` actually guards.
+ *
+ * With a WHERE clause, Postgres applies the SELECT policy to the rows it reads
+ * and the private entry is unreachable anyway. A bare delete references no
+ * columns, so nothing triggers SELECT — a review measured the private row being
+ * destroyed once the clause was removed. The surviving row is Alice's entry for
+ * the chore Bob cannot see.
+ */
+delete from public.plan_entries;
+
+select is(
+  (select count(*)::int from public.plan_entries),
+  0,
+  'Bob''s blind delete takes everything he can see'
+);
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.plan_entries
+    where chore_id = 'ab000000-0000-0000-0000-000000000002'),
+  1,
+  'and leaves the private chore''s entry untouched'
+);
 
 select * from finish();
 rollback;

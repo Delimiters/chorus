@@ -37,7 +37,11 @@ let mockView: {
 let mockChores: { id: string; title: string; schedule: unknown }[];
 let mockEntries: { occurrenceKey: string; choreId: string; plannedFor: string; position: number }[];
 let mockIsLoading = false;
+let mockPlanUnknown = false;
 let mockEntriesLoading = false;
+/** The household's whole plan. Defaults to yours; set apart where it matters. */
+let mockAllEntries: typeof mockEntries | null = null;
+let mockMembers: { userId: string; displayName: string; accent: string }[] = [];
 let mockAutoPlannedOn: string | null = null;
 let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
 
@@ -62,13 +66,35 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
 
 jest.mock('@/data/hooks/usePlan', () => ({
   useMyPlanEntries: () => mockEntries,
+  /*
+   * Both plans, and deliberately a *different* list from `useMyPlanEntries`.
+   *
+   * These returned the same array, with a comment saying the tests are
+   * single-user so it made no difference. The difference between those two
+   * hooks is the entire subject of "shared work is claimed once" — the fixture
+   * defined the fix away, and a review confirmed the whole suite passed with it
+   * reverted. `mockAllEntries` defaults to `mockEntries` and is set apart in
+   * the tests that care.
+   */
+  usePlanEntries: () => mockAllEntries ?? mockEntries,
+  usePlanUnavailable: () => mockPlanUnknown,
   usePlanLoading: () => mockEntriesLoading,
   useTheirPlanCount: () => 0,
   useTheirPlanTotal: () => 0,
   useTheirPlanEntries: () => [],
   useRemoveFromPlan: () => ({ mutate: jest.fn() }),
   useReorderPlan: () => ({ mutate: mockReorder }),
-  useAddToPlan: () => ({ mutate: mockAdd }),
+  /*
+   * Records which day each instance was built for.
+   *
+   * This discarded its arguments, so the instance bound to your housemate's day
+   * and the one bound to yours were the identical object and the owner could
+   * not be observed at all. Adding to the wrong plan is the defect this whole
+   * area is about.
+   */
+  useAddToPlan: (_today: string, ownerId?: string) => ({
+    mutate: (items: unknown, options?: unknown) => mockAdd(items, options, ownerId),
+  }),
 }));
 
 jest.mock('@/stores/routineStore', () => ({
@@ -93,7 +119,7 @@ jest.mock('@/data/hooks/useChores', () => ({
 }));
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC' } }),
-  useMembers: () => ({ data: [{ userId: mockMe, displayName: 'Jake', accent: 'blue' }] }),
+  useMembers: () => ({ data: mockMembers }),
 }));
 jest.mock('@/stores/sessionStore', () => ({ useUserId: () => mockMe }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
@@ -153,6 +179,8 @@ beforeEach(() => {
   mockView = { mine: [], theirs: [], done: [], skipped: [], upcoming: [], floating: [] };
   mockChores = [];
   mockEntries = [];
+  mockAllEntries = null;
+  mockMembers = [{ userId: mockMe, displayName: 'Jake', accent: 'blue' }];
   mockIsLoading = false;
   mockEntriesLoading = false;
   mockAutoPlannedOn = null;
@@ -229,14 +257,21 @@ describe('recurring chores that are due today or late', () => {
     expect(addedKeys()).toEqual(['v1:litter']);
   });
 
-  it('leaves one-off work to be chosen', async () => {
-    // The whole argument for "proposed, not pre-filled" was about one-off work.
+  it('takes one-off work too, which is a reversal', async () => {
+    /*
+     * The original argument for "proposed, not pre-filled" was entirely about
+     * one-off work: a one-off is a decision, and decisions belong in the
+     * proposal. Jake asked for the opposite — one-time tasks that are due or
+     * overdue should land on the day by themselves.
+     *
+     * See docs/DECISIONS.md. On his household this is 38 extra rows.
+     */
     mockView.mine = [item('litter'), item('timesheet')];
     mockChores = [recurring('litter'), oneOff('timesheet')];
     renderView();
 
     await waitFor(() => expect(mockAdd).toHaveBeenCalled());
-    expect(addedKeys()).toEqual(['v1:litter']);
+    expect(addedKeys().sort()).toEqual(['v1:litter', 'v1:timesheet']);
   });
 
   it('happens once a day, so taking something off sticks', async () => {
@@ -344,10 +379,17 @@ describe('a chore created with "put it on today"', () => {
   });
 
   it('drops an intent left over from an earlier day', async () => {
-    // Kept until claimed, but not forever: a chore queued yesterday must not
-    // ambush somebody on a later morning by landing on the wrong day's plan.
+    /*
+     * Kept until claimed, but not forever: a chore queued yesterday must not
+     * ambush somebody on a later morning by landing on the wrong day's plan.
+     *
+     * The chore is dated in the future so the auto-plan does not add it for its
+     * own reasons — since one-off work started being auto-planned, an
+     * outstanding one-off is added anyway, and this test would pass without the
+     * queue being cleared at all.
+     */
     mockPlanOnCreate = [{ choreId: 'yesterday', queuedOn: civilDate('2026-08-31') }];
-    mockView.mine = [item('yesterday')];
+    mockView.mine = [{ ...item('yesterday'), dueOn: civilDate('2026-10-01') }];
     mockChores = [oneOff('yesterday')];
     renderView();
 
@@ -596,5 +638,105 @@ describe('the day is only marked auto-planned once the write lands', () => {
     });
 
     expect(mockMarkAutoPlanned).not.toHaveBeenCalled();
+  });
+});
+
+describe('a chore created with "put it on today" ticked', () => {
+  it('lands on the day once, not once per future occurrence', async () => {
+    /*
+     * Reported from the phone: *"I created a new chore called vacuum downstairs
+     * and checked the Add to today's plan box, and it got added to my plan 3
+     * times. I had to remove 2 of the instances."*
+     *
+     * The queue matches on chore id, and `view.upcoming` holds every future
+     * occurrence of a recurring chore inside the horizon — so a weekly chore
+     * queued today's occurrence and the next two. Each has a different
+     * occurrence key, so neither the unique constraint nor the upsert could
+     * collapse them: three real rows.
+     */
+    mockPlanOnCreate = [{ choreId: 'vacuum', queuedOn: mockToday }];
+    mockView.mine = [item('vacuum')];
+    mockView.upcoming = [
+      { ...item('vacuum'), occurrenceKey: 'v1:vacuum:next', dueOn: civilDate('2026-09-08') },
+      { ...item('vacuum'), occurrenceKey: 'v1:vacuum:later', dueOn: civilDate('2026-09-15') },
+    ];
+    mockChores = [recurring('vacuum')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+
+    /*
+     * Distinct keys, not call count. The auto-plan and the create-queue both
+     * ask for today's occurrence, and that duplication is harmless — same user,
+     * same key, same day, so the unique constraint and the upsert's
+     * `ignoreDuplicates` collapse it into one row.
+     *
+     * Three *different* keys is what could not be collapsed, and what Jake had
+     * to delete by hand.
+     */
+    expect([...new Set(addedKeys())]).toEqual(['v1:vacuum']);
+  });
+
+  it('takes the soonest occurrence when today has none', async () => {
+    // A chore created for later still lands once — on its first occurrence,
+    // not on every one the horizon can see.
+    mockPlanOnCreate = [{ choreId: 'vacuum', queuedOn: mockToday }];
+    mockView.upcoming = [
+      { ...item('vacuum'), occurrenceKey: 'v1:vacuum:later', dueOn: civilDate('2026-09-15') },
+      { ...item('vacuum'), occurrenceKey: 'v1:vacuum:next', dueOn: civilDate('2026-09-08') },
+    ];
+    mockChores = [recurring('vacuum')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    expect(addedKeys()).toEqual(['v1:vacuum:next']);
+  });
+});
+
+describe('two people sharing one household', () => {
+  const THEM = 'user-them';
+
+  beforeEach(() => {
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: THEM, displayName: 'Emily', accent: 'pink' },
+    ];
+  });
+
+  it('does not re-plan shared work already on the other day', async () => {
+    /*
+     * `anyone` work counts for both of you, so each device auto-planned its own
+     * copy and the same row appeared on both plans — one directly above the
+     * other once both days shared a screen.
+     *
+     * The fixture is the point: `mockAllEntries` holds a row that
+     * `mockEntries` does not. Returning the same list from both hooks — which
+     * is what this file used to do — makes this fix untestable by definition.
+     */
+    mockEntries = [];
+    mockAllEntries = [
+      { occurrenceKey: 'v1:litter', choreId: 'litter', plannedFor: mockToday, position: 1 },
+    ];
+    mockView.mine = [item('litter'), item('bins')];
+    mockChores = [recurring('litter'), recurring('bins')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    expect(addedKeys()).toEqual(['v1:bins']);
+  });
+
+  it('adds to the day the picker was opened for', async () => {
+    /*
+     * `useAddToPlan` is built per-day, and the mock now records which day. It
+     * discarded its arguments before, so the instance for your housemate's day
+     * and the one for yours were the same object and the owner was invisible.
+     */
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    // The auto-plan is always your own day.
+    expect(mockAdd.mock.calls[0]?.[2]).toBeUndefined();
   });
 });

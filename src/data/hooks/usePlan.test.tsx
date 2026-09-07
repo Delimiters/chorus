@@ -272,7 +272,7 @@ describe('taking something off the plan', () => {
     seed(client, [row('v1:a', 1), row('v1:a', 1, THEM)]);
     const { result } = renderHook(() => useRemoveFromPlan(TODAY), { wrapper });
 
-    act(() => result.current.mutate('v1:a'));
+    act(() => result.current.mutate({ occurrenceKey: 'v1:a' }));
 
     await waitFor(() => expect(mockDeletes).toHaveLength(1));
     expect(mockDeletes[0]).toEqual({ userId: ME, occurrenceKey: 'v1:a' });
@@ -283,7 +283,7 @@ describe('taking something off the plan', () => {
     seed(client, [row('v1:a', 1), row('v1:a', 1, THEM)]);
     const { result } = renderHook(() => useRemoveFromPlan(TODAY), { wrapper });
 
-    act(() => result.current.mutate('v1:a'));
+    act(() => result.current.mutate({ occurrenceKey: 'v1:a' }));
 
     await waitFor(() => {
       const cached =

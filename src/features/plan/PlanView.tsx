@@ -14,6 +14,8 @@ import type { CivilDate } from '@/core/civil/types';
 import { splitByUrgency, type AgendaItem } from '@/core/occurrence/agenda';
 import { unfinishedBefore } from '@/core/plan/plan';
 import { proposeDay } from '@/core/plan/propose';
+import { autoPlannable } from '@/core/plan/autoplan';
+import { useUserId } from '@/stores/sessionStore';
 import { isRecurring } from '@/core/chore/kind';
 import { useMyFlags } from '@/data/hooks/useFlags';
 import { useScheduleToday } from '@/data/hooks/useChores';
@@ -21,18 +23,15 @@ import { useHousehold } from '@/data/hooks/useHousehold';
 import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { quantiseWindow, useOccurrences, useToday_View } from '@/data/hooks/useOccurrences';
-import { useAddToPlan, useMyPlanEntries, usePlanLoading } from '@/data/hooks/usePlan';
+import {
+  useAddToPlan,
+  useMyPlanEntries,
+  usePlanEntries,
+  usePlanLoading,
+} from '@/data/hooks/usePlan';
 import { ErrorState, LoadingState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
 import { PlanScreen } from './PlanScreen';
-
-/** A schedule that is definitely not recurring, for a chore that has gone. */
-const FALLBACK_SCHEDULE = {
-  rule: { kind: 'unscheduled' },
-  startsOn: '1970-01-01',
-  endsOn: null,
-  timesOfDay: [],
-} as never;
 
 /**
  * How far ahead the picker can see.
@@ -50,11 +49,29 @@ const PICKER_WEEKS_FORWARD = 13;
 
 export function PlanView() {
   const router = useRouter();
+  const userId = useUserId();
   const { view, chores, today, isLoading, error, refetch } = useToday_View();
   const categories = useCategoryList();
   const entries = useMyPlanEntries(today);
+  /** Both plans, for deciding what is already spoken for. */
+  const allEntries = usePlanEntries(today);
   const entriesLoading = usePlanLoading(today);
+  /*
+   * Whose day the picker is filling. `null` is your own.
+   *
+   * The picker itself is unchanged — what it offers is the household's
+   * outstanding work either way — but where the rows land is not, and adding to
+   * your housemate's day silently landing on yours is a dead button.
+   */
+  const [pickingFor, setPickingFor] = useState<string | null>(null);
   const add = useAddToPlan(today);
+  /*
+   * A second instance, bound to whoever the picker is currently filling for.
+   *
+   * The auto-plan and the create-queue always mean *your* day, so they keep
+   * `add`. Only the picker can be pointed elsewhere.
+   */
+  const addForPicked = useAddToPlan(today, pickingFor ?? undefined);
   const [picking, setPicking] = useState(false);
   const household = useHousehold();
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -362,8 +379,16 @@ export function PlanView() {
     if (isLoading || entriesLoading || autoPlannedOn === today) return;
     if (inFlight.current || failedFor.current === today) return;
 
+    /*
+     * Everybody's plan, not only yours.
+     *
+     * `anyone` work counts for both of you, so each device auto-planned its own
+     * copy and the shared chore ended up on both days — which, now that both
+     * days are on one screen, is the same row twice, one above the other.
+     * Whoever's plan has it keeps it; that is what "anyone" means.
+     */
     const planned = new Set(
-      entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
+      allEntries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
 
     /*
@@ -386,18 +411,17 @@ export function PlanView() {
      * carries anything `showFrom` has pulled forward — those are not late, they
      * are early, and auto-adding them puts next week on today.
      */
-    const due = view.mine.filter(
-      (item) =>
-        item.dueOn <= today &&
-        // Defensive rather than load-bearing: `buildTodayView` already builds
-        // `mine` from due-or-overdue items, so nothing completed or skipped
-        // reaches here today. Kept because this filter is the only thing
-        // standing between a change in that function and the plan claiming
-        // work is left that isn't.
-        (item.status === 'due' || item.status === 'overdue') &&
-        !planned.has(item.occurrenceKey) &&
-        isRecurring(chores.find((c) => c.id === item.choreId)?.schedule ?? FALLBACK_SCHEDULE),
-    );
+    /*
+     * The rule itself lives in `core/plan/autoplan`, because the plan screen
+     * also previews a housemate's day with it — what will be added when they
+     * open the app. Two copies would drift, and the preview would quietly stop
+     * matching what actually lands.
+     */
+    const due = autoPlannable(view.mine, {
+      userId: userId ?? '',
+      on: today,
+      planned,
+    });
 
     if (due.length === 0) {
       markAutoPlanned(today);
@@ -425,10 +449,12 @@ export function PlanView() {
     autoPlannedOn,
     today,
     entries,
+    allEntries,
     view.mine,
     chores,
     add,
     markAutoPlanned,
+    userId,
   ]);
 
   /*
@@ -473,9 +499,33 @@ export function PlanView() {
     const stale = planOnCreate.filter((q) => q.queuedOn !== today).map((q) => q.choreId);
     const live = planOnCreate.filter((q) => q.queuedOn === today).map((q) => q.choreId);
 
-    const wanted = [...view.mine, ...view.upcoming].filter(
+    /*
+     * One row per chore, and this is where "added three times" came from.
+     *
+     * Matching on `choreId` alone matches *every* occurrence of that chore:
+     * `view.upcoming` holds each future one inside the horizon, so creating a
+     * recurring chore with "put it on today" ticked queued today's occurrence
+     * and next week's and the one after — three rows, each with a different
+     * occurrence key, so the table's `unique (user_id, occurrence_key,
+     * planned_for)` could not collapse them and neither could the upsert.
+     *
+     * Jake, on the phone: *"I created a new chore called vacuum downstairs and
+     * checked the Add to today's plan box, and it got added to my plan 3 times."*
+     *
+     * The soonest occurrence is the one meant: "put it on today" is about today,
+     * and `view.mine` is dated on or before today while `view.upcoming` is
+     * after, so the earliest `dueOn` is today's whenever today's exists.
+     */
+    const candidates = [...view.mine, ...view.upcoming].filter(
       (item) => live.includes(item.choreId) && !planned.has(item.occurrenceKey),
     );
+
+    const soonestPerChore = new Map<string, (typeof candidates)[number]>();
+    for (const item of candidates) {
+      const held = soonestPerChore.get(item.choreId);
+      if (held === undefined || item.dueOn < held.dueOn) soonestPerChore.set(item.choreId, item);
+    }
+    const wanted = [...soonestPerChore.values()];
 
     const settled = [...stale, ...wanted.map((i) => i.choreId)];
     if (settled.length > 0) clearPlanOnCreate(settled);
@@ -504,7 +554,14 @@ export function PlanView() {
         chores={chores}
         today={today}
         refetch={refetch}
-        onAdd={() => setPicking(true)}
+        onAdd={() => {
+          setPickingFor(null);
+          setPicking(true);
+        }}
+        onAddFor={(ownerId) => {
+          setPickingFor(ownerId);
+          setPicking(true);
+        }}
         proposal={proposal}
         onAcceptProposal={(items) =>
           add.mutate(items.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
@@ -512,12 +569,25 @@ export function PlanView() {
       />
       <PlanPicker
         open={picking}
-        groups={groups}
+        /*
+         * Undated work is not offered when filling somebody else's day.
+         *
+         * Choosing it dates the chore and then claims it through the
+         * plan-on-create queue, which always means *your* day — so it was
+         * offered, selectable, counted by the button, and then did nothing at
+         * all. That is the dead-button shape this area keeps producing; not
+         * offering it is honest, and dating a chore on their behalf is a
+         * different feature.
+         */
+        groups={pickingFor === null ? groups : groups.filter((g) => g.key !== 'someday')}
         categoryFor={(choreId) => {
           const category = categoryById.get(choreCategory.get(choreId) ?? '');
           return category === undefined ? null : { name: category.name, ink: category.ink };
         }}
-        onClose={() => setPicking(false)}
+        onClose={() => {
+          setPicking(false);
+          setPickingFor(null);
+        }}
         /*
          * `?plan=1` so the form's "put it on today" switch defaults on here and
          * nowhere else — the same reason the floating + on this sub-tab used to
@@ -541,9 +611,21 @@ export function PlanView() {
           const real = items.filter((i) => !i.occurrenceKey.startsWith('someday:'));
 
           if (real.length > 0) {
-            add.mutate(real.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
+            addForPicked.mutate(
+              real.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+            );
           }
+          /*
+           * An undated chore is dated and then claimed through the queue, which
+           * is always *your* day — so it is offered only when filling your own.
+           * Dating a chore on your housemate's behalf and having it land on
+           * yours is the dead-button shape this whole change is about.
+           */
+          // Not reachable while filling their day — the group is not offered —
+          // but the guard stays, because "offered" and "handled" drifting apart
+          // is exactly how this became a silent no-op.
           for (const item of someday) {
+            if (pickingFor !== null) continue;
             queuePlanOnCreate(item.choreId, today);
             scheduleToday.mutate(item.choreId);
           }
