@@ -18,6 +18,22 @@ Newest first.
 
 ---
 
+## 2026-09-07 — A chore created with "put it on today" landed three times
+
+**Bug, not a decision, but the cause is worth recording.** The queue that claims
+a newly created chore matches on `choreId`, and `view.upcoming` holds *every*
+future occurrence of a recurring chore inside the horizon — so ticking the box
+queued today's occurrence and next week's and the one after. Three rows, each
+with a different occurrence key, so neither the `unique (user_id,
+occurrence_key, planned_for)` constraint nor the upsert's `ignoreDuplicates`
+could collapse them. Jake deleted two by hand.
+
+Fixed by taking the soonest occurrence per chore. The general shape — *matching
+a chore id against a list that contains many occurrences of that chore* — is
+worth watching for elsewhere.
+
+---
+
 ## 2026-09-07 — Both plans are editable by either person
 
 **Was:** the plan was yours. `plan_entries` had a household-wide `select` policy

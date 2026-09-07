@@ -12,7 +12,7 @@ create extension if not exists pgtap with schema extensions;
 -- would otherwise count something Bob is not allowed to know exists.
 
 begin;
-select plan(9);
+select plan(11);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -67,16 +67,19 @@ select lives_ok(
   'and can reorder it, which is the commonest write this table takes'
 );
 
-select throws_ok(
+/*
+ * Alice planning Bob's day is now allowed, and this file asserted the opposite
+ * until 2026-09-07. See docs/DECISIONS.md — putting something on your
+ * housemate's day is the point of the change, not a hole in it.
+ */
+select lives_ok(
   $$ insert into public.plan_entries
        (household_id, user_id, chore_id, occurrence_key, planned_for, position)
      values ('aa000000-0000-0000-0000-000000000001',
              'a2222222-2222-2222-2222-222222222222',
              'ab000000-0000-0000-0000-000000000001',
              'v1:dishes:2026-08-28:0:-', '2026-08-28', 1) $$,
-  '42501',
-  null,
-  'Alice cannot plan Bob''s day for him'
+  'Alice can plan Bob''s day for him'
 );
 
 select throws_ok(
@@ -120,19 +123,57 @@ select is(
   'the private chore''s entry is invisible to him specifically'
 );
 
+/*
+ * Bob may now edit Alice's day, which is a reversal — this file asserted the
+ * opposite until 2026-09-07. See docs/DECISIONS.md: for a two-person household
+ * that trusts each other, owner-only writes made "she's out, I'll take that off
+ * her day" impossible and protected nothing that needed protecting.
+ */
 with touched as (
   update public.plan_entries set position = 99
    where user_id = 'a1111111-1111-1111-1111-111111111111'
+     and chore_id = 'ab000000-0000-0000-0000-000000000001'
+     and planned_for = '2026-08-27'
   returning 1
 )
-select is((select count(*)::int from touched), 0, 'Bob cannot reorder Alice''s day');
+select is((select count(*)::int from touched), 1, 'Bob can reorder Alice''s day');
+
+/*
+ * But not onto a chore he cannot see. Widening *who* may write must not widen
+ * *what* they may write about — the private chore is the whole reason
+ * `chore_is_visible` is on the check as well as the select.
+ */
+select throws_ok(
+  $$ update public.plan_entries
+        set chore_id = 'ab000000-0000-0000-0000-000000000002'
+      where user_id = 'a1111111-1111-1111-1111-111111111111'
+        and chore_id = 'ab000000-0000-0000-0000-000000000001'
+        and planned_for = '2026-08-27' $$,
+  '42501',
+  'new row violates row-level security policy for table "plan_entries"',
+  'and cannot repoint one at a chore he is not allowed to know exists'
+);
 
 with deleted as (
   delete from public.plan_entries
    where user_id = 'a1111111-1111-1111-1111-111111111111'
+     and chore_id = 'ab000000-0000-0000-0000-000000000001'
+     and planned_for = '2026-08-27'
   returning 1
 )
-select is((select count(*)::int from deleted), 0, 'nor take something off it');
+select is((select count(*)::int from deleted), 1, 'and can take something off it');
+
+/*
+ * Still bounded by the household. A member of one house cannot reach into
+ * another's day, which the widened policies keep because every one of them
+ * still carries `is_household_member`.
+ */
+select is(
+  (select count(*)::int from public.plan_entries
+    where household_id <> 'aa000000-0000-0000-0000-000000000001'),
+  0,
+  'and sees nothing from a household he is not in'
+);
 
 select * from finish();
 rollback;

@@ -468,9 +468,33 @@ export function PlanView() {
     const stale = planOnCreate.filter((q) => q.queuedOn !== today).map((q) => q.choreId);
     const live = planOnCreate.filter((q) => q.queuedOn === today).map((q) => q.choreId);
 
-    const wanted = [...view.mine, ...view.upcoming].filter(
+    /*
+     * One row per chore, and this is where "added three times" came from.
+     *
+     * Matching on `choreId` alone matches *every* occurrence of that chore:
+     * `view.upcoming` holds each future one inside the horizon, so creating a
+     * recurring chore with "put it on today" ticked queued today's occurrence
+     * and next week's and the one after — three rows, each with a different
+     * occurrence key, so the table's `unique (user_id, occurrence_key,
+     * planned_for)` could not collapse them and neither could the upsert.
+     *
+     * Jake, on the phone: *"I created a new chore called vacuum downstairs and
+     * checked the Add to today's plan box, and it got added to my plan 3 times."*
+     *
+     * The soonest occurrence is the one meant: "put it on today" is about today,
+     * and `view.mine` is dated on or before today while `view.upcoming` is
+     * after, so the earliest `dueOn` is today's whenever today's exists.
+     */
+    const candidates = [...view.mine, ...view.upcoming].filter(
       (item) => live.includes(item.choreId) && !planned.has(item.occurrenceKey),
     );
+
+    const soonestPerChore = new Map<string, (typeof candidates)[number]>();
+    for (const item of candidates) {
+      const held = soonestPerChore.get(item.choreId);
+      if (held === undefined || item.dueOn < held.dueOn) soonestPerChore.set(item.choreId, item);
+    }
+    const wanted = [...soonestPerChore.values()];
 
     const settled = [...stale, ...wanted.map((i) => i.choreId)];
     if (settled.length > 0) clearPlanOnCreate(settled);

@@ -614,3 +614,55 @@ describe('the day is only marked auto-planned once the write lands', () => {
     expect(mockMarkAutoPlanned).not.toHaveBeenCalled();
   });
 });
+
+describe('a chore created with "put it on today" ticked', () => {
+  it('lands on the day once, not once per future occurrence', async () => {
+    /*
+     * Reported from the phone: *"I created a new chore called vacuum downstairs
+     * and checked the Add to today's plan box, and it got added to my plan 3
+     * times. I had to remove 2 of the instances."*
+     *
+     * The queue matches on chore id, and `view.upcoming` holds every future
+     * occurrence of a recurring chore inside the horizon — so a weekly chore
+     * queued today's occurrence and the next two. Each has a different
+     * occurrence key, so neither the unique constraint nor the upsert could
+     * collapse them: three real rows.
+     */
+    mockPlanOnCreate = [{ choreId: 'vacuum', queuedOn: mockToday }];
+    mockView.mine = [item('vacuum')];
+    mockView.upcoming = [
+      { ...item('vacuum'), occurrenceKey: 'v1:vacuum:next', dueOn: civilDate('2026-09-08') },
+      { ...item('vacuum'), occurrenceKey: 'v1:vacuum:later', dueOn: civilDate('2026-09-15') },
+    ];
+    mockChores = [recurring('vacuum')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+
+    /*
+     * Distinct keys, not call count. The auto-plan and the create-queue both
+     * ask for today's occurrence, and that duplication is harmless — same user,
+     * same key, same day, so the unique constraint and the upsert's
+     * `ignoreDuplicates` collapse it into one row.
+     *
+     * Three *different* keys is what could not be collapsed, and what Jake had
+     * to delete by hand.
+     */
+    expect([...new Set(addedKeys())]).toEqual(['v1:vacuum']);
+  });
+
+  it('takes the soonest occurrence when today has none', async () => {
+    // A chore created for later still lands once — on its first occurrence,
+    // not on every one the horizon can see.
+    mockPlanOnCreate = [{ choreId: 'vacuum', queuedOn: mockToday }];
+    mockView.upcoming = [
+      { ...item('vacuum'), occurrenceKey: 'v1:vacuum:later', dueOn: civilDate('2026-09-15') },
+      { ...item('vacuum'), occurrenceKey: 'v1:vacuum:next', dueOn: civilDate('2026-09-08') },
+    ];
+    mockChores = [recurring('vacuum')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    expect(addedKeys()).toEqual(['v1:vacuum:next']);
+  });
+});

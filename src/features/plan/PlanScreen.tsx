@@ -17,11 +17,10 @@
 
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { autoPlannable } from '@/core/plan/autoplan';
-import { planFor, progressOf } from '@/core/plan/plan';
+import { planFor, progressOf, type PlanEntry } from '@/core/plan/plan';
 import { partitionSettled } from '@/core/plan/settle';
 import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
@@ -33,7 +32,7 @@ import { positionBetween } from '@/core/plan/reorder';
 import { Sheet, SheetAction } from '@/design/Sheet';
 import { Button, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
-import { MIN_TARGET, radius, space } from '@/design/tokens';
+import { radius, space } from '@/design/tokens';
 import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { useMembers } from '@/data/hooks/useHousehold';
@@ -125,7 +124,6 @@ export function PlanScreen({
 
   const theirEntries = useTheirPlanEntries(today as never, available);
   const planUnknown = usePlanUnavailable(today as never);
-  const [showingTheirs, setShowingTheirs] = useState(false);
 
   /**
    * Their day, in their order, with what each row has become.
@@ -147,10 +145,6 @@ export function PlanScreen({
   const isSettled = (item: { status: string }) =>
     item.status === 'completed' || item.status === 'skipped';
 
-  /** Capped against the screen, like the picker's list. */
-  const { height: screenHeight } = useWindowDimensions();
-  const theirSheetMaxHeight = Math.max(180, Math.min(420, screenHeight - 260));
-
   /*
    * What is due for them, for when they have not planned.
    *
@@ -163,38 +157,17 @@ export function PlanScreen({
    * inventing a plan she never made and calling it hers would be a lie about a
    * decision, which is the one thing this screen is *for*.
    */
-  /*
-   * Exactly what their day will be filled with when they next open the app.
-   *
-   * Jake: *"is it going to show me the stuff that will automatically be on her
-   * list regardless of if she's logged in?"* It is now, and by construction:
-   * this runs the same `autoPlannable` that does the filling, for them instead
-   * of for you. An approximation assembled separately would drift from what
-   * actually lands, and drift in a preview is invisible until it misleads.
-   *
-   * Their plan is built on their phone — nothing on this device or on the
-   * server writes it — so until they open the app this is a forecast, and it is
-   * labelled as one rather than as their plan.
-   */
-  const willFillTheirDay = useMemo(() => {
-    if (housemate === undefined) return [];
-    return autoPlannable(available, {
-      userId: housemate.userId,
-      on: today as never,
-      planned: new Set(theirEntries.map((e) => e.occurrenceKey)),
-    });
-  }, [available, housemate, today, theirEntries]);
-
-  const theirPlan = useMemo(() => {
-    const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
-    return theirEntries
-      .map((entry) => byKey.get(entry.occurrenceKey))
-      .filter((item): item is AgendaItem => item !== undefined);
-  }, [theirEntries, available]);
   const toggle = useToggleCompletion();
 
   const [refreshing, setRefreshing] = useState(false);
-  const [removing, setRemoving] = useState<AgendaItem | null>(null);
+  /*
+   * Which row is coming off, and *whose day* it is on.
+   *
+   * Both plans are editable by either housemate now, so "take this off today"
+   * has to know which today. Without the owner it removed from your own day —
+   * which, for a row on theirs, does nothing and reads as a dead button.
+   */
+  const [removing, setRemoving] = useState<{ item: AgendaItem; ownerId: string } | null>(null);
   // The list and the page cannot both own the finger: a drag inside a
   // ScrollView scrolls the page unless the page is frozen for its duration.
   const [dragging, setDragging] = useState(false);
@@ -310,10 +283,6 @@ export function PlanScreen({
    */
   const planned = inPlanOrder;
 
-  const { active, sunk } = useMemo(
-    () => partitionSettled(inPlanOrder, held, (p) => p.item),
-    [inPlanOrder, held],
-  );
   const progress = useMemo(() => progressOf(planned), [planned]);
 
   /** What the day was, for the copy and the tier. */
@@ -380,7 +349,98 @@ export function PlanScreen({
     [members.data],
   );
 
-  const renderRow = ({ item }: { item: AgendaItem }) => {
+  /*
+   * One person's day: what is still theirs to arrange, and what is done.
+   *
+   * `all` and `done` are counted before the partition, because a heading that
+   * counts only the draggable half says "3 left" about a day of six.
+   */
+  const sectionsFor = (rows: readonly PlanEntry[]) => {
+    const ordered = planFor(rows, today as never, available);
+    const { active, sunk } = partitionSettled(ordered, held, (p) => p.item);
+    return { active, sunk, all: ordered, done: ordered.filter((p) => isSettled(p.item)).length };
+  };
+
+  /*
+   * `sectionsFor` is redefined each render and closes over `available`, `today`
+   * and `held` — all listed here, which is what actually decides these.
+   */
+  const mySections = useMemo(
+    () => sectionsFor(entries),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entries, available, today, held],
+  );
+  const theirSections = useMemo(
+    () => sectionsFor(theirEntries),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [theirEntries, available, today, held],
+  );
+
+  const renderPlanSection = (
+    section: ReturnType<typeof sectionsFor>,
+    ownerId: string,
+  ): React.ReactNode => (
+    <>
+      <DragList
+        items={section.active}
+        keyOf={(p) => p.item.occurrenceKey}
+        labelOf={(p) => p.item.choreTitle}
+        renderItem={(p) => renderRow(p, ownerId)}
+        onDragStateChange={setDragging}
+        onReorder={(orderedKeys, movedKey) => {
+          /*
+           * One row moves, so one row is written: the moved row takes the
+           * average of its new neighbours' positions. Renumbering the day
+           * would be N writes and would turn two people reordering at once
+           * into a conflict.
+           */
+          const byKey = new Map(section.active.map((p) => [p.item.occurrenceKey, p]));
+          const positions = orderedKeys.map((k) => byKey.get(k)?.position ?? 0);
+          const movedAt = orderedKeys.indexOf(movedKey);
+          if (movedAt === -1) return;
+
+          const before = positions[movedAt - 1] ?? null;
+          const after = positions[movedAt + 1] ?? null;
+          let next = positionBetween(before, after);
+
+          /*
+           * At either end, clear the *whole* day rather than the
+           * draggable part of it.
+           *
+           * Finished rows keep their stored positions while sitting below
+           * the list, so moving something to the top of what is left
+           * would otherwise land on the same number as something already
+           * done — a tie that is invisible until that row is unticked and
+           * the two swap for reasons nobody can see.
+           */
+          const stored = section.all.map((p) => p.position);
+          if (before === null && stored.length > 0) {
+            next = Math.min(next, Math.min(...stored) - 1);
+          }
+          if (after === null && stored.length > 0) {
+            next = Math.max(next, Math.max(...stored) + 1);
+          }
+
+          reorderPlan.mutate(movedKey, next, ownerId);
+        }}
+      />
+
+      {/*
+              Finished work, below the line and not draggable.
+            
+              There is no order left to choose for something that is done, and
+              offering to reorder it is what let the display order and the
+              stored order drift apart in the first place.
+            */}
+      {section.sunk.map((entry) => (
+        <View key={entry.item.occurrenceKey} testID={`done-row:${entry.item.occurrenceKey}`}>
+          {renderRow(entry, ownerId)}
+        </View>
+      ))}
+    </>
+  );
+
+  const renderRow = ({ item }: { item: AgendaItem }, ownerId: string) => {
     const meta = choreMeta.get(item.choreId);
     const category = categoryById.get(meta?.categoryId ?? '') ?? null;
     return (
@@ -404,7 +464,7 @@ export function PlanScreen({
           tapped();
           toggle.mutate({ item, complete: item.status !== 'completed' });
         }}
-        onOpen={() => setRemoving(item)}
+        onOpen={() => setRemoving({ item, ownerId })}
       />
     );
   };
@@ -437,46 +497,25 @@ export function PlanScreen({
             {progress.total > 0 ? ` · ${progress.done} OF ${progress.total}` : ''}
           </Txt>
           {/*
-            Shown whenever there is somebody to show it for — including when
-            they have planned nothing.
-          
-            Gating this on `theirTotal > 0` made "Emily hasn't planned today"
-            and "this feature was never built" identical on screen, and Jake
-            read it the second way: *"Did you push it? I don't see Emily's
-            plan."* It was pushed; she had no plan. An affordance that vanishes
-            when its subject is empty cannot tell you which of those is true.
+            A status line, and no longer a way in.
+
+            Their day is a section further down this screen now, so this says
+            where they are and stops. A button that scrolls you to something
+            already on the page is furniture.
+
+            Still shown when they have planned nothing: an affordance that
+            vanishes when its subject is empty cannot tell you whether the
+            subject is empty or the feature is missing, and Jake read exactly
+            that ambiguity as "did you push it?".
           */}
           {housemate !== undefined && !planUnknown ? (
-            <Pressable
-              onPress={() => {
-                tapped();
-                setShowingTheirs(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={`See ${theirName}'s day`}
-              /*
-               * A real target, not a caption with hit-slop bolted on.
-               *
-               * This shipped as a 13pt line — about 32pt tall — and hit-slop
-               * does not make a control findable, only slightly easier to hit
-               * once you have guessed it is one. It is the sole way into your
-               * housemate's day.
-               */
-              style={{
-                minHeight: MIN_TARGET,
-                justifyContent: 'center',
-                alignSelf: 'flex-start',
-                paddingRight: space.sm,
-              }}
-            >
-              <Txt variant="small" tone="muted">
-                {theirTotal === 0
-                  ? `${theirName} hasn't planned today ›`
-                  : theirCount === 0
-                    ? `${theirName} has finished today ›`
-                    : `${theirName} has ${theirCount} of ${theirTotal} left ›`}
-              </Txt>
-            </Pressable>
+            <Txt variant="small" tone="muted">
+              {theirSections.all.length === 0
+                ? `${theirName} hasn't planned today`
+                : theirSections.done === theirSections.all.length
+                  ? `${theirName} has finished today`
+                  : `${theirName} has ${theirSections.all.length - theirSections.done} of ${theirSections.all.length} left`}
+            </Txt>
           ) : null}
         </Stack>
 
@@ -605,62 +644,26 @@ export function PlanScreen({
               title={progress.finished ? 'Done today' : 'Doing today'}
               count={progress.finished ? progress.done : progress.total - progress.done}
             />
-            <DragList
-              items={active}
-              keyOf={(p) => p.item.occurrenceKey}
-              labelOf={(p) => p.item.choreTitle}
-              renderItem={(p) => renderRow(p)}
-              onDragStateChange={setDragging}
-              onReorder={(orderedKeys, movedKey) => {
-                /*
-                 * One row moves, so one row is written: the moved row takes the
-                 * average of its new neighbours' positions. Renumbering the day
-                 * would be N writes and would turn two people reordering at once
-                 * into a conflict.
-                 */
-                const byKey = new Map(active.map((p) => [p.item.occurrenceKey, p]));
-                const positions = orderedKeys.map((k) => byKey.get(k)?.position ?? 0);
-                const movedAt = orderedKeys.indexOf(movedKey);
-                if (movedAt === -1) return;
-
-                const before = positions[movedAt - 1] ?? null;
-                const after = positions[movedAt + 1] ?? null;
-                let next = positionBetween(before, after);
-
-                /*
-                 * At either end, clear the *whole* day rather than the
-                 * draggable part of it.
-                 *
-                 * Finished rows keep their stored positions while sitting below
-                 * the list, so moving something to the top of what is left
-                 * would otherwise land on the same number as something already
-                 * done — a tie that is invisible until that row is unticked and
-                 * the two swap for reasons nobody can see.
-                 */
-                const stored = planned.map((p) => p.position);
-                if (before === null && stored.length > 0) {
-                  next = Math.min(next, Math.min(...stored) - 1);
-                }
-                if (after === null && stored.length > 0) {
-                  next = Math.max(next, Math.max(...stored) + 1);
-                }
-
-                reorderPlan.mutate(movedKey, next);
-              }}
-            />
+            {renderPlanSection(mySections, userId ?? '')}
 
             {/*
-              Finished work, below the line and not draggable.
-            
-              There is no order left to choose for something that is done, and
-              offering to reorder it is what let the display order and the
-              stored order drift apart in the first place.
+              Their day, under yours, and editable.
+
+              A section rather than the sheet this replaced, because Jake asked
+              for exactly that — "just show mine and then emily's below" — and
+              because a day you could see but not touch made the ordinary case
+              impossible: she is out, and the thing on her list is one you are
+              about to do anyway.
             */}
-            {sunk.map((entry) => (
-              <View key={entry.item.occurrenceKey} testID={`done-row:${entry.item.occurrenceKey}`}>
-                {renderRow(entry)}
+            {housemate === undefined || theirSections.all.length === 0 ? null : (
+              <View style={{ marginTop: space.lg }}>
+                <SectionHeader
+                  title={`${theirName}'s day`}
+                  count={theirSections.all.length - theirSections.done}
+                />
+                {renderPlanSection(theirSections, housemate.userId)}
               </View>
-            ))}
+            )}
 
             <View
               style={{
@@ -701,100 +704,10 @@ export function PlanScreen({
         the Chores and Routines sub-tabs, where nothing else competes with it.
       */}
 
-      {/*
-        Their day, to look at.
-
-        A sheet rather than a section on this screen, because the plan's job is
-        to be *your* day and to be finishable — "That's today" stops being true
-        the moment somebody else's outstanding work is listed under it. This is
-        a glance, and glances belong in something you dismiss.
-      */}
-      <Sheet
-        visible={showingTheirs}
-        onClose={() => setShowingTheirs(false)}
-        title={`${theirName}'s day`}
-        subtitle={
-          theirPlan.length === 0
-            ? `Only ${theirName} can put things on it`
-            : `${theirPlan.filter(isSettled).length} of ${theirPlan.length} done · only ${theirName} can change this`
-        }
-      >
-        {/*
-          Scrolls, and is capped against the screen.
-        
-          `Sheet` says in its own header that it assumes short, static lists of
-          actions — and this list is neither. The plan auto-adds every recurring
-          chore due or late, so an uncurated day is the whole due list. Because
-          the sheet grows upward from the bottom, overflow clips the *top* of
-          their order: exactly the rows you opened it to see. Same shape as the
-          picker next door, for the same reason.
-        */}
-        <ScrollView
-          style={{ maxHeight: theirSheetMaxHeight }}
-          contentContainerStyle={{ gap: space.sm, paddingBottom: space.sm }}
-        >
-          {theirPlan.length === 0 ? (
-            <View style={{ gap: space.sm, paddingVertical: space.xs }}>
-              <Txt variant="small" tone="muted">
-                {`${theirName} hasn't planned today — the day is built on their phone when they open the app.`}
-              </Txt>
-
-              {willFillTheirDay.length === 0 ? null : (
-                <>
-                  <Txt variant="label" tone="faint">
-                    {`Will go on their day when ${theirName} opens the app`}
-                  </Txt>
-                  {willFillTheirDay.map((item) => (
-                    <Txt key={item.occurrenceKey} variant="body" numberOfLines={2}>
-                      {item.choreTitle}
-                    </Txt>
-                  ))}
-                </>
-              )}
-            </View>
-          ) : null}
-
-          {theirPlan.map((item) => {
-            const done = isSettled(item);
-            return (
-              <View
-                key={item.occurrenceKey}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
-                // `accessible` as well as the label: a plain View is not an
-                // accessibility element, so the label was ignored and VoiceOver
-                // read the bullet as its own item.
-                accessible
-                accessibilityLabel={`${item.choreTitle}${done ? ', done' : ''}`}
-              >
-                {/*
-                  A mark, not a checkbox. A checkbox you cannot tick is an
-                  invitation to try, and the answer would have to be a refusal;
-                  the database would refuse it too, which is worse to discover
-                  by tapping.
-                */}
-                {/* `accessible` on the row merges these children into one
-                    element, so the bullet is not announced on its own. */}
-                <Txt variant="small" tone={done ? 'muted' : 'faint'}>
-                  {done ? '✓' : '·'}
-                </Txt>
-                <Txt
-                  variant="body"
-                  tone={done ? 'muted' : 'default'}
-                  numberOfLines={2}
-                  style={{ flex: 1, minWidth: 0 }}
-                >
-                  {item.choreTitle}
-                </Txt>
-              </View>
-            );
-          })}
-        </ScrollView>
-      </Sheet>
-
       <Sheet
         visible={removing !== null}
         onClose={() => setRemoving(null)}
-        title={removing?.choreTitle ?? ''}
+        title={removing?.item.choreTitle ?? ''}
         subtitle="On today's plan"
       >
         <View style={{ gap: 2 }}>
@@ -802,14 +715,19 @@ export function PlanScreen({
             label="Take off today"
             hint="It goes back to the list with its date and lateness unchanged. Nothing is skipped or completed."
             onPress={() => {
-              if (removing !== null) remove.mutate(removing.occurrenceKey);
+              if (removing !== null) {
+                remove.mutate({
+                  occurrenceKey: removing.item.occurrenceKey,
+                  ownerId: removing.ownerId,
+                });
+              }
               setRemoving(null);
             }}
           />
           <SheetAction
             label="Edit the chore"
             onPress={() => {
-              const choreId = removing?.choreId;
+              const choreId = removing?.item.choreId;
               setRemoving(null);
               if (choreId !== undefined) router.push(`/chore/${choreId}`);
             }}
