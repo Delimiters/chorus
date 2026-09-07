@@ -226,10 +226,19 @@ function statusOf(
 ): OccurrenceStatus {
   if (completion) return 'completed';
   if (exception?.kind === 'skip') return 'skipped';
-  // `showFrom` when the chore was asked to appear early, otherwise the start
-  // of its completion window. Kept separate because the flexible window is
-  // what tells a floating chore from a dated one.
-  if (compareCivil(today, occ.showFrom ?? occ.flexibleFrom) < 0) return 'upcoming';
+  /*
+   * The start of the completion window, and nothing else.
+   *
+   * `showFrom` used to be consulted here, so a chore could be made `due` before
+   * its date on a per-chore setting. That is gone: Today > Chores now decides
+   * what it shows by one rule for everything — late, due within thirty days, or
+   * undated — with a toggle for the whole list rather than a knob on each
+   * chore. Jake: *"get rid of showFrom and just have a hard and fast rule."*
+   *
+   * The field is still read by the schema so the 45 chores that carry one keep
+   * loading; it simply no longer changes anything. See docs/DECISIONS.md.
+   */
+  if (compareCivil(today, occ.flexibleFrom) < 0) return 'upcoming';
   if (compareCivil(today, occ.flexibleUntil) > 0) return 'overdue';
   return 'due';
 }

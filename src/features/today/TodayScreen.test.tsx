@@ -136,6 +136,26 @@ const ALL_CHORES: Fixture[] = [
     assignment: { kind: 'fixed', memberId: ME },
     archived: false,
   },
+  {
+    /*
+     * Inside the projection window and beyond the thirty-day horizon: due on
+     * 2 September, thirty-four days after this fixture's today.
+     *
+     * Without it, "Upcoming hides what is far off" and "All shows everything"
+     * are both assertions about a list that has nothing far off in it.
+     */
+    id: 'boiler',
+    title: 'Service the boiler',
+    priority: 'normal',
+    schedule: {
+      rule: { kind: 'once', dueOn: d('2026-09-02'), granularity: 'day' },
+      startsOn: d('2026-09-02'),
+      endsOn: null,
+      timesOfDay: [],
+    },
+    assignment: { kind: 'fixed', memberId: ME },
+    archived: false,
+  },
 ];
 
 /**
@@ -150,7 +170,12 @@ function buildView(completions: CompletionInput[] = []) {
   const projected = projectOccurrences(
     { chores: mockChores, completions, exceptions: [], memberIds: [ME, THEM], today: mockToday },
     CAL,
-    { start: d('2026-07-19'), end: d('2026-08-01') },
+    /*
+     * Six weeks forward, matching `useToday_View`. The screen's horizon is
+     * thirty days, so a window that stops before it cannot tell "hidden because
+     * it is beyond the horizon" from "never projected at all".
+     */
+    { start: d('2026-07-19'), end: d('2026-09-05') },
   );
   return buildTodayView(collapseSupersededMisses(projected, mockToday), mockToday, ME);
 }
@@ -577,6 +602,27 @@ describe('arranging Today', () => {
     }
   });
 
+  it('and still lifts it once the row is expanded', () => {
+    /*
+     * The half this test was missing, and the reason the bug outlived it.
+     *
+     * `renderScreen` draws every row collapsed, so "every title column has
+     * `minWidth: 0`" was a statement about slim rows only — and the style was
+     * `slim ? { flex: 1, minWidth: 0 } : { flexShrink: 1 }`, directly beneath a
+     * comment calling `minWidth: 0` "the whole fix". An expanded row had no
+     * floor lifted at all, which is why Jake kept reporting the row bursting
+     * its cell after expanding and collapsing, build after build.
+     */
+    renderScreen();
+    expandRow('Dishes');
+
+    const columns = screen.getAllByTestId('title-column');
+    for (const column of columns) {
+      const style = StyleSheet.flatten(column.props.style) as { minWidth?: number };
+      expect(style.minWidth).toBe(0);
+    }
+  });
+
   it('never truncates a long category name', () => {
     // "Entertainment" was rendering as "Entertain…" against a 32% cap that
     // existed to protect the title. The title wraps now, so the cap bought
@@ -865,23 +911,22 @@ describe('adding a chore from Today', () => {
 
 describe('a chore that keeps getting missed', () => {
   /*
-   * The count has always been on the row and was thrown away in the render:
-   * "missed last time" whether one occurrence had been missed or nine. Asserted
-   * here rather than only on the helper, because the helper being right proves
-   * nothing about what the row passes it — which is how a correct pure function
-   * has twice shipped inert in this app.
+   * The row used to carry two numbers: how late *this* occurrence was, which
+   * reset every time a new recurrence arrived, and "missed last N times"
+   * beside it. Neither was how long the job had been waiting.
+   *
+   * Lateness now runs from the last time it was actually done, so the one
+   * number says it — and the count is gone from the render. Asserted on the
+   * screen rather than only on the helper, because the helper being right
+   * proves nothing about what the row passes it, which is how a correct pure
+   * function has twice shipped inert here.
    */
-  it('says how many, not just that it happened', async () => {
+  it('says how long it has been waiting, not how many times it recurred', async () => {
     await renderScreen();
     expandRow('Dishes');
-    expect(screen.getByText(/missed last \d+ times/)).toBeOnTheScreen();
-  });
 
-  it('never renders the ungrammatical "last 1 times"', async () => {
-    // Guards the plural at the point it is read, not just in the helper.
-    await renderScreen();
-    expandRow('Dishes');
-    expect(screen.queryByText(/missed last 1 times/)).toBeNull();
+    expect(screen.queryByText(/missed last/)).toBeNull();
+    expect(screen.getByText(/\d+ days? late/)).toBeOnTheScreen();
   });
 });
 
@@ -998,5 +1043,110 @@ describe('the steps inside a chore', () => {
     // Most chores have none; the row must not grow a header for them.
     await renderScreen();
     expect(screen.queryByText(/steps/)).toBeNull();
+  });
+});
+
+describe('searching today', () => {
+  /*
+   * The plan's picker learned this first: at fifty-odd rows, grouping is right
+   * for browsing and useless for looking one thing up — and Jake could not find
+   * "Water upstairs plants" in a list that size. This list is the same size and
+   * had no search at all.
+   */
+  it('narrows the list to what matches', async () => {
+    await renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText("Search today's chores"), 'dish');
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.queryByText('Take out the trash')).toBeNull();
+  });
+
+  it('searches notes as well as titles', async () => {
+    // Where the detail that tells two similar chores apart actually lives.
+    await renderScreen();
+
+    fireEvent.changeText(screen.getByLabelText("Search today's chores"), 'pans');
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+  });
+
+  it('puts everything back when the search is cleared', async () => {
+    await renderScreen();
+    const field = screen.getByLabelText("Search today's chores");
+
+    fireEvent.changeText(field, 'dish');
+    expect(screen.queryByText('Take out the trash')).toBeNull();
+
+    fireEvent.changeText(field, '');
+    expect(screen.getByText('Take out the trash')).toBeOnTheScreen();
+  });
+});
+
+describe('what the list is for', () => {
+  /*
+   * One rule for the whole list, replacing the per-chore "show on the Today
+   * tab" setting: late, due within thirty days, or undated — with a toggle to
+   * everything. Jake: *"a hard and fast rule ... then maybe a smallish dropdown
+   * or toggle that switches between Upcoming and All."*
+   */
+  it('starts on Upcoming', async () => {
+    await renderScreen();
+
+    const upcoming = screen.getByLabelText('Show what is coming');
+    expect(upcoming.props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText('Show everything').props.accessibilityState.selected).toBe(false);
+  });
+
+  it('switches to All', async () => {
+    await renderScreen();
+
+    fireEvent.press(screen.getByLabelText('Show everything'));
+
+    expect(screen.getByLabelText('Show everything').props.accessibilityState.selected).toBe(true);
+  });
+
+  it('hides what is further off than thirty days', async () => {
+    /*
+     * "Service the boiler" is due on 2 September, thirty-four days after this
+     * fixture's today, and inside the projection window — so it is available to
+     * show and deliberately is not.
+     */
+    await renderScreen();
+
+    expect(screen.queryByText('Service the boiler')).toBeNull();
+  });
+
+  it('shows it under All', async () => {
+    await renderScreen();
+
+    fireEvent.press(screen.getByLabelText('Show everything'));
+
+    expect(screen.getByText('Service the boiler')).toBeOnTheScreen();
+  });
+
+  it('draws a floating chore once, for the period we are in', async () => {
+    /*
+     * A "three times this week" chore has one group per week and the window is
+     * six weeks, so without a bound every floating chore is drawn six times —
+     * five of them for weeks that have not started.
+     */
+    await renderScreen();
+
+    expect(screen.queryAllByText('Water the plants')).toHaveLength(1);
+  });
+
+  it('shows a chore once, not once per future occurrence', async () => {
+    /*
+     * `view.upcoming` holds *every* future occurrence in the window, and the
+     * window is six weeks — so a daily chore would contribute forty-two rows,
+     * and this household has twenty-five daily ones. It appears once, at its
+     * next occurrence, and only if it is not already outstanding above.
+     */
+    await renderScreen();
+
+    for (const title of ['Dishes', 'Take out the trash']) {
+      expect(screen.queryAllByText(title).length).toBeLessThanOrEqual(1);
+    }
   });
 });

@@ -258,7 +258,17 @@ describe('a one-time chore due beyond the agenda window', () => {
       start: d('2026-08-23'),
       end: d('2027-07-14'),
     });
-    return [...behind, ...ahead].filter((o) => o.status === 'due' || o.status === 'overdue');
+    /*
+     * Matches the hook: outstanding *or* upcoming.
+     *
+     * It kept only due-and-overdue while `showFrom` existed to promote a chore
+     * into those states early. With that gone, dropping `upcoming` would make a
+     * chore outside the window invisible again however close it got — the very
+     * complaint the hook exists for.
+     */
+    return [...behind, ...ahead].filter(
+      (o) => o.status === 'due' || o.status === 'overdue' || o.status === 'upcoming',
+    );
   };
 
   it('is outside the window Today fetches, which is the whole problem', () => {
@@ -266,13 +276,19 @@ describe('a one-time chore due beyond the agenda window', () => {
     expect(d('2026-08-31') > WINDOW.end).toBe(true);
   });
 
-  it('is picked up when it has been asked to show early', () => {
-    expect(lingering(errand(TODAY_NOW)).map((o) => o.choreId)).toEqual(['patio']);
+  it('is picked up so the screen can decide what to do with it', () => {
+    expect(lingering(errand()).map((o) => o.choreId)).toEqual(['patio']);
   });
 
-  it('is left alone when it has not', () => {
-    // Non-vacuity, and the rule that keeps Today a list of things to do: a
-    // chore due in October with no showFrom is upcoming, not due.
-    expect(lingering(errand())).toEqual([]);
+  it('is picked up identically when it carries an old showFrom', () => {
+    /*
+     * Non-vacuity for the field's removal: inert, not merely unused in the
+     * default case. Forty-five stored chores still carry one.
+     */
+    expect(lingering(errand(TODAY_NOW))).toEqual(lingering(errand()));
+  });
+
+  it('is not outstanding, which is what keeps Today a list of things to do', () => {
+    expect(lingering(errand()).map((o) => o.status)).toEqual(['upcoming']);
   });
 });

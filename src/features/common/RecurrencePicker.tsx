@@ -20,7 +20,6 @@ import type { CivilDate, NthWeek, Weekday } from '@/core/civil/types';
 import { describeRule } from '@/core/recurrence/describe';
 import type { MonthOverflow, RecurrenceRule } from '@/core/recurrence/types';
 import { Txt } from '@/design/components';
-import { dayOfMonth, formatDayShort, monthName } from './format';
 import { FieldGroup, SegmentedControl, Stepper, ToggleChips } from '@/design/controls';
 import { space } from '@/design/tokens';
 import { DateField } from '@/features/common/DateField';
@@ -219,28 +218,6 @@ function showFromFor(when: ShowWhen, dueOn: CivilDate, today: CivilDate): CivilD
 }
 
 /**
- * The wording that follows from the span, rather than a separate control.
- *
- * `granularity` used to be its own picker labelled "How exact", which claimed
- * to change when a chore read as late and did not — it only ever changed the
- * sentence. Two different people read it as "show it all month" and lost
- * twenty-five chores behind it. It is now derived: a chore visible for its
- * whole month is described as being due in that month, and everything else is
- * described by its date.
- */
-function granularityFor(
-  when: ShowWhen,
-  stored: 'day' | 'week' | 'month',
-): 'day' | 'week' | 'month' {
-  // Only ever *set* by choosing All month. Otherwise whatever the chore
-  // already said is kept: a rule rebuilt on open must come back byte for byte,
-  // or editing a title quietly rewrites the sentence under it. Chores written
-  // before this control existed still say "once in the week of…", and saving
-  // an unrelated change should not take that away.
-  return when === 'month' ? 'month' : stored;
-}
-
-/**
  * Which chip a stored date corresponds to.
  *
  * Exact matches first, because they are what this control writes. Anything
@@ -272,7 +249,7 @@ function ruleFrom(
       return {
         kind: 'once',
         dueOn: draft.dueOn,
-        granularity: granularityFor(draft.showWhen, draft.granularity),
+        granularity: draft.granularity,
         // Resolved to a real date here, and clamped: a lead longer than the
         // time left simply means "from now", never a window that ends before
         // it opens.
@@ -338,26 +315,6 @@ interface Props {
   weekStartsOn?: Weekday;
 }
 
-/**
- * The hint under the chips, which always names the real date.
- *
- * Doing the arithmetic for people is the point: "a week early" means nothing
- * until it says which day that is. Every variant ends the same way, because
- * "until you tick it off" is the half nobody expects — the chore does not
- * disappear when the deadline passes.
- */
-function showOnTodayHint(draft: RecurrenceDraft, today: CivilDate): string {
-  const from = showFromFor(draft.showWhen, draft.dueOn, today) ?? draft.dueOn;
-  const when = formatDayShort(from);
-  if (draft.showWhen === 'day') return `From ${when}, until you tick it off.`;
-  // Clamped: the lead ran past the deadline, or the deadline has gone.
-  if (from === today) return `From today, ${when}, until you tick it off.`;
-  if (draft.showWhen === 'month') {
-    return `All of ${monthName(draft.dueOn)} — due by the ${ordinal(dayOfMonth(draft.dueOn))}, and it stays until you tick it off.`;
-  }
-  return `From ${when} — a week before it is due — until you tick it off.`;
-}
-
 export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: Props) {
   const frequency = frequencyOf(draft.rule);
   const weeklyPattern = weeklyPatternOf(draft.rule);
@@ -419,21 +376,32 @@ export function RecurrencePicker({ draft, onChange, today, weekStartsOn = 0 }: P
           </FieldGroup>
 
           {/*
-            The behaviour question, kept apart from the wording one above.
-            A deadline three weeks out used to be invisible until the day it
-            arrived — which is the day it is already too late to plan around.
+            What this control used to be, and why it is smaller now.
+          
+            It was "Show on the Today tab", and it set two quite different
+            things at once: a per-chore date from which the chore appeared early
+            (`showFrom`), and how wide its completion window is. The first is
+            gone — one rule decides what the list shows now, late or due within
+            thirty days or undated. See docs/DECISIONS.md.
+          
+            The second is real scheduling and stays: "that month" means the job
+            can be done any time in it, not that it is late from the 1st.
+            Dropping it with the rest would have silently narrowed every chore
+            that uses it to a single day.
           */}
-          <FieldGroup label="Show on the Today tab" hint={showOnTodayHint(draft, today)}>
+          <FieldGroup
+            label="Due"
+            hint="A wider window means it is not late until the window closes."
+          >
             <SegmentedControl
               segments={[
                 { value: 'day' as const, label: 'On the day' },
-                { value: 'week' as const, label: 'A week early' },
-                { value: 'month' as const, label: 'All month' },
-                { value: 'now' as const, label: 'From now' },
+                { value: 'week' as const, label: 'That week' },
+                { value: 'month' as const, label: 'That month' },
               ]}
-              value={draft.showWhen}
-              onChange={(when) => update({ showWhen: when as ShowWhen })}
-              label="Show on the Today tab"
+              value={draft.granularity}
+              onChange={(g) => update({ granularity: g as 'day' | 'week' | 'month' })}
+              label="How wide the window is"
             />
           </FieldGroup>
         </>

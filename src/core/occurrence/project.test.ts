@@ -470,7 +470,18 @@ describe('the agenda, rendered as text', () => {
  * `showFrom` widens the front of the flexible window. Status is derived from
  * that window, so the chore reads as due from the chosen day onward.
  */
-describe('a one-time chore that starts showing early', () => {
+describe('a chore carrying an old showFrom', () => {
+  /*
+   * `showFrom` no longer does anything, and this block used to assert that it
+   * did — that a chore could be made `due` a week before its deadline by a
+   * per-chore setting.
+   *
+   * It was replaced by one rule for the whole list: late, due within thirty
+   * days, or undated, with a toggle for everything rather than a knob on each
+   * chore. Forty-five stored chores still carry the field, so what matters now
+   * is that they load and behave like any other dated chore. See
+   * docs/DECISIONS.md.
+   */
   const deadline = d('2026-01-20');
 
   const withShowFrom = (showFrom?: CivilDate): ChoreInput =>
@@ -496,32 +507,24 @@ describe('a one-time chore that starts showing early', () => {
     return occ?.status;
   };
 
-  it('is upcoming before its start day', () => {
-    expect(statusOn(d('2026-01-12'), d('2026-01-13'))).toBe('upcoming');
+  it('is upcoming until its own date, whatever showFrom says', () => {
+    expect(statusOn(d('2026-01-13'), d('2026-01-13'))).toBe('upcoming');
+    expect(statusOn(d('2026-01-19'), d('2026-01-13'))).toBe('upcoming');
   });
 
-  it('is due from its start day, well before the deadline', () => {
-    expect(statusOn(d('2026-01-13'), d('2026-01-13'))).toBe('due');
+  it('behaves exactly as the same chore without one', () => {
+    /*
+     * The point of the removal: inert, not merely ignored in some cases. Same
+     * day, same answer, with the field and without it.
+     */
+    for (const day of ['2026-01-13', '2026-01-19', '2026-01-20', '2026-01-21'] as const) {
+      expect(statusOn(d(day), d('2026-01-13'))).toBe(statusOn(d(day)));
+    }
   });
 
-  it('is still due the day before the deadline', () => {
-    expect(statusOn(d('2026-01-19'), d('2026-01-13'))).toBe('due');
-  });
-
-  it('turns overdue only after the deadline, not after the start day', () => {
+  it('is due on its date and overdue after it', () => {
+    expect(statusOn(d('2026-01-20'), d('2026-01-13'))).toBe('due');
     expect(statusOn(d('2026-01-21'), d('2026-01-13'))).toBe('overdue');
-  });
-
-  it('without it, is invisible until the day — which is the whole complaint', () => {
-    // Non-vacuity: the assertions above must be doing something the default
-    // does not already do.
-    expect(statusOn(d('2026-01-13'))).toBe('upcoming');
-    expect(statusOn(d('2026-01-20'))).toBe('due');
-  });
-
-  it('clamps a start day set after the deadline rather than inverting', () => {
-    // The window would otherwise end before it began.
-    expect(statusOn(d('2026-01-20'), d('2026-01-25'))).toBe('due');
   });
 
   it('leaves the due date alone, so nothing else moves', () => {

@@ -18,6 +18,60 @@ Newest first.
 
 ---
 
+## 2026-09-07 — Lateness accumulates; "missed last N times" is gone
+
+**Was:** lateness was measured from the occurrence on screen, so every new
+recurrence reset it to zero. The history was reported separately as "missed
+last 3 times" — two numbers, neither of which was how long the job had been
+waiting.
+
+**Now:** lateness runs from the start of the current run of misses, which is the
+day after the last time it was actually done. A daily chore ignored for nine
+days reads "9d late". The count beside it is gone; `missedBefore` is still on
+the item and nothing renders it.
+
+**Why:** Jake — *"I just want the days late to keep adding up now that the
+schedule resets when you do it and counts from the last time you did it."* It
+follows from completion-anchoring: if the schedule restarts when you do the job,
+lateness should measure from the same point.
+
+A run of misses now also makes the chore late even when *today's* occurrence is
+merely due — otherwise a daily chore is never more than a day late however long
+it is ignored.
+
+---
+
+## 2026-09-07 — `showFrom` is gone; Today's list has one rule
+
+**Was:** each chore could carry a "show on the Today tab" date, from which it
+appeared early. Forty-five of this household's 118 active chores had one.
+
+**Now:** one rule for the whole list — late, due within thirty days, or undated
+— with a toggle between that ("Upcoming") and everything ("All").
+
+**Why:** Jake — *"get rid of showFrom and just have a hard and fast rule."* A
+per-chore visibility knob is a setting to maintain on every chore forever; the
+list can simply decide.
+
+**What it cost, and what had to move with it:**
+
+- The projection window went from one week forward to **six**, because thirty
+  days from any day of the week needs it.
+- That widening exposed two things the old narrow window hid: `view.upcoming`
+  holds *every* future occurrence, so a daily chore would have contributed 42
+  rows; and a floating "3× a week" chore has one group per week, so it would
+  have been drawn six times. Both are now bounded — one row per chore at its
+  next occurrence, and floating groups only for the period we are in.
+- The same control also set **granularity** (whether a one-off is due on the
+  day, that week, or that month), which is real scheduling and not visibility.
+  It survives as its own control; dropping it would have silently narrowed every
+  chore using it to a single day.
+- `showFrom` is still *parsed* so the 45 chores carrying one keep loading, but it
+  is no longer carried onto occurrences at all. "Present but unread" is how a
+  dead field comes back to life.
+
+---
+
 ## 2026-09-07 — A chore created with "put it on today" landed three times
 
 **Bug, not a decision, but the cause is worth recording.** The queue that claims
