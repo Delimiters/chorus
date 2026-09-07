@@ -207,6 +207,13 @@ interface ChoreRowProps {
    * collapsed list of things to do is a list nobody reads.
    */
   subtasks?: readonly { id: string; title: string }[];
+  /**
+   * Show the steps without being asked, on a compact row that has some.
+   *
+   * The plan sets this: a planned chore is one you are about to do, and its
+   * steps are the doing. Elsewhere a compact row stays folded.
+   */
+  stepsOpenByDefault?: boolean;
   /** Which of them are ticked for *this* occurrence. */
   tickedSubtasks?: ReadonlySet<string>;
   onToggleSubtask?: (subtaskId: string, ticked: boolean) => void;
@@ -259,6 +266,7 @@ export function ChoreRow({
   flagged = false,
   onToggleFlag,
   subtasks = [],
+  stepsOpenByDefault = false,
   tickedSubtasks,
   onToggleSubtask,
   onToggle,
@@ -278,7 +286,17 @@ export function ChoreRow({
    * starts closed, because the whole point of it is to be one line until you
    * ask for more.
    */
-  const [stepsOpen, setStepsOpen] = useState(!compact);
+  /*
+   * Steps start open when there are any and the row asks for it.
+   *
+   * A compact row folds its detail away, which is right for a long list — but
+   * on the plan the steps *are* the work: Jake found no way to see or tick them
+   * at all there, and asked for them to be prominent, "maybe you don't even
+   * need to expand the chore to see it".
+   */
+  const [stepsOpen, setStepsOpen] = useState(
+    !compact || (stepsOpenByDefault && subtasks.length > 0),
+  );
   const slim = compact && !stepsOpen;
   const ticked = tickedSubtasks ?? EMPTY_TICKS;
   const stepsDone = subtasks.filter((s) => ticked.has(s.id)).length;

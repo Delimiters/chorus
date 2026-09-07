@@ -18,6 +18,38 @@ Newest first.
 
 ---
 
+## 2026-09-07 — The chores list moved to the Upcoming tab
+
+**Was:** Today had three sub-tabs — Plan, Chores, Routines — and a separate
+Upcoming tab holding a month calendar.
+
+**Now:** Today is Plan and Routines. The Upcoming tab holds the annotated,
+checkable chores list that used to be Today's middle segment. The calendar is
+deleted.
+
+**Why:** Jake — *"I currently do not use that calendar view at all for
+anything, it's like not even useful to me ... I think that might be a better
+experience."* Today answers "what am I doing"; Upcoming answers "what is
+coming". They were competing for one tab while a whole tab sat unused.
+
+**What it is not:** the Chores tab, which is the library. The difference is that
+these rows can be ticked off and carry their category, lateness, notes and
+steps. That is why this is a second list rather than a link to the first.
+
+`MonthGrid` survives — the date picker uses it. `todayMode: 'chores'` is still
+stored on both phones from before the move and now falls through to the plan.
+
+---
+
+## 2026-09-07 — Steps are visible on the plan without expanding
+
+Planned rows are compact, which folds detail away, and nothing passed the
+subtasks in at all — so there was no way to reach a chore's steps from the plan
+even by expanding. On a day you have committed to, the steps *are* the work, so
+they start open there. Elsewhere a compact row stays folded.
+
+---
+
 ## 2026-09-07 — Lateness accumulates; "missed last N times" is gone
 
 **Was:** lateness was measured from the occurrence on screen, so every new

@@ -23,8 +23,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { useSubtaskTicksFor, useSubtasksByChore, useToggleSubtask } from '@/data/hooks/useSubtasks';
-import { ModeSwitch } from '@/features/common/ModeSwitch';
-import { useRoutineStore } from '@/stores/routineStore';
 import { useMyRoutineItems } from '@/data/hooks/useRoutines';
 
 import { splitByUrgency, type AgendaItem, type FloatingGroup } from '@/core/occurrence/agenda';
@@ -97,7 +95,6 @@ export function TodayScreen() {
    * its count stay, so it can still be folded away on a heavy week.
    */
   const [comingUpOpen, setComingUpOpen] = useState(true);
-  const setTodayMode = useRoutineStore((s) => s.setTodayMode);
 
   /**
    * Which of your routine items already points at a chore.
@@ -646,11 +643,15 @@ export function TodayScreen() {
           />
         }
       >
-        <ModeSwitch mode="chores" onChange={setTodayMode} />
-
         <Stack gap={2} style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
+          {/*
+            Not "Today" any more: this list lives on the Upcoming tab and holds
+            work that is late as well as work that is coming, so neither the tab
+            name nor "Today" describes it. It is also not "Chores", which is the
+            library tab — the difference is that these rows can be ticked off.
+          */}
           <Txt variant="display" accessibilityRole="header">
-            Today
+            What&apos;s on
           </Txt>
           <Txt variant="mono" tone="faint">
             {formatDayLong(today).toUpperCase()}
