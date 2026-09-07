@@ -569,7 +569,17 @@ export function PlanView() {
       />
       <PlanPicker
         open={picking}
-        groups={groups}
+        /*
+         * Undated work is not offered when filling somebody else's day.
+         *
+         * Choosing it dates the chore and then claims it through the
+         * plan-on-create queue, which always means *your* day — so it was
+         * offered, selectable, counted by the button, and then did nothing at
+         * all. That is the dead-button shape this area keeps producing; not
+         * offering it is honest, and dating a chore on their behalf is a
+         * different feature.
+         */
+        groups={pickingFor === null ? groups : groups.filter((g) => g.key !== 'someday')}
         categoryFor={(choreId) => {
           const category = categoryById.get(choreCategory.get(choreId) ?? '');
           return category === undefined ? null : { name: category.name, ink: category.ink };
@@ -611,6 +621,9 @@ export function PlanView() {
            * Dating a chore on your housemate's behalf and having it land on
            * yours is the dead-button shape this whole change is about.
            */
+          // Not reachable while filling their day — the group is not offered —
+          // but the guard stays, because "offered" and "handled" drifting apart
+          // is exactly how this became a silent no-op.
           for (const item of someday) {
             if (pickingFor !== null) continue;
             queuePlanOnCreate(item.choreId, today);

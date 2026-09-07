@@ -39,6 +39,9 @@ let mockEntries: { occurrenceKey: string; choreId: string; plannedFor: string; p
 let mockIsLoading = false;
 let mockPlanUnknown = false;
 let mockEntriesLoading = false;
+/** The household's whole plan. Defaults to yours; set apart where it matters. */
+let mockAllEntries: typeof mockEntries | null = null;
+let mockMembers: { userId: string; displayName: string; accent: string }[] = [];
 let mockAutoPlannedOn: string | null = null;
 let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
 
@@ -63,9 +66,17 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
 
 jest.mock('@/data/hooks/usePlan', () => ({
   useMyPlanEntries: () => mockEntries,
-  // Both plans, for deciding what shared work is already spoken for. The tests
-  // are single-user, so this is the same list.
-  usePlanEntries: () => mockEntries,
+  /*
+   * Both plans, and deliberately a *different* list from `useMyPlanEntries`.
+   *
+   * These returned the same array, with a comment saying the tests are
+   * single-user so it made no difference. The difference between those two
+   * hooks is the entire subject of "shared work is claimed once" — the fixture
+   * defined the fix away, and a review confirmed the whole suite passed with it
+   * reverted. `mockAllEntries` defaults to `mockEntries` and is set apart in
+   * the tests that care.
+   */
+  usePlanEntries: () => mockAllEntries ?? mockEntries,
   usePlanUnavailable: () => mockPlanUnknown,
   usePlanLoading: () => mockEntriesLoading,
   useTheirPlanCount: () => 0,
@@ -73,7 +84,17 @@ jest.mock('@/data/hooks/usePlan', () => ({
   useTheirPlanEntries: () => [],
   useRemoveFromPlan: () => ({ mutate: jest.fn() }),
   useReorderPlan: () => ({ mutate: mockReorder }),
-  useAddToPlan: () => ({ mutate: mockAdd }),
+  /*
+   * Records which day each instance was built for.
+   *
+   * This discarded its arguments, so the instance bound to your housemate's day
+   * and the one bound to yours were the identical object and the owner could
+   * not be observed at all. Adding to the wrong plan is the defect this whole
+   * area is about.
+   */
+  useAddToPlan: (_today: string, ownerId?: string) => ({
+    mutate: (items: unknown, options?: unknown) => mockAdd(items, options, ownerId),
+  }),
 }));
 
 jest.mock('@/stores/routineStore', () => ({
@@ -98,7 +119,7 @@ jest.mock('@/data/hooks/useChores', () => ({
 }));
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC' } }),
-  useMembers: () => ({ data: [{ userId: mockMe, displayName: 'Jake', accent: 'blue' }] }),
+  useMembers: () => ({ data: mockMembers }),
 }));
 jest.mock('@/stores/sessionStore', () => ({ useUserId: () => mockMe }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
@@ -158,6 +179,8 @@ beforeEach(() => {
   mockView = { mine: [], theirs: [], done: [], skipped: [], upcoming: [], floating: [] };
   mockChores = [];
   mockEntries = [];
+  mockAllEntries = null;
+  mockMembers = [{ userId: mockMe, displayName: 'Jake', accent: 'blue' }];
   mockIsLoading = false;
   mockEntriesLoading = false;
   mockAutoPlannedOn = null;
@@ -667,5 +690,53 @@ describe('a chore created with "put it on today" ticked', () => {
 
     await waitFor(() => expect(mockAdd).toHaveBeenCalled());
     expect(addedKeys()).toEqual(['v1:vacuum:next']);
+  });
+});
+
+describe('two people sharing one household', () => {
+  const THEM = 'user-them';
+
+  beforeEach(() => {
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: THEM, displayName: 'Emily', accent: 'pink' },
+    ];
+  });
+
+  it('does not re-plan shared work already on the other day', async () => {
+    /*
+     * `anyone` work counts for both of you, so each device auto-planned its own
+     * copy and the same row appeared on both plans — one directly above the
+     * other once both days shared a screen.
+     *
+     * The fixture is the point: `mockAllEntries` holds a row that
+     * `mockEntries` does not. Returning the same list from both hooks — which
+     * is what this file used to do — makes this fix untestable by definition.
+     */
+    mockEntries = [];
+    mockAllEntries = [
+      { occurrenceKey: 'v1:litter', choreId: 'litter', plannedFor: mockToday, position: 1 },
+    ];
+    mockView.mine = [item('litter'), item('bins')];
+    mockChores = [recurring('litter'), recurring('bins')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    expect(addedKeys()).toEqual(['v1:bins']);
+  });
+
+  it('adds to the day the picker was opened for', async () => {
+    /*
+     * `useAddToPlan` is built per-day, and the mock now records which day. It
+     * discarded its arguments before, so the instance for your housemate's day
+     * and the one for yours were the same object and the owner was invisible.
+     */
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    // The auto-plan is always your own day.
+    expect(mockAdd.mock.calls[0]?.[2]).toBeUndefined();
   });
 });

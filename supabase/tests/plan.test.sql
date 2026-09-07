@@ -12,7 +12,7 @@ create extension if not exists pgtap with schema extensions;
 -- would otherwise count something Bob is not allowed to know exists.
 
 begin;
-select plan(12);
+select plan(14);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -201,6 +201,32 @@ select throws_ok(
   '42501',
   'new row violates row-level security policy for table "plan_entries"',
   'nor handed to one by an update'
+);
+
+/*
+ * A delete with no WHERE clause, which is the case the delete policy's
+ * `chore_is_visible` actually guards.
+ *
+ * With a WHERE clause, Postgres applies the SELECT policy to the rows it reads
+ * and the private entry is unreachable anyway. A bare delete references no
+ * columns, so nothing triggers SELECT — a review measured the private row being
+ * destroyed once the clause was removed. The surviving row is Alice's entry for
+ * the chore Bob cannot see.
+ */
+delete from public.plan_entries;
+
+select is(
+  (select count(*)::int from public.plan_entries),
+  0,
+  'Bob''s blind delete takes everything he can see'
+);
+
+set local role postgres;
+select is(
+  (select count(*)::int from public.plan_entries
+    where chore_id = 'ab000000-0000-0000-0000-000000000002'),
+  1,
+  'and leaves the private chore''s entry untouched'
 );
 
 select * from finish();

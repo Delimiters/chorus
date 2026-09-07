@@ -663,50 +663,6 @@ export function PlanScreen({
             />
             {renderPlanSection(mySections, myOwnerId)}
 
-            {/*
-              Their day, under yours, and editable.
-
-              A section rather than the sheet this replaced, because Jake asked
-              for exactly that — "just show mine and then emily's below" — and
-              because a day you could see but not touch made the ordinary case
-              impossible: she is out, and the thing on her list is one you are
-              about to do anyway.
-            */}
-            {housemate === undefined || theirSections.all.length === 0 ? null : (
-              <View style={{ marginTop: space.lg }}>
-                <SectionHeader
-                  title={`${theirName}'s day`}
-                  count={theirSections.all.length - theirSections.done}
-                />
-                {renderPlanSection(theirSections, housemate.userId)}
-
-                <View
-                  style={{
-                    marginTop: space.sm,
-                    borderWidth: 1,
-                    borderStyle: 'dashed',
-                    borderColor: colors.rule,
-                    borderRadius: radius.md,
-                  }}
-                >
-                  <Button
-                    label={`Add to ${theirName}'s day`}
-                    variant="ghost"
-                    onPress={() => onAddFor?.(housemate.userId)}
-                  />
-                </View>
-              </View>
-            )}
-
-            {/*
-              Named, because it now sits below two lists.
-            
-              It reads "Add to my day" rather than "Add something": with a
-              housemate's section on the same screen, an unlabelled add button
-              under it looks like it adds to *theirs*, and a review found it
-              silently wrote to yours either way. Theirs has its own, inside
-              its section.
-            */}
             <View
               style={{
                 marginTop: space.md,
@@ -724,6 +680,67 @@ export function PlanScreen({
             </View>
           </>
         )}
+
+        {/*
+          Their day, under yours, and editable.
+
+          A section rather than the sheet this replaced, because Jake asked
+          for exactly that — "just show mine and then emily's below" — and
+          because a day you could see but not touch made the ordinary case
+          impossible: she is out, and the thing on her list is one you are
+          about to do anyway.
+        */}
+        {/*
+          Their day stands on its own.
+        
+          It used to live inside the "do I have a plan?" branch, so an empty day
+          of your own hid theirs entirely — heading, rows and the add button —
+          while the line at the top still said "Emily has 1 of 1 left". Claiming
+          shared work once made an empty plan the *routine* state for whoever
+          opens the app second, so this went from rare to daily, and it hid the
+          feature this screen was rebuilt for.
+        */}
+        {housemate === undefined || planUnknown ? null : (
+          <View style={{ marginTop: space.lg }}>
+            <SectionHeader
+              title={`${theirName}'s day`}
+              count={theirSections.all.length - theirSections.done}
+            />
+            {theirSections.all.length === 0 ? (
+              <Txt variant="small" tone="muted">
+                {`${theirName} hasn't planned anything today. Their day fills up when they open the app — or you can put something on it.`}
+              </Txt>
+            ) : (
+              renderPlanSection(theirSections, housemate.userId)
+            )}
+
+            <View
+              style={{
+                marginTop: space.sm,
+                borderWidth: 1,
+                borderStyle: 'dashed',
+                borderColor: colors.rule,
+                borderRadius: radius.md,
+              }}
+            >
+              <Button
+                label={`Add to ${theirName}'s day`}
+                variant="ghost"
+                onPress={() => onAddFor?.(housemate.userId)}
+              />
+            </View>
+          </View>
+        )}
+
+        {/*
+          Named, because it now sits below two lists.
+        
+          It reads "Add to my day" rather than "Add something": with a
+          housemate's section on the same screen, an unlabelled add button
+          under it looks like it adds to *theirs*, and a review found it
+          silently wrote to yours either way. Theirs has its own, inside
+          its section.
+        */}
       </ScrollView>
 
       <Confetti running={celebration?.tone === 'loud' && !alreadyMarked} />

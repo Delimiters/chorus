@@ -48,12 +48,23 @@ stable
 security definer
 set search_path = ''
 as $$
-  select exists (
-    select 1
-    from public.household_members hm
-    where hm.household_id = hid
-      and hm.user_id = uid
-  );
+  /*
+   * Only answers about a household the caller is in.
+   *
+   * Every other helper here is implicitly about `auth.uid()`; this one takes an
+   * arbitrary user, so without the first clause it answers "is X a member of
+   * Y?" for any pair a caller can name — a membership oracle. Not reachable
+   * today (PostgREST exposes only `public`, and `anon` has no USAGE on
+   * `private`), but the policies only ever call it with a household the caller
+   * already belongs to, so the restriction costs nothing.
+   */
+  select private.is_household_member(hid)
+     and exists (
+       select 1
+       from public.household_members hm
+       where hm.household_id = hid
+         and hm.user_id = uid
+     );
 $$;
 
 revoke all on function private.is_household_member_of(uuid, uuid) from public;
@@ -100,10 +111,14 @@ create policy plan_entries_update on public.plan_entries
   );
 
 /*
- * `chore_is_visible` here is defence in depth rather than the thing that stops
- * you: Postgres applies the SELECT policy to the rows a DELETE's WHERE clause
- * reads, so a blind delete already cannot reach a private chore's entry. The
- * header above claims it is on every policy, so it is.
+ * `chore_is_visible` here is the thing that stops you, not defence in depth.
+ *
+ * This comment used to claim the opposite — that the SELECT policy already
+ * covers it, because Postgres applies SELECT to rows a DELETE's WHERE clause
+ * reads. True for a DELETE with a WHERE clause; false for one without, which
+ * references no columns and so triggers no SELECT policy. A review measured it:
+ * with this clause removed, a bare `delete from plan_entries` destroys the
+ * entry for a chore the deleter is not allowed to know exists.
  */
 create policy plan_entries_delete on public.plan_entries
   for delete to authenticated
