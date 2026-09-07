@@ -29,9 +29,9 @@
  * Two copies of that rule would drift, and the drift would be invisible: the
  * preview would quietly stop matching what actually lands.
  *
- * The clock and the schedule shapes stay outside. `recurring` is passed in
- * because deciding it needs the chore, not the occurrence, and `on` is passed
- * in because this module never reads a clock.
+ * The clock stays outside: `on` is passed in because this module never reads
+ * one. Nothing about the chore's *schedule* is consulted any more — see the
+ * one-off reversal above — so an occurrence is all it needs.
  */
 
 import type { CivilDate } from '../civil/types';
@@ -61,7 +61,23 @@ interface Options {
   readonly userId: string;
   /** The day being filled. */
   readonly on: CivilDate;
-  /** Occurrence keys already on that person's plan for that day. */
+  /**
+   * Occurrence keys already spoken for that day — **anybody's plan, not only
+   * this person's**.
+   *
+   * `anyone` work counts for everyone, so each device auto-planned its own copy
+   * and the shared chore appeared on both plans at once. With both days on one
+   * screen that is the same row twice, one above the other, and at this
+   * household's size roughly half the screen. It also produced duplicate React
+   * keys and duplicate test ids for the same occurrence.
+   *
+   * Whoever's plan claims it first keeps it, which is what "anyone" means: once
+   * it is on somebody's day it is theirs, and the other person's list should
+   * not still be offering it.
+   *
+   * Work with a subject — `everyone` fans out per person — has a distinct key
+   * per person, so both still get their own.
+   */
   readonly planned: ReadonlySet<string>;
 }
 

@@ -163,11 +163,10 @@ export function useTheirPlanTotal(
 /**
  * Your housemate's day, in the order they put it in.
  *
- * Readable and not writable, and that asymmetry is enforced in the database
- * rather than by a disabled control: `plan_entries` is selectable by any
- * household member but every write policy requires `user_id = auth.uid()`, and
- * `plan.test.sql` asserts that Bob can neither reorder nor delete Alice's day.
- * So there is nothing to hide here — only something to show.
+ * Editable, as of 2026-09-07 — see docs/DECISIONS.md. This used to say the
+ * opposite, and said it confidently: every write policy required
+ * `user_id = auth.uid()` and `plan.test.sql` asserted that Bob could neither
+ * reorder nor delete Alice's day. Both were true then and neither is now.
  *
  * Cross-checked against what still exists, exactly as the two count hooks are:
  * an entry whose chore was archived, or whose schedule moved the occurrence
@@ -209,9 +208,15 @@ interface Addable {
   readonly choreId: string;
 }
 
-export function useAddToPlan(today: CivilDate) {
+export function useAddToPlan(today: CivilDate, ownerId?: string) {
   const householdId = useActiveHouseholdId();
-  const userId = useUserId();
+  const me = useUserId();
+  /*
+   * Whose day is being added to. Both plans are editable, and this was the one
+   * mutation never threaded — so "Add something" under your housemate's section
+   * silently wrote to your own, which reads as a dead button.
+   */
+  const userId = ownerId ?? me;
   const queryClient = useQueryClient();
   const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
 
@@ -439,7 +444,7 @@ export function useReorderPlan(today: CivilDate) {
      * flag hook and the add hook both got wrong by re-deriving inside
      * `mutationFn`, which runs *after* `onMutate` has already changed the cache.
      */
-    mutate: (occurrenceKey: string, position: number, ownerId?: string) => {
+    mutate: (occurrenceKey: string, position: number, ownerId?: string | undefined) => {
       const row = rowFor(occurrenceKey, ownerId);
       if (row === undefined) return;
       mutation.mutate({ id: row.id, position });

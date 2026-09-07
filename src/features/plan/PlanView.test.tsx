@@ -63,6 +63,9 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
 
 jest.mock('@/data/hooks/usePlan', () => ({
   useMyPlanEntries: () => mockEntries,
+  // Both plans, for deciding what shared work is already spoken for. The tests
+  // are single-user, so this is the same list.
+  usePlanEntries: () => mockEntries,
   usePlanUnavailable: () => mockPlanUnknown,
   usePlanLoading: () => mockEntriesLoading,
   useTheirPlanCount: () => 0,

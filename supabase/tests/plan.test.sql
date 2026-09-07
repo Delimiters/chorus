@@ -12,12 +12,16 @@ create extension if not exists pgtap with schema extensions;
 -- would otherwise count something Bob is not allowed to know exists.
 
 begin;
-select plan(11);
+select plan(12);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
   ('a1111111-1111-1111-1111-111111111111', 'pgtap-pl-alice@example.test', '{"display_name":"Alice"}'),
-  ('a2222222-2222-2222-2222-222222222222', 'pgtap-pl-bob@example.test',   '{"display_name":"Bob"}');
+  ('a2222222-2222-2222-2222-222222222222', 'pgtap-pl-bob@example.test',   '{"display_name":"Bob"}'),
+  -- In no household. She is the control for "whose day is this?": without a
+  -- real outsider, an assertion about who a row may belong to is an assertion
+  -- about the fixture having only one household.
+  ('a3333333-3333-3333-3333-333333333333', 'pgtap-pl-carol@example.test', '{"display_name":"Carol"}');
 
 insert into public.households (id, name, created_by, time_zone)
 values ('aa000000-0000-0000-0000-000000000001', 'Plan House',
@@ -164,15 +168,39 @@ with deleted as (
 select is((select count(*)::int from deleted), 1, 'and can take something off it');
 
 /*
- * Still bounded by the household. A member of one house cannot reach into
- * another's day, which the widened policies keep because every one of them
- * still carries `is_household_member`.
+ * Whose day it is has to be somebody in the house.
+ *
+ * The owner-only policy got this for free: `user_id = auth.uid()` plus a
+ * membership test meant the owner was a member. Widening the writer left
+ * `user_id` constrained only by its foreign key, which points at `profiles` —
+ * every user of the app. A review planted a row on a stranger and moved one of
+ * Alice's into a household she is not in, both against a live database.
+ *
+ * Carol (`a3333333…`) exists and is in no household here, which is what makes
+ * these two assertions about the policy rather than about the fixture — the
+ * previous version of this test compared a count against a single-household
+ * fixture and passed with RLS switched off entirely.
  */
-select is(
-  (select count(*)::int from public.plan_entries
-    where household_id <> 'aa000000-0000-0000-0000-000000000001'),
-  0,
-  'and sees nothing from a household he is not in'
+select throws_ok(
+  $$ insert into public.plan_entries
+       (household_id, user_id, chore_id, occurrence_key, planned_for, position)
+     values ('aa000000-0000-0000-0000-000000000001',
+             'a3333333-3333-3333-3333-333333333333',
+             'ab000000-0000-0000-0000-000000000001',
+             'v1:dishes:2026-08-29:0:-', '2026-08-29', 1) $$,
+  '42501',
+  'new row violates row-level security policy for table "plan_entries"',
+  'a row cannot be planted on somebody outside the household'
+);
+
+select throws_ok(
+  $$ update public.plan_entries
+        set user_id = 'a3333333-3333-3333-3333-333333333333'
+      where user_id = 'a1111111-1111-1111-1111-111111111111'
+        and planned_for = '2026-08-28' $$,
+  '42501',
+  'new row violates row-level security policy for table "plan_entries"',
+  'nor handed to one by an update'
 );
 
 select * from finish();

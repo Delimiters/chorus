@@ -114,6 +114,7 @@ const chore = (id: string, title: string) => ({
 });
 
 const onAdd = jest.fn();
+const mockAddFor = jest.fn();
 
 const onAcceptProposal = jest.fn();
 
@@ -129,12 +130,33 @@ function renderScreen(
         today={TODAY}
         refetch={async () => {}}
         onAdd={onAdd}
+        onAddFor={mockAddFor}
         proposal={proposal}
         onAcceptProposal={onAcceptProposal}
       />
     </ThemeProvider>,
   );
 }
+
+/** Re-render with a new agenda, which is how a tick arrives from the server. */
+const rerenderWith = (rerender: (ui: React.ReactElement) => void, available: AgendaItem[]) => {
+  act(() => {
+    rerender(
+      <ThemeProvider>
+        <PlanScreen
+          available={available}
+          chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+          today={TODAY}
+          refetch={async () => {}}
+          onAdd={onAdd}
+          onAddFor={mockAddFor}
+          proposal={null}
+          onAcceptProposal={onAcceptProposal}
+        />
+      </ThemeProvider>,
+    );
+  });
+};
 
 beforeEach(() => {
   mockEntries = [];
@@ -151,6 +173,7 @@ beforeEach(() => {
   mockReorder.mockClear();
   mockToggle.mockClear();
   onAdd.mockClear();
+  mockAddFor.mockClear();
   onAcceptProposal.mockClear();
   mockPush.mockClear();
 });
@@ -530,6 +553,7 @@ describe('the finish moment', () => {
           today={TODAY}
           refetch={async () => {}}
           onAdd={onAdd}
+          onAddFor={mockAddFor}
         />
       </ThemeProvider>,
     );
@@ -644,24 +668,6 @@ describe('finished work sinking to the bottom', () => {
     screen
       .getAllByTestId(/^(drag|done)-row:/)
       .map((row) => row.props.testID.replace(/^(drag|done)-row:v1:/, ''));
-
-  const rerenderWith = (rerender: (ui: React.ReactElement) => void, available: AgendaItem[]) => {
-    act(() => {
-      rerender(
-        <ThemeProvider>
-          <PlanScreen
-            available={available}
-            chores={available.map((i) => chore(i.choreId, i.choreTitle))}
-            today={TODAY}
-            refetch={async () => {}}
-            onAdd={onAdd}
-            proposal={null}
-            onAcceptProposal={onAcceptProposal}
-          />
-        </ThemeProvider>,
-      );
-    });
-  };
 
   it('holds a just-ticked row in place, then sinks it', () => {
     mockEntries = [entry('dishes', 1), entry('trash', 2), entry('bins', 3)];
@@ -847,5 +853,65 @@ describe('reordering a day that has finished work in it', () => {
     expect(
       screen.getAllByTestId(/^(drag|done)-row:/).map((row) => row.props.testID as string),
     ).toEqual(before);
+  });
+});
+
+describe('two days on one screen', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('offers a labelled way to add to each day', () => {
+    /*
+     * The add button used to sit unlabelled below both lists and write to yours
+     * whatever it looked like it meant — the one mutation never threaded with
+     * an owner. Under a housemate's section that reads as a dead button.
+     */
+    mockTheirEntries = [{ occurrenceKey: 'v1:bins', position: 1, plannedFor: TODAY }];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
+
+    fireEvent.press(screen.getByRole('button', { name: "Add to Sam's day" }));
+    expect(mockAddFor).toHaveBeenCalledWith(THEM);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Add to my day' }));
+    expect(onAdd).toHaveBeenCalled();
+  });
+
+  it('holds a row ticked on their day, exactly as on yours', () => {
+    /*
+     * `held` was fed from your plan alone and applied to both sections, so a
+     * row ticked on theirs sank the instant it was touched — the tick never
+     * landed visibly and undoing meant hunting for it below the line.
+     */
+    mockTheirEntries = [
+      { occurrenceKey: 'v1:bins', position: 1, plannedFor: TODAY },
+      { occurrenceKey: 'v1:mopping', position: 2, plannedFor: TODAY },
+    ];
+    mockEntries = [entry('dishes', 1)];
+    const { rerender } = renderScreen([
+      item('dishes', 'Dishes'),
+      item('bins', 'Bins'),
+      item('mopping', 'Mopping'),
+    ]);
+
+    rerenderWith(rerender, [
+      item('dishes', 'Dishes'),
+      item('bins', 'Bins', 'completed'),
+      item('mopping', 'Mopping'),
+    ]);
+
+    // Still in the draggable half, where it was.
+    expect(screen.queryByTestId('drag-row:v1:bins')).not.toBeNull();
+
+    act(() => {
+      jest.advanceTimersByTime(3500);
+    });
+
+    expect(screen.queryByTestId('done-row:v1:bins')).not.toBeNull();
   });
 });

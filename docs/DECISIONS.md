@@ -54,6 +54,15 @@ belongs to one person. If this app ever has households that are not couples,
 this policy is the first thing to revisit — a flatshare of five is a different
 trust model entirely.
 
+**What owner-only was silently also enforcing**, and had to be replaced
+explicitly: that a plan row's `user_id` is somebody *in that household*. The
+foreign key points at `profiles`, i.e. every user of the app, so `user_id =
+auth.uid()` plus a membership test was the only thing keeping the two together.
+Without a replacement, a review planted a row on a stranger and moved another
+person's row into a household its owner is not in — which disappears from both
+and is a deletion in disguise. `private.is_household_member_of` now says it
+outright, on insert and update.
+
 ---
 
 ## 2026-09-07 — One-off work is auto-planned
@@ -76,6 +85,13 @@ exact thing the plan was built to escape** — Emily's original complaint was a
 wall of outstanding work she closed the app rather than face. If this needs
 walking back, an age cap on one-off work is the smallest lever; the rule lives
 in `src/core/plan/autoplan.ts` and is one filter.
+
+**A consequence nobody asked for, flagged by review:** the celebration is
+effectively unreachable. "That's today", the confetti and the haptic all fire on
+`progress.finished`, which now requires clearing ~50 rows including one-offs
+three weeks old. The finish moment was a deliberate feature — Jake asked for it
+specifically — and it has been quietly switched off by a change about something
+else. The age cap would restore it. **Not decided.**
 
 ---
 

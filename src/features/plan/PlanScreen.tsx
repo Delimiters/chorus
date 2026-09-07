@@ -85,6 +85,8 @@ interface PlanScreenProps {
   readonly proposal?: { items: readonly AgendaItem[]; reason: string } | null;
   readonly onAcceptProposal?: (items: readonly AgendaItem[]) => void;
   readonly onAdd: () => void;
+  /** Add to somebody else's day. Absent while there is no housemate. */
+  readonly onAddFor?: ((ownerId: string) => void) | undefined;
 }
 
 export function PlanScreen({
@@ -93,6 +95,7 @@ export function PlanScreen({
   today,
   refetch,
   onAdd,
+  onAddFor,
   proposal = null,
   onAcceptProposal,
 }: PlanScreenProps) {
@@ -128,10 +131,8 @@ export function PlanScreen({
   /**
    * Their day, in their order, with what each row has become.
    *
-   * Read-only, and the database is what makes it so — every write policy on
-   * `plan_entries` requires the row to be yours. This is the *seeing* half,
-   * which is the half that was missing: the screen could say "Emily has 3
-   * planned" and offer no way to find out what they were.
+   * Editable, as of 2026-09-07: every write policy now requires only household
+   * membership. This said the opposite, confidently, until then.
    */
   /*
    * Skipped counts as finished, matching every other tally on this screen.
@@ -145,18 +146,6 @@ export function PlanScreen({
   const isSettled = (item: { status: string }) =>
     item.status === 'completed' || item.status === 'skipped';
 
-  /*
-   * What is due for them, for when they have not planned.
-   *
-   * The auto-plan runs on *their* device when they open the app, so a housemate
-   * who has not opened it has no plan at all — which is not the same as having
-   * nothing to do, and "Emily hasn't planned today" reads like a choice she
-   * made rather than an app she has not opened since Tuesday.
-   *
-   * Shown only in the empty case, and labelled as due rather than planned:
-   * inventing a plan she never made and calling it hers would be a lie about a
-   * decision, which is the one thing this screen is *for*.
-   */
   const toggle = useToggleCompletion();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -167,7 +156,10 @@ export function PlanScreen({
    * has to know which today. Without the owner it removed from your own day —
    * which, for a row on theirs, does nothing and reads as a dead button.
    */
-  const [removing, setRemoving] = useState<{ item: AgendaItem; ownerId: string } | null>(null);
+  const [removing, setRemoving] = useState<{
+    item: AgendaItem;
+    ownerId: string | undefined;
+  } | null>(null);
   // The list and the page cannot both own the finger: a drag inside a
   // ScrollView scrolls the page unless the page is frozen for its duration.
   const [dragging, setDragging] = useState(false);
@@ -180,6 +172,11 @@ export function PlanScreen({
       setRefreshing(false);
     }
   }, [refetch]);
+
+  const theirInPlanOrder = useMemo(
+    () => planFor(theirEntries, today as never, available),
+    [theirEntries, today, available],
+  );
 
   const inPlanOrder = useMemo(
     () => planFor(entries, today as never, available),
@@ -217,8 +214,21 @@ export function PlanScreen({
    */
   const wasDone = useRef<ReadonlyMap<string, boolean>>(new Map());
 
+  /*
+   * Both days, because both are on screen and both are tickable.
+   *
+   * Fed from your plan alone, `held` was applied to their section too — so a
+   * row you ticked on *their* day sank the instant you touched it, which is the
+   * thing the hold exists to prevent: you never see the tick land, and undoing
+   * means hunting for the row somewhere else.
+   */
+  const watched = useMemo(
+    () => [...inPlanOrder, ...theirInPlanOrder],
+    [inPlanOrder, theirInPlanOrder],
+  );
+
   useEffect(() => {
-    const now = new Map(inPlanOrder.map((p) => [p.item.occurrenceKey, isSettled(p.item)] as const));
+    const now = new Map(watched.map((p) => [p.item.occurrenceKey, isSettled(p.item)] as const));
 
     for (const [key, done] of now) {
       const before = wasDone.current.get(key);
@@ -255,7 +265,7 @@ export function PlanScreen({
     }
 
     wasDone.current = now;
-  }, [inPlanOrder]);
+  }, [watched]);
 
   useEffect(
     () => () => {
@@ -376,9 +386,16 @@ export function PlanScreen({
     [theirEntries, available, today, held],
   );
 
+  /*
+   * `userId ?? ''` would defeat the signed-out guard in the mutations: an empty
+   * string is not nullish, so `ownerId ?? userId` keeps it and the write goes
+   * out with an empty uuid instead of throwing "Please sign in again."
+   */
+  const myOwnerId = userId ?? undefined;
+
   const renderPlanSection = (
     section: ReturnType<typeof sectionsFor>,
-    ownerId: string,
+    ownerId: string | undefined,
   ): React.ReactNode => (
     <>
       <DragList
@@ -440,7 +457,7 @@ export function PlanScreen({
     </>
   );
 
-  const renderRow = ({ item }: { item: AgendaItem }, ownerId: string) => {
+  const renderRow = ({ item }: { item: AgendaItem }, ownerId: string | undefined) => {
     const meta = choreMeta.get(item.choreId);
     const category = categoryById.get(meta?.categoryId ?? '') ?? null;
     return (
@@ -644,7 +661,7 @@ export function PlanScreen({
               title={progress.finished ? 'Done today' : 'Doing today'}
               count={progress.finished ? progress.done : progress.total - progress.done}
             />
-            {renderPlanSection(mySections, userId ?? '')}
+            {renderPlanSection(mySections, myOwnerId)}
 
             {/*
               Their day, under yours, and editable.
@@ -662,9 +679,34 @@ export function PlanScreen({
                   count={theirSections.all.length - theirSections.done}
                 />
                 {renderPlanSection(theirSections, housemate.userId)}
+
+                <View
+                  style={{
+                    marginTop: space.sm,
+                    borderWidth: 1,
+                    borderStyle: 'dashed',
+                    borderColor: colors.rule,
+                    borderRadius: radius.md,
+                  }}
+                >
+                  <Button
+                    label={`Add to ${theirName}'s day`}
+                    variant="ghost"
+                    onPress={() => onAddFor?.(housemate.userId)}
+                  />
+                </View>
               </View>
             )}
 
+            {/*
+              Named, because it now sits below two lists.
+            
+              It reads "Add to my day" rather than "Add something": with a
+              housemate's section on the same screen, an unlabelled add button
+              under it looks like it adds to *theirs*, and a review found it
+              silently wrote to yours either way. Theirs has its own, inside
+              its section.
+            */}
             <View
               style={{
                 marginTop: space.md,
@@ -674,7 +716,11 @@ export function PlanScreen({
                 borderRadius: radius.md,
               }}
             >
-              <Button label="Add something" variant="ghost" onPress={onAdd} />
+              <Button
+                label={housemate === undefined ? 'Add something' : 'Add to my day'}
+                variant="ghost"
+                onPress={onAdd}
+              />
             </View>
           </>
         )}
