@@ -1,10 +1,21 @@
 /**
  * What a person's day gets filled with, before they have chosen anything.
  *
- * Recurring work that is due or late goes onto the plan by itself — it is the
- * baseline the day starts from, and choosing it every morning was the friction
- * the plan exists to remove. One-off work is still chosen, which is where the
- * proposal earns its keep.
+ * Anything due or late goes onto the plan by itself — it is the baseline the
+ * day starts from, and choosing it every morning was the friction the plan
+ * exists to remove.
+ *
+ * **One-off work is included, and that is a reversal.** This added only
+ * recurring chores, on the argument that a one-off is a decision and the
+ * proposal is where decisions belong. Jake asked for the opposite: *"I want
+ * both one time tasks that are due/overdue as well as any chore assigned to
+ * 'Anyone' or 'Everyone does' to appear automatically in the daily plan."*
+ *
+ * The cost is real and worth knowing when reading this: on his household that
+ * is 38 extra rows, the oldest three weeks old, taking a day from about 25 to
+ * about 50. A day that long is the thing the plan was built to escape. If it
+ * needs a limit later, an age cap on one-off work is the smallest one — but
+ * that is a product decision, not a correctness one, and it is not made here.
  *
  * ── Why this is here rather than inline in the effect that uses it ─────────
  *
@@ -45,15 +56,13 @@ export function belongsTo(item: Plannable, userId: string): boolean {
   );
 }
 
-interface Options<T> {
+interface Options {
   /** Whose day. */
   readonly userId: string;
   /** The day being filled. */
   readonly on: CivilDate;
   /** Occurrence keys already on that person's plan for that day. */
   readonly planned: ReadonlySet<string>;
-  /** Whether the occurrence's chore recurs. One-off work is never auto-added. */
-  readonly recurring: (item: T) => boolean;
 }
 
 /**
@@ -64,14 +73,13 @@ interface Options<T> {
  */
 export function autoPlannable<T extends Plannable>(
   items: readonly T[],
-  { userId, on, planned, recurring }: Options<T>,
+  { userId, on, planned }: Options,
 ): readonly T[] {
   return items.filter(
     (item) =>
       belongsTo(item, userId) &&
       (item.status === 'due' || item.status === 'overdue') &&
       item.dueOn <= on &&
-      !planned.has(item.occurrenceKey) &&
-      recurring(item),
+      !planned.has(item.occurrenceKey),
   );
 }

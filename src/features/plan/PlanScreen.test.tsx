@@ -126,7 +126,6 @@ function renderScreen(
       <PlanScreen
         available={available}
         chores={available.map((i) => chore(i.choreId, i.choreTitle))}
-        recurringChoreIds={new Set(available.map((i) => i.choreId))}
         today={TODAY}
         refetch={async () => {}}
         onAdd={onAdd}
@@ -636,7 +635,6 @@ describe('the finish moment', () => {
         <PlanScreen
           available={[item('dishes', 'Dishes', 'completed')]}
           chores={[chore('dishes', 'Dishes')]}
-          recurringChoreIds={new Set(['dishes'])}
           today={TODAY}
           refetch={async () => {}}
           onAdd={onAdd}
@@ -762,7 +760,6 @@ describe('finished work sinking to the bottom', () => {
           <PlanScreen
             available={available}
             chores={available.map((i) => chore(i.choreId, i.choreTitle))}
-            recurringChoreIds={new Set(available.map((i) => i.choreId))}
             today={TODAY}
             refetch={async () => {}}
             onAdd={onAdd}

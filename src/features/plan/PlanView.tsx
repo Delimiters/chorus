@@ -28,14 +28,6 @@ import { ErrorState, LoadingState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
 import { PlanScreen } from './PlanScreen';
 
-/** A schedule that is definitely not recurring, for a chore that has gone. */
-const FALLBACK_SCHEDULE = {
-  rule: { kind: 'unscheduled' },
-  startsOn: '1970-01-01',
-  endsOn: null,
-  timesOfDay: [],
-} as never;
-
 /**
  * How far ahead the picker can see.
  *
@@ -133,11 +125,6 @@ export function PlanView() {
             }) as unknown as AgendaItem,
         ),
     [chores, today],
-  );
-
-  const recurringChoreIds = useMemo(
-    () => new Set(chores.filter((c) => isRecurring(c.schedule)).map((c) => c.id)),
-    [chores],
   );
 
   const available = useMemo(
@@ -404,8 +391,6 @@ export function PlanView() {
       userId: userId ?? '',
       on: today,
       planned,
-      recurring: (item) =>
-        isRecurring(chores.find((c) => c.id === item.choreId)?.schedule ?? FALLBACK_SCHEDULE),
     });
 
     if (due.length === 0) {
@@ -512,13 +497,6 @@ export function PlanView() {
       <PlanScreen
         available={available}
         chores={chores}
-        /*
-         * Which chores recur, decided here because this is the layer that has
-         * their schedules — the screen's `chores` prop is a lighter shape. The
-         * screen needs it to forecast a housemate's day with the same rule that
-         * fills it.
-         */
-        recurringChoreIds={recurringChoreIds}
         today={today}
         refetch={refetch}
         onAdd={() => setPicking(true)}

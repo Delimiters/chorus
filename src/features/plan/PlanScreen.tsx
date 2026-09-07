@@ -86,8 +86,6 @@ interface PlanScreenProps {
   readonly proposal?: { items: readonly AgendaItem[]; reason: string } | null;
   readonly onAcceptProposal?: (items: readonly AgendaItem[]) => void;
   readonly onAdd: () => void;
-  /** Which chores recur — the screen's own `chores` prop has no schedules. */
-  readonly recurringChoreIds: ReadonlySet<string>;
 }
 
 export function PlanScreen({
@@ -96,7 +94,6 @@ export function PlanScreen({
   today,
   refetch,
   onAdd,
-  recurringChoreIds,
   proposal = null,
   onAcceptProposal,
 }: PlanScreenProps) {
@@ -185,9 +182,8 @@ export function PlanScreen({
       userId: housemate.userId,
       on: today as never,
       planned: new Set(theirEntries.map((e) => e.occurrenceKey)),
-      recurring: (item) => recurringChoreIds.has(item.choreId),
     });
-  }, [available, housemate, today, theirEntries, recurringChoreIds]);
+  }, [available, housemate, today, theirEntries]);
 
   const theirPlan = useMemo(() => {
     const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));

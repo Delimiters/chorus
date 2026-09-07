@@ -231,14 +231,21 @@ describe('recurring chores that are due today or late', () => {
     expect(addedKeys()).toEqual(['v1:litter']);
   });
 
-  it('leaves one-off work to be chosen', async () => {
-    // The whole argument for "proposed, not pre-filled" was about one-off work.
+  it('takes one-off work too, which is a reversal', async () => {
+    /*
+     * The original argument for "proposed, not pre-filled" was entirely about
+     * one-off work: a one-off is a decision, and decisions belong in the
+     * proposal. Jake asked for the opposite — one-time tasks that are due or
+     * overdue should land on the day by themselves.
+     *
+     * See docs/DECISIONS.md. On his household this is 38 extra rows.
+     */
     mockView.mine = [item('litter'), item('timesheet')];
     mockChores = [recurring('litter'), oneOff('timesheet')];
     renderView();
 
     await waitFor(() => expect(mockAdd).toHaveBeenCalled());
-    expect(addedKeys()).toEqual(['v1:litter']);
+    expect(addedKeys().sort()).toEqual(['v1:litter', 'v1:timesheet']);
   });
 
   it('happens once a day, so taking something off sticks', async () => {
@@ -346,10 +353,17 @@ describe('a chore created with "put it on today"', () => {
   });
 
   it('drops an intent left over from an earlier day', async () => {
-    // Kept until claimed, but not forever: a chore queued yesterday must not
-    // ambush somebody on a later morning by landing on the wrong day's plan.
+    /*
+     * Kept until claimed, but not forever: a chore queued yesterday must not
+     * ambush somebody on a later morning by landing on the wrong day's plan.
+     *
+     * The chore is dated in the future so the auto-plan does not add it for its
+     * own reasons — since one-off work started being auto-planned, an
+     * outstanding one-off is added anyway, and this test would pass without the
+     * queue being cleared at all.
+     */
     mockPlanOnCreate = [{ choreId: 'yesterday', queuedOn: civilDate('2026-08-31') }];
-    mockView.mine = [item('yesterday')];
+    mockView.mine = [{ ...item('yesterday'), dueOn: civilDate('2026-10-01') }];
     mockChores = [oneOff('yesterday')];
     renderView();
 
