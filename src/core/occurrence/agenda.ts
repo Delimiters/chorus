@@ -450,7 +450,17 @@ export function splitByUrgency(items: readonly AgendaItem[], today: CivilDate): 
   const comingUp: AgendaItem[] = [];
 
   for (const item of items) {
-    if (item.status === 'overdue') late.push(item);
+    /*
+     * Late by the same measure the row shows.
+     *
+     * Status alone was enough while lateness reset on every recurrence. It no
+     * longer does: a daily chore ignored for nine days has a survivor whose
+     * status is `due` — it is due today — and nine days of accumulated
+     * lateness. Bucketing on status put a row reading "9d late" under the
+     * heading "Due today", so the heading and the number on the same row
+     * disagreed.
+     */
+    if (item.status === 'overdue' || item.daysOverdue > 0) late.push(item);
     else if (compareCivil(item.dueOn, today) > 0) comingUp.push(item);
     else dueToday.push(item);
   }

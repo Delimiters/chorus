@@ -491,10 +491,16 @@ describe('arranging Today', () => {
 
     expect(screen.queryByRole('header', { name: /^Crucial/ })).toBeNull();
     expect(screen.queryByRole('header', { name: /^Normal/ })).toBeNull();
-    expect(screen.getByRole('header', { name: /^Late/ })).toBeOnTheScreen();
-    // One per person, since the arrangement is nested inside the ownership
-    // split rather than replacing it.
-    expect(screen.getAllByRole('header', { name: /^Due today/ }).length).toBe(2);
+    /*
+     * One per person, since the arrangement is nested inside the ownership
+     * split rather than replacing it.
+     *
+     * Both people have a Late section now: lateness accumulates from the last
+     * completion, so a chore whose current occurrence is merely due can still
+     * be days late, and the heading follows the same measure the row shows.
+     * Bucketing on status alone put a row reading "9d late" under "Due today".
+     */
+    expect(screen.getAllByRole('header', { name: /^Late/ }).length).toBe(2);
 
     // And back, so the control is a switch rather than a one-way door.
     fireEvent.press(screen.getByRole('tab', { name: 'Priority' }));
