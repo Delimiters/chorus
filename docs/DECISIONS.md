@@ -18,6 +18,46 @@ Newest first.
 
 ---
 
+## 2026-09-08 — Settings copy describes effects, not reasoning
+
+**Was:** hints on the Settings screen explained why defaults were chosen and
+used internal vocabulary — "Off by default: both phones would buzz about the
+same job", "roughly doubles the queue below", "one notification per bucket",
+"Three days ahead, not thirty". There was also a "Send a test reminder" button,
+a debugging affordance that shipped and stayed.
+
+**Now:** each hint says what the setting does for the person reading it. The
+test button is gone, along with `sendTestNotification` and the foreground
+handler's special case for it. Sections are headed by what a change affects —
+Household, Display on this phone, Notifications on this phone, Routines,
+Account.
+
+**Why:** Jake — *"things are just thrown in there with no context or headers and
+have this super AI sounding descriptions that like reference specific context of
+our conversations."* Notifications, the longest part of the screen, had no
+heading at all.
+
+**Two things removed rather than reworded:**
+
+- **The "New chores" switch.** It wrote `announceNewChores`, which nothing
+  reads: announcing a housemate's new chore needs a push between phones, which
+  needs a paid Apple account. The preference stays in the store so the setting
+  returns with the feature. A control that cannot do anything is worse than its
+  absence, which this screen already believed — it hides the reminder switch
+  entirely on a build that cannot schedule reminders.
+- **The `MAX_PENDING` disclosure** was cut and then *restored* in the reader's
+  own terms after review. It is an effect, not a rationale: past the cap, later
+  reminders simply never arrive, and without a sentence saying so that is
+  indistinguishable from a bug.
+
+**What the rewrite got wrong, caught in review:** the compact-rows hint said
+"tap a row", which opens the options sheet — the chevron is what expands. And
+"Both of you will be reminded" was a promise a per-phone switch cannot keep.
+Headings also lost the shared-versus-this-phone distinction the screen exists to
+make, which is why two of them now say "on this phone".
+
+---
+
 ## 2026-09-07 — The chores list moved to the Upcoming tab
 
 **Was:** Today had three sub-tabs — Plan, Chores, Routines — and a separate
