@@ -338,15 +338,22 @@ function useLingeringOneTimeChores(
     });
 
     /*
-     * Only what is outstanding *now*.
+     * Outstanding, or coming soon enough to be worth knowing about.
      *
-     * This is what keeps the forward half honest: a chore due in October with
-     * no `showFrom` is `upcoming`, not `due`, so it is dropped here and Today
-     * stays a list of things to actually do. Only a chore that has been asked
-     * to appear early survives.
+     * This used to keep only due-and-overdue, on the argument that a chore due
+     * in October is `upcoming` and Today should stay a list of things to
+     * actually do — and `showFrom` was how anything else earned its place.
+     *
+     * With that field gone, dropping `upcoming` here would make a one-time
+     * chore outside the projection window invisible again however close it got,
+     * which is the complaint this hook was written for. The horizon rule is the
+     * screen's to apply; this one's job is only to fetch what the window
+     * misses.
      */
     return toAgendaItems(
-      [...behind, ...ahead].filter((o) => o.status === 'due' || o.status === 'overdue'),
+      [...behind, ...ahead].filter(
+        (o) => o.status === 'due' || o.status === 'overdue' || o.status === 'upcoming',
+      ),
       today,
     );
   }, [
@@ -396,9 +403,19 @@ export function useToday_View() {
   const today = useToday(timeZone);
   const userId = useUserId();
 
-  // Two weeks back covers a weekly chore's miss; the collapse rule handles
-  // anything longer by superseding it anyway.
-  const window = useMemo(() => quantiseWindow(today, weekStartsOn, 2, 1), [today, weekStartsOn]);
+  /*
+   * Two weeks back, six forward.
+   *
+   * Back covers a weekly chore's miss; the collapse rule handles anything
+   * longer by superseding it anyway. Forward used to be one week, which was
+   * enough when a chore only appeared on its own day — a per-chore `showFrom`
+   * was what pulled anything else in.
+   *
+   * That is gone, replaced by one rule: late, due within thirty days, or
+   * undated. Thirty days from *any* day of the week needs six weeks from the
+   * week's start, so this is the window that rule requires rather than a guess.
+   */
+  const window = useMemo(() => quantiseWindow(today, weekStartsOn, 2, 6), [today, weekStartsOn]);
 
   const occurrences = useOccurrences(window);
   const lingering = useLingeringOneTimeChores(today, occurrences.calendar, window);

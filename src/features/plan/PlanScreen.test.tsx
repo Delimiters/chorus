@@ -23,6 +23,8 @@ let mockEntries: PlanEntry[] = [];
 let mockTheirCount = 0;
 let mockTheirTotal = 0;
 let mockPlanUnknown = false;
+let mockSubtasks = new Map<string, { id: string; title: string }[]>();
+const mockToggleSubtask = jest.fn();
 let mockTheirEntries: { occurrenceKey: string; position: number; plannedFor: string }[] = [];
 const mockRemove = jest.fn();
 const mockReorder = jest.fn();
@@ -64,7 +66,17 @@ jest.mock('@/design/haptics', () => ({
   celebrated: () => mockCelebrated(),
 }));
 
-jest.mock('@/stores/sessionStore', () => ({ useUserId: () => ME }));
+jest.mock('@/stores/sessionStore', () => ({
+  useUserId: () => ME,
+  // The plan reads subtasks now, and those hooks want a household.
+  useActiveHouseholdId: () => 'house-1',
+}));
+
+jest.mock('@/data/hooks/useSubtasks', () => ({
+  useSubtasksByChore: () => mockSubtasks,
+  useSubtaskTicksFor: () => new Map(),
+  useToggleSubtask: () => ({ mutate: mockToggleSubtask }),
+}));
 let mockCelebratedOn: string | null = null;
 const mockMarkCelebrated = jest.fn((day: string) => {
   mockCelebratedOn = day;
@@ -163,6 +175,8 @@ beforeEach(() => {
   mockTheirCount = 0;
   mockTheirTotal = 0;
   mockTheirEntries = [];
+  mockSubtasks = new Map();
+  mockToggleSubtask.mockClear();
   mockPlanUnknown = false;
   mockTapped.mockClear();
   mockFinished.mockClear();
@@ -913,5 +927,41 @@ describe('two days on one screen', () => {
     });
 
     expect(screen.queryByTestId('done-row:v1:bins')).not.toBeNull();
+  });
+});
+
+describe('the steps inside a planned chore', () => {
+  /*
+   * Jake: *"the plan tab has no way to view and check off subtasks when they're
+   * on a chore. That needs to be added, and in fact it should probably be
+   * fairly prominent, maybe you don't even need to expand the chore to see
+   * it."*
+   *
+   * The rows were compact, which folds detail away, and nothing passed the
+   * steps in at all — so there was no way to reach them even by expanding. On a
+   * day you have committed to, the steps are the work, so they start open.
+   */
+  beforeEach(() => {
+    mockSubtasks = new Map([['dishes', [{ id: 's1', title: 'Rinse the pans' }]]]);
+  });
+
+  it('shows them without being expanded', () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByText('Rinse the pans')).toBeOnTheScreen();
+  });
+
+  it('ticks one off against the occurrence it belongs to', () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('checkbox', { name: /Rinse the pans/ }));
+
+    expect(mockToggleSubtask).toHaveBeenCalledWith({
+      subtaskId: 's1',
+      ticked: true,
+      occurrenceKey: 'v1:dishes',
+    });
   });
 });

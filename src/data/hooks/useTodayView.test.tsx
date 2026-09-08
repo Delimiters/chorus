@@ -21,7 +21,14 @@ import type { CivilDate } from '@/core/civil/types';
 import { useToday_View } from './useOccurrences';
 
 const TODAY = '2026-08-17';
-const DUE = '2026-08-31'; // nine days past the end of Today's window
+/*
+ * Genuinely outside the projection window, which is now six weeks forward
+ * rather than one — widened so the thirty-day horizon fits inside it. A date
+ * that used to be nine days past the end is comfortably inside it today, and
+ * would have made these assertions about the ordinary path instead of this
+ * hook's.
+ */
+const DUE = '2026-11-30';
 
 const oneTimeChore = (showFrom?: string) => ({
   id: 'patio',
@@ -87,22 +94,34 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 /** Rendered once; the queries settle across re-renders of that same hook. */
 const renderToday = () => renderHook(() => useToday_View(), { wrapper });
 
-describe('a one-time chore due beyond the window Today fetches', () => {
-  it('appears when it has been asked to show early', async () => {
-    mockOneTime = [oneTimeChore(TODAY)];
+describe('a one-time chore due beyond the window Today projects', () => {
+  /*
+   * These asserted that `showFrom` pulled such a chore onto Today early, which
+   * was the only way it could appear before its date. That field is gone, and
+   * the window is six weeks wide, so everything inside the thirty-day horizon
+   * arrives by the ordinary path.
+   *
+   * What still has to hold here is that a chore beyond the window is *fetched
+   * at all* — it was invisible on every screen, which is the complaint this
+   * hook was written for. It now feeds the "All" scope rather than Today's
+   * outstanding list.
+   */
+  it('is fetched and upcoming, rather than missing', async () => {
+    mockOneTime = [oneTimeChore()];
     const { result } = renderToday();
 
     await waitFor(
       () => {
-        expect(result.current.view.mine.map((i) => i.choreTitle)).toContain('Set up new patio set');
+        expect(result.current.view.upcoming.map((i) => i.choreTitle)).toContain(
+          'Set up new patio set',
+        );
       },
       { timeout: 5000 },
     );
   });
 
-  it('stays away when it has not', async () => {
-    // Non-vacuity, and the rule that keeps Today a list of things to do: a
-    // chore due at the end of the month with no showFrom is upcoming.
+  it('is not counted as work to do now', async () => {
+    // The rule that keeps the outstanding list a list of things to do.
     mockOneTime = [oneTimeChore()];
     const { result } = renderToday();
 
@@ -110,7 +129,21 @@ describe('a one-time chore due beyond the window Today fetches', () => {
     expect(result.current.view.mine).toEqual([]);
   });
 
+  it('behaves identically whether or not it carries an old showFrom', async () => {
+    /*
+     * Forty-five stored chores still have one. The field is inert, not merely
+     * unused in the default case — same chore, same answer, with and without.
+     */
+    mockOneTime = [oneTimeChore(TODAY)];
+    const { result } = renderToday();
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.view.mine).toEqual([]);
+    expect(result.current.view.upcoming.map((i) => i.choreTitle)).toContain('Set up new patio set');
+  });
+
   it('is genuinely outside the window, or this proves nothing', () => {
-    expect(civilDate(DUE) > civilDate('2026-08-22')).toBe(true);
+    // Six weeks from the start of the week containing 2026-08-17.
+    expect(civilDate(DUE) > civilDate('2026-09-26')).toBe(true);
   });
 });

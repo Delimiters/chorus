@@ -114,7 +114,16 @@ export function expandOccurrences(
               // what made a dated chore with a lead time read as floating.
               rule.dueOn,
               rule.dueOn,
-              rule.showFrom === undefined ? null : minCivil(rule.showFrom, rule.dueOn),
+              /*
+               * Always null: `showFrom` is no longer carried onto occurrences.
+               *
+               * The field is still parsed from stored schedules, because forty
+               * five of this household's chores have one and must keep loading.
+               * Nothing reads it, and dropping it here means nothing downstream
+               * can start to — "present but unread" is how a dead field comes
+               * back to life. See docs/DECISIONS.md.
+               */
+              null,
             ),
           ]
         : [];

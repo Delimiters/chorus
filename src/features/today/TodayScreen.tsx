@@ -23,8 +23,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { useSubtaskTicksFor, useSubtasksByChore, useToggleSubtask } from '@/data/hooks/useSubtasks';
-import { ModeSwitch } from '@/features/common/ModeSwitch';
-import { useRoutineStore } from '@/stores/routineStore';
 import { useMyRoutineItems } from '@/data/hooks/useRoutines';
 
 import { splitByUrgency, type AgendaItem, type FloatingGroup } from '@/core/occurrence/agenda';
@@ -45,13 +43,22 @@ import { flaggedFirst } from '@/core/chore/flag';
 import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
 import { ArrangementControl } from '@/features/common/ArrangementControl';
-import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { ErrorState, Field, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
 import { MIN_TARGET, space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
 import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
 import { formatDayLong, formatFlexibleWindow } from '@/features/common/format';
+import { addDays } from '@/core/civil/date';
+
+/**
+ * How far ahead "Upcoming" looks.
+ *
+ * Thirty days, which is the rule verbatim. `useToday_View` projects six weeks
+ * from the start of the week precisely so this fits from any day of it.
+ */
+const HORIZON_DAYS = 30;
 
 /** Stable identity, so a row without ticks does not re-render needlessly. */
 const EMPTY_TICKS: ReadonlySet<string> = new Set();
@@ -88,7 +95,6 @@ export function TodayScreen() {
    * its count stay, so it can still be folded away on a heavy week.
    */
   const [comingUpOpen, setComingUpOpen] = useState(true);
-  const setTodayMode = useRoutineStore((s) => s.setTodayMode);
 
   /**
    * Which of your routine items already points at a chore.
@@ -406,10 +412,113 @@ export function TodayScreen() {
     [held, view.done],
   );
 
-  const mine = useMemo(() => arrange(withHeld(view.mine, 'mine')), [arrange, withHeld, view.mine]);
+  /*
+   * Search, over titles and notes.
+   *
+   * The plan's picker has had one since Jake could not find "Water upstairs
+   * plants" in a list of fifty-five; this list is the same size and had none.
+   * Notes are searched as well as titles because that is where the detail that
+   * distinguishes two similar chores lives.
+   *
+   * Applied to the sections rather than replacing them: a filtered list that
+   * also reorganises itself is harder to read, not easier, and the headings are
+   * what tell you whose work you are looking at.
+   */
+  /*
+   * What the list is for: what is coming, or everything.
+   *
+   * One rule for the whole list, replacing the per-chore "show on the Today
+   * tab" setting — late, due within thirty days, or undated. Jake: *"a hard and
+   * fast rule ... then maybe a smallish dropdown or toggle that switches
+   * between Upcoming and All."*
+   *
+   * "All" is not the master chore list: these rows are checkable and carry
+   * their category, lateness, notes and steps. That is the difference worth
+   * keeping, and the reason this is a scope on this screen rather than a link
+   * to the library.
+   */
+  const [scope, setScope] = useState<'upcoming' | 'all'>('upcoming');
+
+  /** Thirty days, the whole of the "coming" half of the rule. */
+  const horizon = useMemo(() => addDays(today, HORIZON_DAYS), [today]);
+
+  /*
+   * One row per chore, at its next occurrence.
+   *
+   * `view.upcoming` holds *every* future occurrence in the window, so a daily
+   * chore contributes one row per day — six weeks of window is forty-two rows
+   * for a single chore, and this household has twenty-five daily ones. The list
+   * is "what is coming", not "every time it will ever recur".
+   */
+  const nextPerChore = useCallback((items: readonly AgendaItem[], exclude: ReadonlySet<string>) => {
+    const soonest = new Map<string, AgendaItem>();
+    for (const item of items) {
+      // Already outstanding, so it is on the list above. A chore appears
+      // once: as work to do now, or as work coming — never as both.
+      if (exclude.has(item.choreId)) continue;
+      const held = soonest.get(item.choreId);
+      if (held === undefined || item.dueOn < held.dueOn) soonest.set(item.choreId, item);
+    }
+    return [...soonest.values()];
+  }, []);
+
+  /*
+   * Chores already represented today, in any state.
+   *
+   * Done and skipped count. Without them, ticking a daily chore off dropped it
+   * from the outstanding list and its *next* occurrence immediately appeared
+   * under "Coming up" — the row bouncing back the moment you finished it, which
+   * is the disappearing-and-reappearing complaint in a new costume.
+   */
+  /*
+   * Floating groups for the period we are actually in.
+   *
+   * A "three times this week" chore has one group per week, and the projection
+   * window is six weeks — so every floating chore would be drawn six times over,
+   * five of them for weeks that have not started. Only the current period is
+   * work; "All" lifts the bound like everywhere else on this screen.
+   */
+  const floatingGroups = useMemo(
+    () =>
+      scope === 'all'
+        ? view.floating
+        : view.floating.filter((g) => g.flexibleFrom <= today && today <= g.flexibleUntil),
+    [view.floating, scope, today],
+  );
+
+  const alreadyShown = useMemo(
+    () =>
+      new Set([...view.mine, ...view.theirs, ...view.done, ...view.skipped].map((i) => i.choreId)),
+    [view.mine, view.theirs, view.done, view.skipped],
+  );
+
+  const withinHorizon = useCallback(
+    (items: readonly AgendaItem[]) =>
+      scope === 'all' ? items : items.filter((item) => item.dueOn <= horizon),
+    [scope, horizon],
+  );
+
+  const [query, setQuery] = useState('');
+  const matches = useCallback(
+    (items: readonly AgendaItem[]) => {
+      const needle = query.trim().toLowerCase();
+      if (needle.length === 0) return items;
+      return items.filter(
+        (item) =>
+          item.choreTitle.toLowerCase().includes(needle) ||
+          (choreMeta.get(item.choreId)?.notes ?? '').toLowerCase().includes(needle),
+      );
+    },
+    [query, choreMeta],
+  );
+
+  const mine = useMemo(
+    () => arrange(matches(withHeld(view.mine, 'mine'))),
+    [arrange, withHeld, view.mine, matches],
+  );
   const theirs = useMemo(
-    () => arrange(withHeld(view.theirs, 'theirs')),
-    [arrange, withHeld, view.theirs],
+    () => arrange(matches(withHeld(view.theirs, 'theirs'))),
+    [arrange, withHeld, view.theirs, matches],
   );
 
   /**
@@ -428,13 +537,35 @@ export function TodayScreen() {
    * the exact complaint this branch exists to fix, in a worse form than before,
    * and on this household two thirds of the list is rows like that.
    */
+  /*
+   * What is coming, bounded by the rule rather than by a per-chore setting.
+   *
+   * `splitByUrgency` still separates work that is not pressing from work that
+   * is; `view.upcoming` is added to it because nothing pulls a future chore
+   * forward any more, so this is the only way a dated job appears before its
+   * day. In "All" the horizon is lifted and the whole projected window shows.
+   */
   const comingUp = useMemo(
     () =>
-      splitByUrgency(
-        sortItems([...withHeld(view.mine, 'mine'), ...withHeld(view.theirs, 'theirs')]),
-        today,
-      ).comingUp,
-    [sortItems, withHeld, view.mine, view.theirs, today],
+      matches([
+        ...splitByUrgency(
+          sortItems([...withHeld(view.mine, 'mine'), ...withHeld(view.theirs, 'theirs')]),
+          today,
+        ).comingUp,
+        ...sortItems(withinHorizon(nextPerChore(view.upcoming, alreadyShown))),
+      ]),
+    [
+      sortItems,
+      withHeld,
+      view.mine,
+      view.theirs,
+      view.upcoming,
+      today,
+      matches,
+      withinHorizon,
+      nextPerChore,
+      alreadyShown,
+    ],
   );
 
   const renderFloating = (group: FloatingGroup) => {
@@ -512,11 +643,15 @@ export function TodayScreen() {
           />
         }
       >
-        <ModeSwitch mode="chores" onChange={setTodayMode} />
-
         <Stack gap={2} style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
+          {/*
+            Not "Today" any more: this list lives on the Upcoming tab and holds
+            work that is late as well as work that is coming, so neither the tab
+            name nor "Today" describes it. It is also not "Chores", which is the
+            library tab — the difference is that these rows can be ticked off.
+          */}
           <Txt variant="display" accessibilityRole="header">
-            Today
+            What&apos;s on
           </Txt>
           <Txt variant="mono" tone="faint">
             {formatDayLong(today).toUpperCase()}
@@ -531,6 +666,56 @@ export function TodayScreen() {
             </Txt>
           )}
         </Stack>
+
+        {/*
+          Search, above the list and below the date.
+        
+          The picker learned this lesson first: at fifty-odd rows, grouping is
+          right for browsing and useless for looking one thing up, and looking
+          one thing up is the common case on a list this long.
+        */}
+        {/*
+          The scope, as a filter statement rather than a second navigation bar.
+        
+          A full-width segmented control here would sit directly under the mode
+          switch — two identical pill bars, one above the other, meaning quite
+          different things. These are label-styled toggles instead: they read as
+          a caption saying what the list is, they line up with the section
+          headings below, and the active one carries the accent.
+        */}
+        <View
+          style={{
+            flexDirection: 'row',
+            gap: space.md,
+            paddingHorizontal: space.sm,
+            paddingBottom: space.xs,
+          }}
+        >
+          {(['upcoming', 'all'] as const).map((option) => (
+            <Pressable
+              key={option}
+              onPress={() => setScope(option)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: scope === option }}
+              accessibilityLabel={option === 'upcoming' ? 'Show what is coming' : 'Show everything'}
+              style={{ minHeight: MIN_TARGET, justifyContent: 'center' }}
+            >
+              <Txt variant="label" tone={scope === option ? 'accent' : 'faint'}>
+                {option === 'upcoming' ? 'Upcoming' : 'All'}
+              </Txt>
+            </Pressable>
+          ))}
+        </View>
+
+        <Field
+          label=""
+          placeholder="Search today"
+          value={query}
+          onChangeText={setQuery}
+          autoCorrect={false}
+          autoCapitalize="none"
+          accessibilityLabel="Search today's chores"
+        />
 
         {unreadable.length > 0 ? (
           <View style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
@@ -602,10 +787,10 @@ export function TodayScreen() {
           loosest commitment on the screen: due *sometime* this week rather
           than on any particular day.
         */}
-        {view.floating.length > 0 ? (
+        {floatingGroups.length > 0 ? (
           <>
             <SectionHeader title={formatFlexibleWindow.sectionTitle} />
-            <Stack gap={space.xs}>{view.floating.map(renderFloating)}</Stack>
+            <Stack gap={space.xs}>{floatingGroups.map(renderFloating)}</Stack>
           </>
         ) : null}
 

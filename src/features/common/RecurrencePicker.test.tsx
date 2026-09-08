@@ -389,27 +389,46 @@ describe('a one-time chore you can do any time that month', () => {
       dueOn: civilDate('2026-08-31'),
       granularity: 'day',
     });
-    await fireEvent.press(screen.getByLabelText('All month'));
+    await fireEvent.press(screen.getByLabelText('That month'));
 
     expect(rule()).toEqual({
       kind: 'once',
       dueOn: civilDate('2026-08-31'),
       granularity: 'month',
-      showFrom: civilDate('2026-08-01'),
     });
   });
 
   it('does not rewrite the wording of a chore it was not asked to change', async () => {
-    // The silent-rewrite guard. Deriving granularity from the control alone
-    // turned every stored "once in the week of…" into "once on…" the moment
-    // anything else on the form was saved.
+    /*
+     * The silent-rewrite guard. Deriving granularity from a control that also
+     * meant something else turned every stored "once in the week of…" into
+     * "once on…" the moment anything else on the form was saved.
+     *
+     * The control now means only this, so the guard is simply that opening and
+     * saving a chore returns what it already said.
+     */
     const { rule } = await renderPicker({
       kind: 'once',
       dueOn: civilDate('2026-08-31'),
       granularity: 'week',
     });
-    await fireEvent.press(screen.getByLabelText('A week early'));
 
-    expect(rule()).toMatchObject({ granularity: 'week', showFrom: civilDate('2026-08-24') });
+    expect(rule()).toMatchObject({ granularity: 'week' });
+  });
+
+  it('no longer writes a showFrom, whatever the window', async () => {
+    /*
+     * Non-vacuity for the removal: the field is gone from what the form
+     * produces, not merely absent from the default. Forty-five stored chores
+     * still carry one and still load — nothing reads it.
+     */
+    const { rule } = await renderPicker({
+      kind: 'once',
+      dueOn: civilDate('2026-08-31'),
+      granularity: 'day',
+    });
+    await fireEvent.press(screen.getByLabelText('That month'));
+
+    expect(rule()).not.toHaveProperty('showFrom');
   });
 });

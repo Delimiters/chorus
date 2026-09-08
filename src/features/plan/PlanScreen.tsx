@@ -51,6 +51,7 @@ import { useUserId } from '@/stores/sessionStore';
 import { formatDayLong } from '@/features/common/format';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
 import { useRoutineStore } from '@/stores/routineStore';
+import { useSubtaskTicksFor, useSubtasksByChore, useToggleSubtask } from '@/data/hooks/useSubtasks';
 
 /**
  * How long a just-finished row stays where it is before sinking.
@@ -59,6 +60,9 @@ import { useRoutineStore } from '@/stores/routineStore';
  * that the list is tidy again by the time you look back up. Three seconds is a
  * guess made on the sofa rather than a measurement; it is one number to change.
  */
+/** Shared empty set, so a row without ticks does not get a new one each render. */
+const EMPTY_TICKS: ReadonlySet<string> = new Set();
+
 const SETTLE_MS = 3000;
 
 interface PlanScreenProps {
@@ -457,6 +461,17 @@ export function PlanScreen({
     </>
   );
 
+  const subtasksByChore = useSubtasksByChore();
+  const stepKeys = useMemo(
+    () =>
+      [...mySections.all, ...theirSections.all]
+        .filter((p) => subtasksByChore.has(p.item.choreId))
+        .map((p) => p.item.occurrenceKey),
+    [mySections, theirSections, subtasksByChore],
+  );
+  const ticksByOccurrence = useSubtaskTicksFor(stepKeys);
+  const toggleSubtask = useToggleSubtask(today as never);
+
   const renderRow = ({ item }: { item: AgendaItem }, ownerId: string | undefined) => {
     const meta = choreMeta.get(item.choreId);
     const category = categoryById.get(meta?.categoryId ?? '') ?? null;
@@ -468,6 +483,19 @@ export function PlanScreen({
         turnLabel={null}
         scheduleLabel=""
         notes={meta?.notes ?? null}
+        /*
+         * The steps, open by default.
+         *
+         * The plan had no way to see or tick a chore's steps at all — the rows
+         * are compact, which folds detail away, and nothing passed them in the
+         * first place. On a day you have committed to, the steps are the work.
+         */
+        subtasks={subtasksByChore.get(item.choreId) ?? []}
+        tickedSubtasks={ticksByOccurrence.get(item.occurrenceKey) ?? EMPTY_TICKS}
+        onToggleSubtask={(subtaskId, ticked) =>
+          toggleSubtask.mutate({ subtaskId, ticked, occurrenceKey: item.occurrenceKey })
+        }
+        stepsOpenByDefault
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={toPriority(meta?.priority)}
         icon={toIconName(meta?.icon ?? null)}

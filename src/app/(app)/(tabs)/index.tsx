@@ -16,7 +16,6 @@ import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useToday } from '@/data/today';
 import { RoutinesView } from '@/features/routines/RoutinesView';
 import { PlanView } from '@/features/plan/PlanView';
-import { TodayScreen } from '@/features/today/TodayScreen';
 import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
 import { LoadingState } from '@/design/components';
 import { useUserId } from '@/stores/sessionStore';
@@ -40,8 +39,13 @@ export default function TodayTab() {
    */
   if (!hydrated) return <LoadingState />;
 
-  if (preference.todayMode === 'plan') return <PlanView />;
-  if (preference.todayMode === 'chores') return <TodayScreen />;
+  /*
+   * `'chores'` is no longer one of this tab's answers — the chores list moved
+   * to Upcoming — but it is still stored on both phones from before the move.
+   * It falls through to the plan rather than to routines, because the plan is
+   * what that segment sat next to and what this tab now leads with.
+   */
+  if (preference.todayMode === 'plan' || preference.todayMode === 'chores') return <PlanView />;
 
   const myInk = members.data?.find((m) => m.userId === userId)?.accent ?? null;
 

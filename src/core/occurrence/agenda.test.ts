@@ -82,6 +82,60 @@ describe('collapsing superseded misses', () => {
     expect(outstanding[0]?.status).toBe('due');
   });
 
+  it('counts lateness from when it was last done, not from the newest occurrence', () => {
+    /*
+     * Jake: *"I just want the days late to keep adding up now that the schedule
+     * resets when you do it and counts from the last time you did it."*
+     *
+     * Measured from the occurrence on screen, a daily chore is never more than
+     * a day late however long it has been ignored — each new recurrence resets
+     * the number and the history goes into a separate "missed last 9 times".
+     * Two numbers, neither of which is how long the job has been waiting.
+     *
+     * A daily chore from the 1st, untouched, on the 10th: the run starts on the
+     * 1st, so it is nine days late.
+     */
+    const today = d('2026-01-10');
+    const items = collapseSupersededMisses(
+      project([chore({ schedule: daily('2026-01-01') })], today, {
+        start: d('2026-01-01'),
+        end: d('2026-01-10'),
+      }),
+      today,
+    );
+    const outstanding = items.filter((i) => i.status === 'due' || i.status === 'overdue');
+    expect(outstanding[0]?.daysOverdue).toBe(9);
+  });
+
+  it('starts the count again once it has actually been done', () => {
+    /*
+     * The other half, and the reason this is "since you last did it" rather
+     * than "since it first appeared". A completion ends the run, so the number
+     * restarts from the next miss — otherwise doing the job would leave the row
+     * still claiming a fortnight of lateness.
+     */
+    const today = d('2026-01-10');
+    const items = collapseSupersededMisses(
+      project(
+        [chore({ schedule: daily('2026-01-01') })],
+        today,
+        { start: d('2026-01-01'), end: d('2026-01-10') },
+        [
+          {
+            choreId: 'chore',
+            occurrenceKey: 'v1:chore:2026-01-08:0:-',
+            completedOn: d('2026-01-08'),
+            completedBy: ME,
+          },
+        ],
+      ),
+      today,
+    );
+    const outstanding = items.filter((i) => i.status === 'due' || i.status === 'overdue');
+    // Done on the 8th, so the run is the 9th onward: one missed day, not nine.
+    expect(outstanding[0]?.daysOverdue).toBe(1);
+  });
+
   it('records how many were missed before the survivor', () => {
     const today = d('2026-01-10');
     const items = collapseSupersededMisses(
@@ -897,8 +951,11 @@ describe('a dated chore asked to appear early', () => {
    * every such chore into the floating band — a different kind of thing, drawn
    * with progress pips, and sorted apart from everything else.
    *
-   * Visibility is now its own field, and the completion window says what it
-   * always said.
+   * Visibility was made its own field so the completion window could keep
+   * saying what it always said. The field is gone now — one rule decides what
+   * Today shows — but the separation it forced is exactly what still has to
+   * hold: a dated chore is a dated chore, never a floating one, whatever else
+   * is attached to it. Forty-five stored chores still carry the old field.
    */
   const early = project(
     [
@@ -929,13 +986,19 @@ describe('a dated chore asked to appear early', () => {
     expect(isFloatingItem(early[0]!)).toBe(false);
   });
 
-  it('is still due, which is the point of asking', () => {
-    expect(early[0]?.status).toBe('due');
+  it('is upcoming until its date, since the field no longer moves it', () => {
+    expect(early[0]?.status).toBe('upcoming');
   });
 
   it('lands in the ordinary lists rather than the floating band', () => {
+    /*
+     * The assertion that matters, and the one the field was introduced for: a
+     * chore with a wide completion window must not be filed as floating and
+     * drawn with progress pips. `upcoming` rather than `mine` now, because
+     * nothing pulls a dated chore forward any more.
+     */
     const view = buildTodayView(toAgendaItems(early, d('2026-08-17')), d('2026-08-17'), ME);
-    expect(view.mine.map((i) => i.choreId)).toEqual(['patio']);
+    expect(view.upcoming.map((i) => i.choreId)).toEqual(['patio']);
     expect(view.floating).toEqual([]);
   });
 });

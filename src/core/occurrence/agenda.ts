@@ -115,11 +115,19 @@ export function collapseSupersededMisses(
      * overstated — the safer direction for a number shown as a fact.
      */
     let missedBefore = 0;
+    /*
+     * Where the run began, which is where lateness is counted from.
+     *
+     * The same walk that counts the misses finds the oldest one still in the
+     * run — the first occurrence after the last time this was actually done.
+     */
+    let runStart: ProjectedOccurrence | undefined;
     for (let i = earlier.length - 1; i >= 0; i -= 1) {
-      const status = (earlier[i] as ProjectedOccurrence).status;
-      if (status === 'skipped') continue;
-      if (status !== 'overdue' && status !== 'due') break;
+      const occ = earlier[i] as ProjectedOccurrence;
+      if (occ.status === 'skipped') continue;
+      if (occ.status !== 'overdue' && occ.status !== 'due') break;
       missedBefore += 1;
+      runStart = occ;
     }
 
     for (const occ of latest) {
@@ -127,7 +135,7 @@ export function collapseSupersededMisses(
       // ones are superseded. Its date is outside the window, so it is not ours
       // to render.
       if (occ.displaced) continue;
-      kept.push(toAgendaItem(occ, today, missedBefore));
+      kept.push(toAgendaItem(occ, today, missedBefore, runStart?.flexibleUntil));
     }
 
     for (const occ of earlier) {
@@ -202,11 +210,39 @@ function toAgendaItem(
   occ: ProjectedOccurrence,
   today: CivilDate,
   missedBefore: number,
+  /**
+   * When the chore *started* being late, if earlier than this occurrence.
+   *
+   * Lateness used to be measured from the occurrence on screen, so every new
+   * recurrence reset it to zero and the history was summarised beside it as
+   * "missed last 3 times" — two numbers, neither of which is how long the job
+   * has actually been waiting. Jake: *"I just want the days late to keep adding
+   * up now that the schedule resets when you do it and counts from the last
+   * time you did it."*
+   *
+   * The run of consecutive misses begins the day after the last completion, so
+   * counting from its start is exactly "how long since you last did this".
+   */
+  lateSince?: CivilDate,
 ): AgendaItem {
   return {
     ...occ,
     missedBefore,
-    daysOverdue: occ.status === 'overdue' ? Math.max(0, daysBetween(occ.flexibleUntil, today)) : 0,
+    /*
+     * A run of misses makes the chore late even when today's occurrence is
+     * only just due.
+     *
+     * A daily chore ignored for nine days has a survivor whose status is `due`
+     * — it *is* due today — so keying off the status alone reported zero and
+     * put the nine into a separate "missed last 9 times". The chore has been
+     * waiting nine days either way, and that is the number worth showing.
+     */
+    daysOverdue:
+      lateSince !== undefined
+        ? Math.max(0, daysBetween(lateSince, today))
+        : occ.status === 'overdue'
+          ? Math.max(0, daysBetween(occ.flexibleUntil, today))
+          : 0,
   };
 }
 
@@ -414,7 +450,17 @@ export function splitByUrgency(items: readonly AgendaItem[], today: CivilDate): 
   const comingUp: AgendaItem[] = [];
 
   for (const item of items) {
-    if (item.status === 'overdue') late.push(item);
+    /*
+     * Late by the same measure the row shows.
+     *
+     * Status alone was enough while lateness reset on every recurrence. It no
+     * longer does: a daily chore ignored for nine days has a survivor whose
+     * status is `due` — it is due today — and nine days of accumulated
+     * lateness. Bucketing on status put a row reading "9d late" under the
+     * heading "Due today", so the heading and the number on the same row
+     * disagreed.
+     */
+    if (item.status === 'overdue' || item.daysOverdue > 0) late.push(item);
     else if (compareCivil(item.dueOn, today) > 0) comingUp.push(item);
     else dueToday.push(item);
   }

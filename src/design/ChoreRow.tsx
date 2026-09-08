@@ -18,7 +18,7 @@ import { inkColor, inkSoft } from './inks';
 import { useTheme } from './theme';
 import { MIN_TARGET, radius, space } from './tokens';
 import { Txt } from './components';
-import { formatLateness, formatMissedBefore } from './format';
+import { formatLateness } from './format';
 import type { Priority } from '@/core/chore/priority';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
@@ -207,6 +207,13 @@ interface ChoreRowProps {
    * collapsed list of things to do is a list nobody reads.
    */
   subtasks?: readonly { id: string; title: string }[];
+  /**
+   * Show the steps without being asked, on a compact row that has some.
+   *
+   * The plan sets this: a planned chore is one you are about to do, and its
+   * steps are the doing. Elsewhere a compact row stays folded.
+   */
+  stepsOpenByDefault?: boolean;
   /** Which of them are ticked for *this* occurrence. */
   tickedSubtasks?: ReadonlySet<string>;
   onToggleSubtask?: (subtaskId: string, ticked: boolean) => void;
@@ -259,6 +266,7 @@ export function ChoreRow({
   flagged = false,
   onToggleFlag,
   subtasks = [],
+  stepsOpenByDefault = false,
   tickedSubtasks,
   onToggleSubtask,
   onToggle,
@@ -278,12 +286,30 @@ export function ChoreRow({
    * starts closed, because the whole point of it is to be one line until you
    * ask for more.
    */
-  const [stepsOpen, setStepsOpen] = useState(!compact);
+  /*
+   * Steps start open when there are any and the row asks for it.
+   *
+   * A compact row folds its detail away, which is right for a long list — but
+   * on the plan the steps *are* the work: Jake found no way to see or tick them
+   * at all there, and asked for them to be prominent, "maybe you don't even
+   * need to expand the chore to see it".
+   */
+  const [stepsOpen, setStepsOpen] = useState(
+    !compact || (stepsOpenByDefault && subtasks.length > 0),
+  );
   const slim = compact && !stepsOpen;
   const ticked = tickedSubtasks ?? EMPTY_TICKS;
   const stepsDone = subtasks.filter((s) => ticked.has(s.id)).length;
   const done = item.status === 'completed';
-  const overdue = item.status === 'overdue';
+  /*
+   * Late, which is not the same as "this occurrence is overdue".
+   *
+   * A chore ignored for nine days has a *due* occurrence today and nine days of
+   * lateness behind it. Reading the status alone showed no lateness at all and
+   * pushed the history into a separate "missed last 9 times" — see
+   * `toAgendaItem`, where the count now runs from the last time it was done.
+   */
+  const overdue = item.status === 'overdue' || item.daysOverdue > 0;
   const skipped = item.status === 'skipped';
 
   return (
@@ -387,15 +413,24 @@ export function ChoreRow({
               you less than the extra line costs, and a chore whose name really
               needs two lines is allowed to be the taller row.
 
-              The wrapper carries `minWidth: 0`, and that is the whole fix for
-              the overflow. Yoga will not shrink a box below its own min-content
-              width — for text, the longest word — unless told it may, so
-              "Find cardiologist and schedule" stayed one long line and shoved
-              the category, the lateness and the chevron past the right edge,
-              where `overflow: hidden` made them invisible but still tappable.
-              `flex: 1` alone does not lift that floor; `minWidth: 0` does.
+              The wrapper carries `minWidth: 0` **in both states**, and that is
+              the whole fix for the overflow. Yoga will not shrink a box below
+              its own min-content width — for text, the longest word — unless
+              told it may, so "Find cardiologist and schedule" stayed one long
+              line and shoved the category, the lateness and the chevron past
+              the right edge, where `overflow: hidden` made them invisible but
+              still tappable. `flex: 1` and `flexShrink: 1` alone do not lift
+              that floor; `minWidth: 0` does.
+
+              It was applied to the slim branch only, directly under a comment
+              calling it "the whole fix", so an *expanded* row still had no
+              floor lifted — which is why Jake kept reporting the row bursting
+              its cell after expanding and collapsing, on build after build.
             */}
-            <View testID="title-column" style={slim ? { flex: 1, minWidth: 0 } : { flexShrink: 1 }}>
+            <View
+              testID="title-column"
+              style={slim ? { flex: 1, minWidth: 0 } : { flexShrink: 1, minWidth: 0 }}
+            >
               <Txt
                 variant="bodyStrong"
                 style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
@@ -516,12 +551,16 @@ export function ChoreRow({
                 </Txt>
               )}
 
-              {/* Quiet, not a reproach — see the overdue rule in DESIGN_SYSTEM.md. */}
-              {item.missedBefore > 0 && !done ? (
-                <Txt variant="small" tone="faint">
-                  {`· ${formatMissedBefore(item.missedBefore)}`}
-                </Txt>
-              ) : null}
+              {/*
+                No "missed last 3 times" any more.
+              
+                It existed because lateness reset every time a new recurrence
+                arrived, so the history had to be reported separately — two
+                numbers, neither of which was how long the job had been waiting.
+                Lateness now runs from the last time it was actually done, so
+                the chip beside it already says it: "9d late" *is* the run.
+                `missedBefore` stays on the item; nothing renders it.
+              */}
             </View>
           )}
 

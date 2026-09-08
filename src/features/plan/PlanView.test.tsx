@@ -121,7 +121,17 @@ jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC' } }),
   useMembers: () => ({ data: mockMembers }),
 }));
-jest.mock('@/stores/sessionStore', () => ({ useUserId: () => mockMe }));
+jest.mock('@/stores/sessionStore', () => ({
+  useUserId: () => mockMe,
+  // The plan reads subtasks now, and those hooks want a household.
+  useActiveHouseholdId: () => 'house-1',
+}));
+
+jest.mock('@/data/hooks/useSubtasks', () => ({
+  useSubtasksByChore: () => new Map(),
+  useSubtaskTicksFor: () => new Map(),
+  useToggleSubtask: () => ({ mutate: jest.fn() }),
+}));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
 
 const item = (id: string, over: Partial<AgendaItem> = {}): AgendaItem =>
