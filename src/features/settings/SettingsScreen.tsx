@@ -1,14 +1,18 @@
 /**
- * Settings.
+ * Settings, grouped by what a change actually affects.
  *
- * Two groups, and the split is the point: things about *the household*, which
- * both people share and either can change, and things about *this device*,
- * which are yours alone. Reminder preferences are the second kind — a local
- * notification fires from the phone that scheduled it, so a shared reminder time
- * would mean one of you silently getting the other's.
+ * Household settings are shared and either person can change them. Everything
+ * else — notifications, display — is per phone, because a reminder is scheduled
+ * by the device that shows it and cannot be set for somebody else.
  *
- * The screen says which is which rather than leaving it to be discovered when
- * somebody's 7am alarm changes.
+ * ── A note on the copy ────────────────────────────────────────────────────
+ *
+ * Every hint here describes what the setting does for the person reading it.
+ * It does not explain why the default was chosen, name internal concepts
+ * ("buckets", "the queue"), or refer to how the app is built. That is what this
+ * screen used to do — Jake: *"super AI sounding descriptions that like
+ * reference specific context of our conversations"* — and it read as notes to
+ * ourselves left on the page.
  */
 
 import Constants from 'expo-constants';
@@ -18,9 +22,8 @@ import { Platform, ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CivilTime, Weekday } from '@/core/civil/types';
-import { MAX_PENDING } from '@/core/notify/plan';
 import { useHousehold, useUpdateHousehold } from '@/data/hooks/useHousehold';
-import { notificationsAvailable, sendTestNotification } from '@/data/notifications';
+import { notificationsAvailable } from '@/data/notifications';
 import { SectionHeader } from '@/design/ChoreRow';
 import { BackBar, Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
@@ -66,7 +69,6 @@ export function SettingsScreen() {
   const { compactRows } = useViewPreference();
   const setCompactRows = useViewStore((state) => state.setCompactRows);
   const router = useRouter();
-  const [testState, setTestState] = useState<'idle' | 'sending' | 'sent' | 'denied'>('idle');
   /**
    * Two steps, and the confirming step spells out what survives.
    *
@@ -143,86 +145,67 @@ export function SettingsScreen() {
           Settings
         </Txt>
 
-        <SectionHeader title="This household" />
+        <SectionHeader title="Household" />
         <Stack gap={space.sm}>
-          <FieldGroup label="Weeks start on" hint="Changes the calendar and every weekly chore.">
+          <FieldGroup label="Week starts on" hint="Used by weekly chores and by the calendar.">
             <SegmentedControl
               segments={WEEK_STARTS}
               value={weekStartsOn}
               onChange={(value) =>
                 updateHousehold.mutate({ weekStartsOn: Number(value) as Weekday })
               }
-              label="Weeks start on"
+              label="Week starts on"
             />
           </FieldGroup>
 
           {row(
             'Time zone',
             deviceZone !== null && deviceZone !== timeZone
-              ? `This phone is in ${deviceZone}. Chores are due on ${timeZone} days.`
-              : 'Decides which day a chore is due on.',
+              ? `This phone is set to ${deviceZone}, but chore dates follow ${timeZone}.`
+              : 'Decides when a day starts and ends for due dates.',
             <Txt variant="small" tone="faint">
               {timeZone}
             </Txt>,
           )}
         </Stack>
 
-        <SectionHeader title="On this phone" />
+        <SectionHeader title="Display" />
         <Stack gap={space.sm}>
           {row(
-            'Slim rows on Today',
-            compactRows
-              ? 'On. Each chore is one line — its name, its category colour, and how late it is. Tap the chevron on any row for the rest.'
-              : 'Off. Every chore shows its chips, schedule and notes, which is roughly twice the height per row.',
+            'Compact rows',
+            'Show each chore on one line. Tap a row to see its schedule, notes and steps.',
             <Switch
               value={compactRows}
               onValueChange={setCompactRows}
-              accessibilityLabel="Slim rows on Today"
+              accessibilityLabel="Compact rows"
             />,
           )}
+        </Stack>
 
+        <SectionHeader title="Notifications" />
+        <Stack gap={space.sm}>
           {!notificationsAvailable ? (
             <Txt variant="small" tone="faint">
-              Reminders need the phone app — this build cannot schedule them.
+              Notifications aren&apos;t available in this build.
             </Txt>
           ) : (
             <>
               {row(
-                'Remind me',
-                'Only about your own chores. A reminder can only reach the phone that set it.',
+                'Chore reminders',
+                'A notification when one of your chores is due. Set on this phone, for this phone.',
                 <Switch
                   value={policy.enabled}
                   onValueChange={setEnabled}
-                  accessibilityLabel="Remind me about my chores"
+                  accessibilityLabel="Chore reminders"
                 />,
               )}
 
-              {/*
-                Outside the `enabled` branch on purpose. A diagnostic that
-                hides exactly when the thing it diagnoses is switched off is
-                backwards — and "reminders are off" is itself one of the
-                answers it exists to give.
-              */}
-              <View style={{ paddingTop: space.xs, gap: space.xs }}>
-                <Button
-                  label={testState === 'sent' ? 'Sent — watch for it' : 'Send a test reminder'}
-                  variant="ghost"
-                  onPress={() => {
-                    setTestState('sending');
-                    void sendTestNotification().then(setTestState);
-                  }}
-                  loading={testState === 'sending'}
-                />
-                <Txt variant="small" tone="faint">
-                  {testState === 'denied'
-                    ? 'iOS is blocking notifications for Chorus. Turn them on in the iOS Settings app, under Chorus.'
-                    : 'Arrives in about five seconds, whether or not reminders are on above. A real reminder shows no banner while the app is open — this one does, on purpose.'}
-                </Txt>
-              </View>
-
               {policy.enabled ? (
                 <>
-                  <FieldGroup label="At" hint="Used when a chore has no time of its own.">
+                  <FieldGroup
+                    label="Default time"
+                    hint="When to remind you about chores that have no time of their own."
+                  >
                     <SegmentedControl
                       segments={REMINDER_TIMES}
                       value={policy.defaultTime}
@@ -232,8 +215,8 @@ export function SettingsScreen() {
                   </FieldGroup>
 
                   {row(
-                    'Also unassigned chores',
-                    'Off by default: both phones would buzz about the same job.',
+                    'Unassigned chores',
+                    'Also remind me about chores that are not assigned to anyone. Both of you will be reminded.',
                     <Switch
                       value={policy.includeUnassigned}
                       onValueChange={setIncludeUnassigned}
@@ -242,8 +225,8 @@ export function SettingsScreen() {
                   )}
 
                   {row(
-                    "Also everyone else's chores",
-                    'Reminders for jobs that are not yours. Useful if you cover for each other; it also roughly doubles the queue below.',
+                    "Everyone else's chores",
+                    'Also remind me about chores assigned to someone else.',
                     <Switch
                       value={policy.includeOthers}
                       onValueChange={setIncludeOthers}
@@ -252,8 +235,8 @@ export function SettingsScreen() {
                   )}
 
                   {row(
-                    'My routine',
-                    'One notification per bucket, plus one for anything you gave a specific time. Three days ahead, not thirty.',
+                    'Routine reminders',
+                    'One reminder for each part of the day, plus one for anything you gave a specific time.',
                     <Switch
                       value={policy.includeRoutines}
                       onValueChange={setIncludeRoutines}
@@ -264,14 +247,15 @@ export function SettingsScreen() {
                   {policy.includeRoutines ? (
                     <>
                       {/*
-                        When each bucket's one notification arrives — not where
-                        the bucket begins. Morning starts at 05:00 because the
-                        day does, which is not a time anyone wants telling
-                        about their stretches. The window is shown beside each
-                        so the two are never confused.
+                        The time set here is when the reminder is *sent*, not
+                        when that part of the day begins — morning begins at
+                        05:00, which nobody wants to be told about their
+                        stretches. The window is shown beside each so the two
+                        cannot be mistaken for one another.
                       */}
                       <Txt variant="small" tone="faint" style={{ paddingHorizontal: space.md }}>
-                        When each part of the day gets its one notification.
+                        Choose when each reminder is sent. The times in brackets are the part of the
+                        day it covers.
                       </Txt>
                       {BUCKETS.map((bucket) => {
                         const range = bucketRange(bucket);
@@ -289,36 +273,23 @@ export function SettingsScreen() {
                   ) : null}
 
                   {row(
-                    'When a chore is added',
-                    'Tells you when your housemate puts something new on the list.',
+                    'New chores',
+                    'Tell me when someone adds a chore to the household.',
                     <Switch
                       value={policy.announceNewChores}
                       onValueChange={setAnnounceNewChores}
                       accessibilityLabel="Tell me when a chore is added"
                     />,
                   )}
-
-                  {/*
-                    Stated rather than hidden. iOS holds a fixed number of
-                    pending notifications and drops the rest silently, so a very
-                    busy household would otherwise find its later reminders
-                    simply never arriving with nothing to explain it.
-                  */}
-                  <Txt variant="small" tone="faint" style={{ paddingHorizontal: space.md }}>
-                    {Platform.OS === 'ios'
-                      ? `iOS holds ${MAX_PENDING} reminders at a time. Past that, the nearest ones win.`
-                      : `Up to ${MAX_PENDING} reminders are scheduled at a time.`}
-                  </Txt>
                 </>
               ) : null}
             </>
           )}
         </Stack>
+
         {/*
-          Sharing is a fact about you, not about this phone — the switch writes
-          to your membership row, and only you can write it. "Show others"
-          sits beside it because the two are constantly confused, and the copy
-          has to be exact about which one is the privacy control.
+          Sharing follows you rather than this phone: it is stored on your
+          household membership, so it holds wherever you sign in.
         */}
         <SectionHeader title="Routines" />
         <Stack gap={space.sm}>
@@ -327,8 +298,8 @@ export function SettingsScreen() {
             sharedByMe
               ? 'Your housemate can see your routine and what you have ticked off. They cannot change it.'
               : myRoutineCount === 0
-                ? 'Off. Your routine is yours alone until you switch this on.'
-                : `Off. Switching it on shows all ${myRoutineCount} things in your routine, not just the ones you add afterwards.`,
+                ? 'Your routine is private until you turn this on.'
+                : `Turning this on shows all ${myRoutineCount} items in your routine, not just new ones.`,
             <Switch
               value={sharedByMe}
               onValueChange={(shared) => setShareRoutine.mutate({ shared })}
@@ -349,10 +320,9 @@ export function SettingsScreen() {
           {confirmingDelete ? (
             <>
               <Txt variant="small" tone="danger">
-                This deletes your account and signs you out. Chores you have ticked off stay in the
-                household&apos;s history, still showing your name — your housemate keeps their
-                record. A household with nobody left in it is deleted with you. This cannot be
-                undone.
+                This deletes your account and signs you out. Chores you ticked off stay in the
+                household&apos;s history under your name. If nobody is left in the household, it is
+                deleted too. This cannot be undone.
               </Txt>
               <Button
                 label="Yes, delete my account"
@@ -380,14 +350,7 @@ export function SettingsScreen() {
           ) : null}
         </Stack>
 
-        {/*
-          Which build am I looking at.
-          
-          Both phones reported 1.0.0 (1) for every build ever made, so "did the
-          install take" could only be answered by remembering what was last
-          run. Read from the manifest rather than hardcoded, so bumping
-          app.json is the only step.
-        */}
+        {/* Read from the manifest, so bumping app.json is the only step. */}
         <Txt
           variant="small"
           tone="faint"
