@@ -22,6 +22,7 @@ import { Platform, ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CivilTime, Weekday } from '@/core/civil/types';
+import { MAX_PENDING } from '@/core/notify/plan';
 import { useHousehold, useUpdateHousehold } from '@/data/hooks/useHousehold';
 import { notificationsAvailable } from '@/data/notifications';
 import { SectionHeader } from '@/design/ChoreRow';
@@ -90,7 +91,6 @@ export function SettingsScreen() {
   const setIncludeOthers = useReminderStore((s) => s.setIncludeOthers);
   const setIncludeRoutines = useReminderStore((s) => s.setIncludeRoutines);
   const setBucketTime = useReminderStore((s) => s.setBucketTime);
-  const setAnnounceNewChores = useReminderStore((s) => s.setAnnounceNewChores);
   const userId = useUserId();
   const routineItems = useRoutineItems();
   const setShareRoutine = useSetShareRoutine();
@@ -147,7 +147,10 @@ export function SettingsScreen() {
 
         <SectionHeader title="Household" />
         <Stack gap={space.sm}>
-          <FieldGroup label="Week starts on" hint="Used by weekly chores and by the calendar.">
+          <FieldGroup
+            label="Week starts on"
+            hint="Changes which day weekly chores start on, and the date picker."
+          >
             <SegmentedControl
               segments={WEEK_STARTS}
               value={weekStartsOn}
@@ -169,11 +172,11 @@ export function SettingsScreen() {
           )}
         </Stack>
 
-        <SectionHeader title="Display" />
+        <SectionHeader title="Display on this phone" />
         <Stack gap={space.sm}>
           {row(
             'Compact rows',
-            'Show each chore on one line. Tap a row to see its schedule, notes and steps.',
+            'Show each chore on one line on Today and the plan. Tap the chevron on a row for its schedule, notes and steps.',
             <Switch
               value={compactRows}
               onValueChange={setCompactRows}
@@ -182,11 +185,11 @@ export function SettingsScreen() {
           )}
         </Stack>
 
-        <SectionHeader title="Notifications" />
+        <SectionHeader title="Notifications on this phone" />
         <Stack gap={space.sm}>
           {!notificationsAvailable ? (
             <Txt variant="small" tone="faint">
-              Notifications aren&apos;t available in this build.
+              Reminders only work in the Chorus app on your phone, not in a browser.
             </Txt>
           ) : (
             <>
@@ -216,7 +219,7 @@ export function SettingsScreen() {
 
                   {row(
                     'Unassigned chores',
-                    'Also remind me about chores that are not assigned to anyone. Both of you will be reminded.',
+                    'Chores nobody is assigned to. Your housemate only gets these if they turn it on as well.',
                     <Switch
                       value={policy.includeUnassigned}
                       onValueChange={setIncludeUnassigned}
@@ -226,7 +229,7 @@ export function SettingsScreen() {
 
                   {row(
                     "Everyone else's chores",
-                    'Also remind me about chores assigned to someone else.',
+                    'Chores assigned to somebody other than you.',
                     <Switch
                       value={policy.includeOthers}
                       onValueChange={setIncludeOthers}
@@ -236,11 +239,11 @@ export function SettingsScreen() {
 
                   {row(
                     'Routine reminders',
-                    'One reminder for each part of the day, plus one for anything you gave a specific time.',
+                    'One reminder per part of the day, covering the routine items you asked to be reminded about — plus one for anything you gave a specific time.',
                     <Switch
                       value={policy.includeRoutines}
                       onValueChange={setIncludeRoutines}
-                      accessibilityLabel="Remind me about my routine"
+                      accessibilityLabel="Routine reminders"
                     />,
                   )}
 
@@ -272,15 +275,22 @@ export function SettingsScreen() {
                     </>
                   ) : null}
 
-                  {row(
-                    'New chores',
-                    'Tell me when someone adds a chore to the household.',
-                    <Switch
-                      value={policy.announceNewChores}
-                      onValueChange={setAnnounceNewChores}
-                      accessibilityLabel="Tell me when a chore is added"
-                    />,
-                  )}
+                  <Txt variant="small" tone="faint" style={{ paddingHorizontal: space.md }}>
+                    {`Your phone holds about ${MAX_PENDING} reminders at a time. Past that, the soonest ones win.`}
+                  </Txt>
+
+                  {/*
+                    "New chores" used to be a switch here. It wrote a
+                    preference that nothing reads: announcing a chore your
+                    housemate just added needs a push from their phone to
+                    yours, which needs a paid Apple account. A control that
+                    cannot do anything is worse than its absence — this screen
+                    already refuses to show a reminder switch on a build that
+                    cannot schedule reminders, for the same reason.
+
+                    `announceNewChores` stays in the store, so the setting
+                    returns with the feature rather than being re-invented.
+                  */}
                 </>
               ) : null}
             </>

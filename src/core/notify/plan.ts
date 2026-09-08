@@ -56,9 +56,10 @@ export interface ReminderPolicy {
    *
    * On, it is genuinely useful for a couple who cover for each other — but it
    * roughly doubles the queue, and iOS caps pending local notifications. The
-   * planner already sorts by fire time and truncates, so the effect is a
-   * shorter horizon rather than dropped reminders, and the Settings screen
-   * says so.
+   * planner sorts by fire time and truncates, so the effect is a shorter
+   * horizon rather than dropped reminders. Settings states the cap in the
+   * reader's terms ("your phone holds about 60 reminders at a time"), because
+   * a reminder that never arrives is otherwise indistinguishable from a bug.
    */
   readonly includeOthers: boolean;
   /**

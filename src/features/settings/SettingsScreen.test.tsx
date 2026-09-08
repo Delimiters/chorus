@@ -12,6 +12,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { DEFAULT_POLICY } from '@/core/notify/plan';
 import { ThemeProvider } from '@/design/theme';
 import { useReminderStore } from '@/stores/reminderStore';
+import { useViewStore } from '@/stores/viewStore';
 import { SettingsScreen } from './SettingsScreen';
 
 const mockUpdate = jest.fn();
@@ -84,7 +85,7 @@ beforeEach(() => {
 describe('household settings', () => {
   it('changes the week start, and says what that affects', async () => {
     await renderScreen();
-    expect(screen.getByText(/Used by weekly chores and by the calendar/)).toBeOnTheScreen();
+    expect(screen.getByText(/Changes which day weekly chores start on/)).toBeOnTheScreen();
 
     await fireEvent.press(screen.getByRole('tab', { name: 'Monday' }));
     expect(mockUpdate).toHaveBeenCalledWith({ weekStartsOn: 1 });
@@ -127,7 +128,7 @@ describe('reminder settings', () => {
      * do and which is a note to ourselves.
      */
     await renderScreen();
-    expect(screen.getByText(/Both of you will be reminded/)).toBeOnTheScreen();
+    expect(screen.getByText(/only gets these if they turn it on as well/)).toBeOnTheScreen();
 
     await fireEvent(
       screen.getByLabelText('Remind me about unassigned chores'),
@@ -163,8 +164,10 @@ describe('when this build cannot schedule notifications at all', () => {
     // is worse than an honest sentence.
     mockAvailable = false;
     await renderScreen();
-    expect(screen.getByText(/available in this build/)).toBeOnTheScreen();
-    expect(screen.queryByLabelText('Remind me about my chores')).toBeNull();
+    expect(screen.getByText(/not in a browser/)).toBeOnTheScreen();
+    // The label was renamed, so this queried a string the screen never renders:
+    // the test passed while the screen showed both the message *and* the switch.
+    expect(screen.queryByLabelText('Chore reminders')).toBeNull();
   });
 });
 
@@ -242,7 +245,9 @@ describe('routine sharing', () => {
 
   it('does not offer a count when there is nothing to count', async () => {
     await renderScreen();
-    expect(screen.queryByText(/all 0 things/)).toBeNull();
+    // `things` became `items` in the copy, so this regex could no longer match
+    // anything the screen renders — it passed with the zero branch deleted.
+    expect(screen.queryByText(/all 0 items/)).toBeNull();
   });
 
   it('writes the switch through to the household, not to this phone', async () => {
@@ -272,11 +277,87 @@ describe('which build am I looking at', () => {
 });
 
 describe('being told about a new chore', () => {
-  it('offers the switch, and writes it to this phone', async () => {
+  it('is not offered, because nothing delivers it yet', async () => {
+    /*
+     * The switch wrote a preference nothing reads: announcing a chore your
+     * housemate added needs a push from their phone to yours, which needs a
+     * paid Apple account. A control that cannot do anything is worse than its
+     * absence — this screen already hides the reminder switch on a build that
+     * cannot schedule reminders, for the same reason.
+     */
     await renderScreen();
-    const toggle = screen.getByLabelText('Tell me when a chore is added');
 
-    fireEvent(toggle, 'valueChange', false);
-    expect(useReminderStore.getState().policy.announceNewChores).toBe(false);
+    expect(screen.queryByLabelText('Tell me when a chore is added')).toBeNull();
+    expect(screen.queryByText(/New chores/)).toBeNull();
+  });
+
+  it('keeps the stored preference, so the setting returns with the feature', () => {
+    // Removing the control must not quietly discard what people had set.
+    expect(DEFAULT_POLICY.announceNewChores).toBe(true);
+  });
+});
+
+describe('every switch writes the setting it names', () => {
+  /*
+   * Four of these had no test on this branch or on main, which is how a hint
+   * describing the wrong gesture reached the phone: nothing on this screen was
+   * checked against what the control actually does.
+   *
+   * Each asserts the store afterwards, so re-pointing a switch at a neighbour's
+   * setter fails here rather than shipping.
+   */
+  it("includes other people's chores", async () => {
+    await renderScreen();
+    await fireEvent(
+      screen.getByLabelText("Remind me about other people's chores"),
+      'valueChange',
+      true,
+    );
+    expect(useReminderStore.getState().policy.includeOthers).toBe(true);
+  });
+
+  it('includes routine reminders', async () => {
+    await renderScreen();
+    await fireEvent(screen.getByLabelText('Routine reminders'), 'valueChange', false);
+    expect(useReminderStore.getState().policy.includeRoutines).toBe(false);
+  });
+
+  it('sets compact rows on this phone', async () => {
+    // Toggled *off*: the default is on, so asserting `true` would pass without
+    // the switch being wired to anything at all.
+    await renderScreen();
+    await fireEvent(screen.getByLabelText('Compact rows'), 'valueChange', false);
+    expect(useViewStore.getState().view.compactRows).toBe(false);
+  });
+});
+
+describe('the words on the screen', () => {
+  it('names the gesture that actually expands a row', async () => {
+    /*
+     * The row's own press opens the options sheet; the chevron is what expands
+     * it. This hint told the reader to tap the row, which does something else —
+     * introduced by the very commit that was meant to make the copy clearer.
+     */
+    await renderScreen();
+
+    expect(screen.getByText(/Tap the chevron on a row/)).toBeOnTheScreen();
+  });
+
+  it('does not claim a per-phone switch speaks for the other phone', async () => {
+    // `includeUnassigned` lives in this phone's store. Turning it on cannot
+    // cause a housemate to be reminded of anything.
+    await renderScreen();
+
+    expect(screen.queryByText(/Both of you will be reminded/)).toBeNull();
+  });
+
+  it('says which settings are shared and which are this phone only', async () => {
+    // The old headings carried this and the rewrite dropped it, which is the
+    // one thing the screen's own docblock says it exists to do.
+    await renderScreen();
+
+    expect(screen.getByRole('header', { name: /Household/ })).toBeOnTheScreen();
+    // Display and Notifications both say it, which is the point.
+    expect(screen.getAllByRole('header', { name: /on this phone/i })).toHaveLength(2);
   });
 });
