@@ -29,10 +29,16 @@ const mockCategories = [
   { id: 'c-plain', name: 'Plain', ink: null, icon: null, position: 2 },
 ];
 
+const mockCreateCategory = jest.fn();
+
 jest.mock('@/data/hooks/useCategories', () => ({
   useCategoryList: () => mockCategories,
   useCategories: () => ({ data: [], isPending: false, isError: false }),
-  useCreateCategory: () => ({ mutateAsync: jest.fn(), isPending: false, error: null }),
+  useCreateCategory: () => ({
+    mutateAsync: mockCreateCategory,
+    isPending: false,
+    error: null,
+  }),
 }));
 
 const TODAY = civilDate('2026-07-30'); // a Thursday
@@ -255,6 +261,12 @@ describe('the reminder times', () => {
   });
 
   it('takes any time from the wheel, not just the shortcuts', async () => {
+    /*
+     * No confirm press between the wheel and the save. Jake: *"once I set the
+     * time I should be good to go."* The "Add 6:45 pm" button that used to sit
+     * under the wheel was easy to miss, and missing it discarded a time that
+     * was plainly on screen.
+     */
     const { onSubmit } = await renderForm();
     await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
     await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
@@ -262,9 +274,52 @@ describe('the reminder times', () => {
       type: 'set',
       nativeEvent: { timestamp: new Date(2026, 0, 1, 18, 45).getTime() },
     });
-    await fireEvent.press(screen.getByLabelText('Add a reminder at 6:45 pm'));
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
     expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['18:45']);
+  });
+
+  it('moves the reminder as the wheel turns rather than leaving one per notch', async () => {
+    /*
+     * The cost of committing on every change. A spinner reports continuously,
+     * so without remembering which time this wheel already added, scrolling
+     * from 9am to 6:45pm would leave a chip at every minute it passed through.
+     */
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    for (const [h, m] of [
+      [10, 0],
+      [14, 30],
+      [18, 45],
+    ] as const) {
+      await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+        type: 'set',
+        nativeEvent: { timestamp: new Date(2026, 0, 1, h, m).getTime() },
+      });
+    }
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['18:45']);
+  });
+
+  it('keeps a second reminder when a second wheel is opened for one', async () => {
+    // The other half: "I should only have to press another button if I need to
+    // add ANOTHER reminder." Closing and reopening must not move the first.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(2026, 0, 1, 7, 0).getTime() },
+    });
+    await fireEvent.press(screen.getByLabelText('Close the time picker'));
+
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(2026, 0, 1, 19, 30).getTime() },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['07:00', '19:30']);
   });
 
   it('only reads hours and minutes off the wheel, never its date', async () => {
@@ -277,7 +332,6 @@ describe('the reminder times', () => {
       type: 'set',
       nativeEvent: { timestamp: new Date(1999, 11, 31, 6, 5).getTime() },
     });
-    await fireEvent.press(screen.getByLabelText('Add a reminder at 6:05 am'));
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
     expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['06:05']);
   });
@@ -776,5 +830,66 @@ describe('the note on a row', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ notes: 'by 4pm Monday' }));
+  });
+});
+
+describe('a category written on the chore form', () => {
+  beforeEach(() => {
+    mockCreateCategory.mockReset();
+    mockCreateCategory.mockResolvedValue('c-new');
+  });
+
+  it('is not created until the chore is saved', async () => {
+    /*
+     * It used to be created by an "Add category" button, immediately — so
+     * backing out of a half-written chore left the category behind in the
+     * house, with no screen that had asked for it. Jake: *"if I'm adding a new
+     * category for that chore just let me fill in the info and then when I save
+     * the chore itself you can add the category."*
+     */
+    await renderForm();
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+
+    expect(mockCreateCategory).not.toHaveBeenCalled();
+  });
+
+  it('is created on save, and the chore is filed under it', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep the garage');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+    await fireEvent.press(screen.getByLabelText('Colour: Teal'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).toHaveBeenCalledWith({
+      name: 'Garage',
+      ink: 'teal',
+      icon: null,
+    });
+    expect(submitted(onSubmit).categoryId).toBe('c-new');
+  });
+
+  it('does not save the chore when the category cannot be created', async () => {
+    // A duplicate name is the common one. Saving the chore anyway would file it
+    // under nothing while the name sat in a field that looked accepted.
+    mockCreateCategory.mockRejectedValue(new Error('duplicate'));
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep the garage');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('creates nothing when the fields were opened and left empty', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep the garage');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).not.toHaveBeenCalled();
+    expect(submitted(onSubmit).categoryId).toBeNull();
   });
 });

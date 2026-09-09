@@ -592,13 +592,21 @@ describe('arranging Today', () => {
     expect(screen.getByText('Clean the gutters')).toBeOnTheScreen();
     expect(screen.getByText('6d')).toBeOnTheScreen();
 
-    // Folded: the schedule text, the turn chip and the full lateness chip.
-    expect(screen.queryByText('6 days late')).toBeNull();
+    // Folded: the schedule text and the turn chip.
     expect(screen.queryByText("Sam's turn")).toBeNull();
 
     expandRow('Clean the gutters');
-    expect(screen.getByText('6 days late')).toBeOnTheScreen();
     expect(screen.getByText("Sam's turn")).toBeOnTheScreen();
+
+    /*
+     * Lateness stays as `6d` rather than swapping to a "6 days late" chip.
+     * The swap is what made the row reflow under the thumb: the marker's width
+     * went back to the title, so a two-line name became a one-line name at the
+     * moment of expanding. The number is the information; the chip was a second
+     * way of printing it.
+     */
+    expect(screen.getByText('6d')).toBeOnTheScreen();
+    expect(screen.queryByText('6 days late')).toBeNull();
   });
 
   it('lets a long title shrink its own column instead of shoving the row apart', () => {
@@ -949,7 +957,9 @@ describe('a chore that keeps getting missed', () => {
     expandRow('Dishes');
 
     expect(screen.queryByText(/missed last/)).toBeNull();
-    expect(screen.getByText(/\d+ days? late/)).toBeOnTheScreen();
+    // Compact rows carry it as `3d`, in both states — see the layout guard at
+    // the foot of this file for why it no longer swaps to a full chip.
+    expect(screen.getAllByText(/^\d+d$/).length).toBeGreaterThan(0);
   });
 });
 
@@ -1237,5 +1247,29 @@ describe('a row that is expanded and collapsed again', () => {
 
     expect(expanded).toEqual(before);
     expect(after).toEqual(before);
+  });
+
+  /*
+   * The other half of the same shift, found on the simulator rather than here.
+   *
+   * The styles above were identical and the row still moved, because the column
+   * *beside* the title changed what it held: the short "3d" lateness marker was
+   * rendered only while collapsed, so expanding handed its width back to the
+   * title and a two-line name became a one-line name. Nothing about that is
+   * visible in a style prop, so it needs its own assertion.
+   */
+  it('keeps the lateness marker beside the title in both states', () => {
+    renderScreen();
+
+    const marker = () => screen.queryAllByText(/^\d+d$/).length;
+
+    const before = marker();
+    expect(before).toBeGreaterThan(0);
+
+    fireEvent.press(screen.getByLabelText('Dishes. Show details.'));
+    expect(marker()).toBe(before);
+
+    fireEvent.press(screen.getByLabelText('Dishes. Hide details.'));
+    expect(marker()).toBe(before);
   });
 });

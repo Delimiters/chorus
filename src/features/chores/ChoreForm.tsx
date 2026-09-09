@@ -9,10 +9,27 @@
  * The preview sits directly under the schedule because that is where the doubt
  * is: everything else on this screen says what it does, and a recurrence rule
  * does not.
+ *
+ * ── Order, and why it is not alphabetical or historical ───────────────────
+ *
+ * Category comes before Icon. Filing a chore under a category adopts that
+ * category's icon, so with the icon first the auto-choice happened off-screen
+ * above you and the picker you had just used silently changed. Jake: *"since
+ * icon gets auto selected by category, you should be able to pick the category
+ * first so it can auto select the icon and you can keep scrolling if you're
+ * good with the default."*
+ *
+ * ── Why the scroll view is a `FormScroll` ─────────────────────────────────
+ *
+ * Half the controls here open a panel inline and close it once you have chosen.
+ * A plain `ScrollView` keeps its offset through the shrink, which drops you
+ * further down the form than where you were working. Each such section is
+ * wrapped in an anchor and hands the picker an `onCollapse`. See
+ * src/features/common/FormScroll.tsx.
  */
 
 import { useMemo, useState } from 'react';
-import { ScrollView, Switch, View } from 'react-native';
+import { Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CalendarConfig, CivilDate, CivilTime } from '@/core/civil/types';
@@ -31,7 +48,8 @@ import { space } from '@/design/tokens';
 import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
 import { SubtaskEditor, type SubtaskDraft } from './SubtaskEditor';
 import { DateField } from '@/features/common/DateField';
-import { CategoryAndPriorityPicker } from './CategoryPicker';
+import { CategoryPicker, PriorityPicker, type NewCategoryDraft } from './CategoryPicker';
+import { FormScroll, useAnchor } from '@/features/common/FormScroll';
 import { IconPicker } from '@/features/common/IconPicker';
 import { toIconName, type IconName } from '@/design/icons';
 import { TimeField } from '@/features/common/TimeField';
@@ -146,6 +164,25 @@ export function ChoreForm({
     setCategoryId(nextId);
   };
   const categories = useCategoryList();
+
+  /**
+   * A category being written here, created only when the chore is saved.
+   *
+   * Null when the fields are closed. It deliberately does not exist until then:
+   * the old "Add category" button created it on the spot, so abandoning the
+   * chore left an orphan category behind in the house.
+   */
+  const [newCategory, setNewCategory] = useState<NewCategoryDraft | null>(null);
+
+  /*
+   * One anchor per section that grows and shrinks. The icon grid is the one
+   * Jake reported; the others are the same control shape and were the "few
+   * places" he also mentioned.
+   */
+  const categoryAnchor = useAnchor();
+  const iconAnchor = useAnchor();
+  const startsOnAnchor = useAnchor();
+  const remindAnchor = useAnchor();
   // The device default, so the field can name it rather than say "the default".
   const reminderPolicy = useReminderPolicy();
   const reminderDefaultTime = reminderPolicy.defaultTime;
@@ -206,16 +243,46 @@ export function ChoreForm({
   );
 
   const trimmed = title.trim();
-  const canSave = trimmed.length > 0 && trimmed.length <= 120 && !isSaving;
+  const canSave =
+    trimmed.length > 0 && trimmed.length <= 120 && !isSaving && !createCategory.isPending;
 
   const submit = () => {
     if (!canSave) return;
+
+    /*
+     * A drafted category is created here, and the chore is filed under it.
+     *
+     * Sequenced rather than parallel: the chore needs the new id, so there is
+     * nothing to overlap. If the creation fails — a duplicate name is the
+     * common one — the error renders under the fields and the chore is not
+     * saved, which leaves everything typed still on screen to correct.
+     */
+    const drafted = newCategory === null ? null : newCategory.name.trim();
+    if (drafted !== null && drafted.length > 0) {
+      void createCategory
+        .mutateAsync({
+          name: drafted,
+          ink: newCategory?.ink ?? null,
+          icon: newCategory?.icon ?? null,
+        })
+        .then((id) => save(id))
+        .catch(() => {
+          // Surfaced by `createError` below. Swallowed so an unhandled
+          // rejection does not take the screen down with it.
+        });
+      return;
+    }
+
+    save(categoryId);
+  };
+
+  const save = (chosenCategoryId: string | null) => {
     onSubmit({
       title: trimmed,
       notes: notes.trim().length === 0 ? null : notes.trim(),
       schedule,
       assignment,
-      categoryId,
+      categoryId: chosenCategoryId,
       priority,
       icon,
       privateTo: isPrivate ? userId : null,
@@ -231,7 +298,7 @@ export function ChoreForm({
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
-      <ScrollView
+      <FormScroll
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl, gap: space.xl }}
         keyboardShouldPersistTaps="handled"
         /*
@@ -274,18 +341,29 @@ export function ChoreForm({
           maxLength={2000}
         />
 
-        <IconPicker value={icon} onChange={setIcon} />
+        {/* Category first: it picks the icon for you, and the icon picker is
+            directly below so you can see that happen and keep going. */}
+        <View {...categoryAnchor.anchorProps}>
+          <CategoryPicker
+            categories={categories}
+            categoryId={categoryId}
+            onChangeCategory={(id) => {
+              // Choosing an existing one abandons anything half-written.
+              setNewCategory(null);
+              chooseCategory(id);
+            }}
+            draft={newCategory}
+            onChangeDraft={setNewCategory}
+            createError={(createCategory.error as Error | null)?.message ?? null}
+            onCollapse={categoryAnchor.returnHere}
+          />
+        </View>
 
-        <CategoryAndPriorityPicker
-          categories={categories}
-          categoryId={categoryId}
-          onChangeCategory={chooseCategory}
-          priority={priority}
-          onChangePriority={setPriority}
-          onCreateCategory={(input) => createCategory.mutateAsync(input)}
-          creating={createCategory.isPending}
-          createError={(createCategory.error as Error | null)?.message ?? null}
-        />
+        <View {...iconAnchor.anchorProps}>
+          <IconPicker value={icon} onChange={setIcon} onCollapse={iconAnchor.returnHere} />
+        </View>
+
+        <PriorityPicker priority={priority} onChangePriority={setPriority} />
 
         <RecurrencePicker
           draft={recurrence}
@@ -300,33 +378,41 @@ export function ChoreForm({
           start date for either is a control with nothing to control.
         */}
         {recurrence.rule.kind === 'once' || recurrence.rule.kind === 'unscheduled' ? null : (
-          <FieldGroup
-            label="Starts on"
-            hint={
-              startsOn === today
-                ? 'Leave it on today unless it should begin later.'
-                : 'Nothing happens before this date.'
-            }
-          >
-            <DateField
-              value={startsOn}
-              onChange={setStartsOn}
-              today={today}
-              label="Start date"
-              weekStartsOn={calendar.weekStartsOn}
-            />
-          </FieldGroup>
+          <View {...startsOnAnchor.anchorProps}>
+            <FieldGroup
+              label="Starts on"
+              hint={
+                startsOn === today
+                  ? 'Leave it on today unless it should begin later.'
+                  : 'Nothing happens before this date.'
+              }
+            >
+              <DateField
+                value={startsOn}
+                onChange={(date) => {
+                  setStartsOn(date);
+                  startsOnAnchor.returnHere();
+                }}
+                today={today}
+                label="Start date"
+                weekStartsOn={calendar.weekStartsOn}
+              />
+            </FieldGroup>
+          </View>
         )}
 
         {/* A Someday chore produces no occurrences, so there is nothing to
             remind about and a time control would do nothing. */}
         {recurrence.rule.kind === 'unscheduled' ? null : (
-          <TimeField
-            value={timesOfDay}
-            onChange={setTimesOfDay}
-            defaultTime={reminderDefaultTime}
-            silence={reminderSilence === null ? null : describeSilence(reminderSilence)}
-          />
+          <View {...remindAnchor.anchorProps}>
+            <TimeField
+              value={timesOfDay}
+              onChange={setTimesOfDay}
+              defaultTime={reminderDefaultTime}
+              silence={reminderSilence === null ? null : describeSilence(reminderSilence)}
+              onCollapse={remindAnchor.returnHere}
+            />
+          </View>
         )}
 
         {/* A Someday chore has no dates, so a "next few times" heading over
@@ -449,7 +535,7 @@ export function ChoreForm({
             </Txt>
           ) : null}
         </Stack>
-      </ScrollView>
+      </FormScroll>
     </SafeAreaView>
   );
 }

@@ -454,9 +454,17 @@ export function ChoreRow({
               `flexShrink: 0`: the title yields space, this does not. Shrinking
               here is what turned "Entertainment" into "Entertain…".
             */}
-            {(compact && category !== null) ||
-            (slim && overdue) ||
-            (slim && done && completedByLabel !== null) ? (
+            {/*
+              `compact`, never `slim`.
+
+              These three used to fold away on expansion, and the fold was
+              visible: dropping "14d" gave the title back its width, so a
+              two-line name became a one-line name at the moment of expanding
+              and the row reflowed under the thumb. The right-hand column now
+              holds exactly the same content in both states, and the expanded
+              body below drops its duplicates instead.
+            */}
+            {compact && (category !== null || overdue || (done && completedByLabel !== null)) ? (
               <View
                 style={{
                   flexDirection: 'row',
@@ -489,7 +497,7 @@ export function ChoreRow({
                   — but "6 days late" is a chip's worth of width for one
                   number. Expanded, the full chip returns.
                 */}
-                {slim && done && completedByLabel !== null ? (
+                {compact && done && completedByLabel !== null ? (
                   <Txt
                     variant="small"
                     tone="muted"
@@ -503,7 +511,7 @@ export function ChoreRow({
                   </Txt>
                 ) : null}
 
-                {slim && overdue ? (
+                {compact && overdue ? (
                   <Txt variant="small" tone="danger">
                     {`${item.daysOverdue}d`}
                   </Txt>
@@ -522,7 +530,11 @@ export function ChoreRow({
           */}
           {slim ? null : (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-              {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
+              {/* Compact rows carry lateness in the header line above, in
+                  both states — repeating it here would say it twice. */}
+              {overdue && !compact ? (
+                <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip>
+              ) : null}
 
               {priority === 'crucial' ? <Chip tone="overdue">Crucial</Chip> : null}
 
@@ -538,7 +550,7 @@ export function ChoreRow({
                 </Chip>
               ) : null}
 
-              {done && completedByLabel !== null ? (
+              {done && completedByLabel !== null && !compact ? (
                 <Txt variant="small" tone="muted">
                   {completedByLabel}
                 </Txt>

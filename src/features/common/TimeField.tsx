@@ -10,6 +10,18 @@
  * and the wheel sat off the edge, so the control that does everything was the
  * one you could not see.
  *
+ * **Opening the wheel adds the reminder; spinning it moves that reminder.**
+ * It used to be a two-step — spin, then press "Add 19:00" — and the second step
+ * was easy to miss, so a time that had visibly been chosen was silently
+ * discarded on save. Jake: *"for add reminder, once I set the time I should be
+ * good to go, and I should only have to press another button if I need to add
+ * ANOTHER reminder."* The chip above the wheel is therefore live: it appears at
+ * the default the moment the wheel opens and follows every turn of it.
+ *
+ * Which means the wheel must remember *which* chip is its own — `pending` — or
+ * spinning from 09:00 to 09:05 would leave both behind, and a slow scroll
+ * through the hour would leave a dozen.
+ *
  * The picker deals in `Date` because the OS does. That never escapes this
  * file: values arrive and leave as `CivilTime`, converted at the boundary. A
  * reminder at 7pm is a fact about the clock on the wall rather than a moment,
@@ -61,12 +73,27 @@ interface Props {
   defaultTime: CivilTime;
   /** Why this chore would never remind you, or null if it would. */
   silence?: string | null;
+  /** Puts the form back at this control when the wheel closes. */
+  onCollapse?: () => void;
 }
 
-export function TimeField({ value, onChange, defaultTime, silence = null }: Props) {
+export function TimeField({ value, onChange, defaultTime, silence = null, onCollapse }: Props) {
   const { colors } = useTheme();
   const [picking, setPicking] = useState(false);
-  const [draft, setDraft] = useState<CivilTime>(defaultTime);
+  /** The time this wheel has already added, so spinning moves it rather than piling up. */
+  const [pending, setPending] = useState<CivilTime | null>(null);
+
+  const openWheel = () => {
+    setPicking(true);
+    setPending(defaultTime);
+    onChange(withTime(value, defaultTime));
+  };
+
+  const closeWheel = () => {
+    setPicking(false);
+    setPending(null);
+    onCollapse?.();
+  };
 
   return (
     <FieldGroup
@@ -121,13 +148,12 @@ export function TimeField({ value, onChange, defaultTime, silence = null }: Prop
               />
             ),
           )}
+          {/* "Done" rather than "Close": the reminder is already set, so this
+              only tidies the wheel away. Pressing it is never required. */}
           <AddButton
-            label={picking ? '× Close' : '+ Pick a time'}
+            label={picking ? 'Done' : value.length === 0 ? '+ Pick a time' : '+ Add another'}
             accessibilityLabel={picking ? 'Close the time picker' : 'Pick a reminder time'}
-            onPress={() => {
-              setPicking((open) => !open);
-              setDraft(defaultTime);
-            }}
+            onPress={() => (picking ? closeWheel() : openWheel())}
           />
         </View>
 
@@ -142,32 +168,27 @@ export function TimeField({ value, onChange, defaultTime, silence = null }: Prop
             }}
           >
             <DateTimePicker
-              value={toPickerDate(draft)}
+              value={toPickerDate(pending ?? defaultTime)}
               mode="time"
               display={Platform.OS === 'ios' ? 'spinner' : 'default'}
               onChange={(_event, date) => {
                 if (date === undefined) return;
                 const picked = fromPickerDate(date);
-                setDraft(picked);
-                // Android's dialog dismisses itself and reports once, so the
-                // choice has to be committed there rather than on a second tap.
-                if (Platform.OS !== 'ios') {
-                  onChange(withTime(value, picked));
-                  setPicking(false);
-                }
+                // Move this wheel's own reminder rather than adding a second
+                // one. Without the filter, every notch of the spinner would
+                // leave a chip behind.
+                onChange(
+                  withTime(
+                    value.filter((t) => t !== pending),
+                    picked,
+                  ),
+                );
+                setPending(picked);
+                // Android's dialog dismisses itself and reports once.
+                if (Platform.OS !== 'ios') closeWheel();
               }}
               accessibilityLabel="Pick a reminder time"
             />
-            {Platform.OS === 'ios' ? (
-              <AddButton
-                label={`Add ${formatCivilTime(draft)}`}
-                accessibilityLabel={`Add a reminder at ${formatCivilTime(draft)}`}
-                onPress={() => {
-                  onChange(withTime(value, draft));
-                  setPicking(false);
-                }}
-              />
-            ) : null}
           </View>
         ) : null}
       </View>
