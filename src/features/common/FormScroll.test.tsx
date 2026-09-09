@@ -16,29 +16,30 @@ import { civilDate } from '@/core/civil/date';
 import { ThemeProvider } from '@/design/theme';
 import { DateField } from './DateField';
 import { IconPicker } from './IconPicker';
-import { ANCHOR_INSET, FormScroll, useAnchor } from './FormScroll';
+import { ANCHOR_INSET, FormScroll, useAnchor, useFormScroll } from './FormScroll';
 
 const SECTION_Y = 840;
 
 /*
- * `useAnchor` reads a context the scroll view provides, so one component cannot
- * both render the `FormScroll` and call the hook — the hook would run a level
- * above the provider and find nothing. Split in two, the way the chore form is.
+ * One component holding both the scroll view and the anchor — deliberately, and
+ * this is the shape that matters.
+ *
+ * The earlier version of this harness split them across two components, because
+ * it had to: `useAnchor()` read a context the scroll view provided, so a caller
+ * that did both got `null` and silently no anchoring at all. That is exactly
+ * what `ChoreForm` does, so the feature was inert in the app while every test
+ * here passed. Anchors now take a handle, and a harness shaped like the real
+ * caller is the thing that proves it.
  */
 function Wrapped() {
+  const scroll = useFormScroll();
+  const anchor = useAnchor(scroll);
   return (
-    <FormScroll testID="form-scroll">
-      <Inner />
+    <FormScroll scroll={scroll} testID="form-scroll">
+      <View testID="section" {...anchor.anchorProps}>
+        <IconPicker value={null} onChange={jest.fn()} onCollapse={anchor.returnHere} />
+      </View>
     </FormScroll>
-  );
-}
-
-function Inner() {
-  const anchor = useAnchor();
-  return (
-    <View testID="section" {...anchor.anchorProps}>
-      <IconPicker value={null} onChange={jest.fn()} onCollapse={anchor.returnHere} />
-    </View>
   );
 }
 
@@ -82,25 +83,20 @@ const renderHarness = () =>
  * hung off `onChange` scrolled the form when nothing had shrunk.
  */
 function DateHarness() {
+  const scroll = useFormScroll();
+  const anchor = useAnchor(scroll);
   return (
-    <FormScroll testID="form-scroll">
-      <DateInner />
+    <FormScroll scroll={scroll} testID="form-scroll">
+      <View testID="section" {...anchor.anchorProps}>
+        <DateField
+          value={civilDate('2026-07-30')}
+          onChange={jest.fn()}
+          today={civilDate('2026-07-30')}
+          label="Start date"
+          onCollapse={anchor.returnHere}
+        />
+      </View>
     </FormScroll>
-  );
-}
-
-function DateInner() {
-  const anchor = useAnchor();
-  return (
-    <View testID="section" {...anchor.anchorProps}>
-      <DateField
-        value={civilDate('2026-07-30')}
-        onChange={jest.fn()}
-        today={civilDate('2026-07-30')}
-        label="Start date"
-        onCollapse={anchor.returnHere}
-      />
-    </View>
   );
 }
 

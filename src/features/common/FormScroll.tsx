@@ -22,9 +22,24 @@
  * That prop keeps the topmost visible child pinned, which is right for content
  * inserted above the viewport and wrong here: the thing being looked at is the
  * panel itself, and it is about to stop existing. There is nothing to pin to.
+ *
+ * ── Why a handle is passed around rather than a context ───────────────────
+ *
+ * The first version put the scroll view's API in a React context and had
+ * `useAnchor()` read it. That is the obvious shape and it was **inert in the
+ * app**: a screen that renders `<FormScroll>` in its own JSX calls `useAnchor()`
+ * in its own body, which runs *above* the provider it is about to render, so
+ * every anchor got `null` and quietly did nothing. The component test passed
+ * because its harness happened to split the two across two components — the
+ * exact "a correct piece composed wrongly by its caller" failure AGENTS.md
+ * records, written by someone who had just read that warning.
+ *
+ * `useFormScroll()` returns a handle instead. One screen, one handle, passed
+ * explicitly to the scroll view and to each anchor — so failing to connect them
+ * is a type error rather than silence.
  */
 
-import { createContext, useContext, useMemo, useRef, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode, type RefObject } from 'react';
 import { ScrollView, type LayoutChangeEvent, type ScrollViewProps } from 'react-native';
 
 import { space } from '@/design/tokens';
@@ -35,7 +50,7 @@ import { space } from '@/design/tokens';
  */
 export const ANCHOR_INSET = space.lg;
 
-interface FormScrollApi {
+export interface FormScrollHandle {
   /**
    * Scrolls to `y`, but only when the form has been scrolled past it.
    *
@@ -46,45 +61,48 @@ interface FormScrollApi {
    * you down to the icon row you were already looking at.
    */
   returnTo: (y: number) => void;
+  /** Spread onto the `FormScroll`, and nowhere else. */
+  readonly scrollProps: {
+    ref: RefObject<ScrollView | null>;
+    onScroll: NonNullable<ScrollViewProps['onScroll']>;
+    scrollEventThrottle: number;
+  };
 }
 
-const FormScrollContext = createContext<FormScrollApi | null>(null);
-
-export function FormScroll({
-  children,
-  onScroll,
-  ...props
-}: ScrollViewProps & { children: ReactNode }) {
+export function useFormScroll(): FormScrollHandle {
   const ref = useRef<ScrollView>(null);
   /* A ref, not state: nothing renders from it, and re-rendering the whole form
      on every frame of a scroll would be a real cost for no effect. */
   const offset = useRef(0);
 
-  const api = useMemo<FormScrollApi>(
+  return useMemo(
     () => ({
-      returnTo: (y) => {
+      returnTo: (y: number) => {
         if (offset.current > y) ref.current?.scrollTo({ y, animated: true });
+      },
+      scrollProps: {
+        ref,
+        onScroll: (event) => {
+          offset.current = event.nativeEvent.contentOffset.y;
+        },
+        // Without this iOS reports the offset once per gesture, so a fast flick
+        // past a section would leave the anchor believing you never moved.
+        scrollEventThrottle: 16,
       },
     }),
     [],
   );
+}
 
+export function FormScroll({
+  scroll,
+  children,
+  ...props
+}: ScrollViewProps & { scroll: FormScrollHandle; children: ReactNode }) {
   return (
-    <FormScrollContext.Provider value={api}>
-      <ScrollView
-        ref={ref}
-        onScroll={(event) => {
-          offset.current = event.nativeEvent.contentOffset.y;
-          onScroll?.(event);
-        }}
-        // Without this iOS reports the offset once per gesture, so a fast flick
-        // past a section would leave the anchor believing you never moved.
-        scrollEventThrottle={16}
-        {...props}
-      >
-        {children}
-      </ScrollView>
-    </FormScrollContext.Provider>
+    <ScrollView {...props} {...scroll.scrollProps}>
+      {children}
+    </ScrollView>
   );
 }
 
@@ -102,11 +120,10 @@ export function FormScroll({
  * "returning to the enclosing section", which it is not, and which would have
  * read as permission to nest one.
  */
-export function useAnchor(): {
+export function useAnchor(scroll: FormScrollHandle): {
   anchorProps: { onLayout: (event: LayoutChangeEvent) => void };
   returnHere: () => void;
 } {
-  const api = useContext(FormScrollContext);
   const y = useRef<number | null>(null);
 
   return {
@@ -121,7 +138,7 @@ export function useAnchor(): {
      * Everything below it moves, which is exactly the problem being fixed.
      */
     returnHere: () => {
-      if (y.current !== null) api?.returnTo(Math.max(0, y.current - ANCHOR_INSET));
+      if (y.current !== null) scroll.returnTo(Math.max(0, y.current - ANCHOR_INSET));
     },
   };
 }

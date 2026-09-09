@@ -108,8 +108,11 @@ describe('writing a new category', () => {
   });
 
   it('reports a chosen icon without discarding the name', async () => {
+    // "Choose a category icon", not "Choose an icon": on the chore form this
+    // picker sits directly above the chore's own, and two controls with the
+    // same name are ambiguous to a screen reader and to this query alike.
     const { onChangeDraft } = await renderPicker({ draft: { ...DRAFT, name: 'Garage' } });
-    await userEvent.press(screen.getByRole('button', { name: 'Choose an icon' }));
+    await userEvent.press(screen.getByRole('button', { name: 'Choose a category icon' }));
     await userEvent.press(screen.getByRole('radio', { name: 'car' }));
     expect(onChangeDraft).toHaveBeenCalledWith({ name: 'Garage', ink: null, icon: 'car' });
   });

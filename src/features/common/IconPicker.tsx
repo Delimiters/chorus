@@ -81,7 +81,7 @@ export function IconPicker({ value, onChange, label = 'Icon', onCollapse }: Prop
               <MaterialCommunityIcons name={value} size={20} color={colors.text} />
             )}
             <Txt variant="small" tone="muted">
-              {open ? '× Close' : value === null ? 'Choose an icon' : 'Change'}
+              {open ? '× Close' : value === null ? `Choose ${article} ${lower}` : 'Change'}
             </Txt>
           </Pressable>
 

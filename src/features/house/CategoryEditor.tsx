@@ -64,10 +64,18 @@ export function CategoryEditor({ categoryId }: Props) {
   // form, which looks like a new category and saves as a duplicate.
   if (categoryId !== null && existing === undefined) {
     /*
-     * `isPending`, not `isLoading`. A query disabled by `skipToken` — which is
-     * what this one is before a household is known — reports `isLoading:
-     * false`, so the guard fell straight through to "no longer exists" and
-     * accused the house of having deleted a category it had not yet loaded.
+     * `isPending`, not `isLoading`.
+     *
+     * The two differ whenever a query is pending but not *fetching*. The
+     * reachable case is being offline: the client runs `networkMode: 'online'`,
+     * so with a cold cache the query sits at `status: 'pending'`,
+     * `fetchStatus: 'paused'` — `isLoading` false, `isPending` true. Reading
+     * the first told a user with no signal that their category had been
+     * deleted. It now waits, which is the honest answer.
+     *
+     * (A `skipToken`-disabled query diverges the same way, but `(app)/_layout`
+     * holds every screen behind a loading state until the household is known,
+     * so that one is not reachable from here.)
      */
     if (categories.isPending) return <LoadingState label="Loading the category" />;
     return <ErrorState message="That category no longer exists." />;

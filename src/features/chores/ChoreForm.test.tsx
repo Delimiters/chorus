@@ -10,6 +10,7 @@
  */
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { ScrollView } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilTime } from '@/core/civil/types';
@@ -966,6 +967,30 @@ describe('a category written on the chore form', () => {
     expect(submitted(onSubmit).categoryId).toBe('c-new');
   });
 
+  it('can be retried after the colour is changed, since the name is what collides', async () => {
+    /*
+     * The gap between the two tests around this one. The deadlock is keyed on
+     * the *name* — `unique (household_id, name)` — but the first fix forgot the
+     * remembered id on any draft edit at all, so touching a colour swatch after
+     * a failed chore save re-armed the exact bug it was written to remove.
+     */
+    mockCreateCategory.mockResolvedValue('c-garage');
+
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep it');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+
+    await fireEvent.press(screen.getByLabelText('Colour: Teal'));
+    onSubmit.mockClear();
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).toHaveBeenCalledTimes(1);
+    expect(submitted(onSubmit).categoryId).toBe('c-garage');
+  });
+
   it('creates a fresh category when the name is changed after a failure', async () => {
     // The retry must not file the chore under a name that is no longer typed.
     mockCreateCategory.mockResolvedValueOnce('c-garage');
@@ -998,5 +1023,86 @@ describe('a category written on the chore form', () => {
 
     expect(mockCreateCategory).not.toHaveBeenCalled();
     expect(submitted(onSubmit).categoryId).toBeNull();
+  });
+});
+
+describe('the form scrolling itself while you are using it', () => {
+  /*
+   * Asserted here, on the form, and not only in FormScroll.test.tsx.
+   *
+   * The defect was never in `DateField` or in `FormScroll` — both were fine on
+   * their own. It was in how this file wired them together: `onChange` was
+   * treated as "a panel closed", and `DateField` fires it from the quick chips
+   * while the calendar is shut. So the component test that pins `DateField`'s
+   * contract stays green no matter what the caller does with it, which is the
+   * "a correct pure function composed wrongly" shape AGENTS.md records twice.
+   *
+   * A spy on the real ScrollView, because the scroll is the observable thing —
+   * jest-expo runs no layout, so there is nothing else to look at.
+   */
+  let scrollSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    scrollSpy = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    scrollSpy.mockRestore();
+  });
+
+  /**
+   * Give a section a real position.
+   *
+   * Without this the anchor has no measurement, `returnHere` does nothing, and
+   * every "does not scroll" assertion below passes for the wrong reason — the
+   * exact vacuity AGENTS.md says to look for. Laying the section out at 900
+   * and scrolling to 4000 means a live anchor *would* fire.
+   */
+  const layOut = (testID: string) =>
+    fireEvent(screen.getByTestId(testID), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 900, width: 390, height: 120 } },
+    });
+
+  /** Far enough down that anything anchored above would be scrolled back to. */
+  const scrollDown = () =>
+    fireEvent.scroll(screen.getByTestId('chore-form-scroll'), {
+      nativeEvent: {
+        contentOffset: { x: 0, y: 4000 },
+        contentSize: { width: 390, height: 6000 },
+        layoutMeasurement: { width: 390, height: 800 },
+      },
+    });
+
+  it('does not move when a start date is chosen and nothing has collapsed', async () => {
+    await renderForm();
+    layOut('section:starts-on');
+    scrollDown();
+
+    await fireEvent.press(screen.getByText('Tomorrow'));
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not move when a day is picked out of the calendar', async () => {
+    await renderForm();
+    layOut('section:starts-on');
+    await fireEvent.press(screen.getByRole('button', { name: 'Pick another date' }));
+    scrollDown();
+
+    await fireEvent.press(screen.getAllByLabelText(/^Fri 31,/)[0]!);
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it('comes back to the icon row when the grid closes', async () => {
+    // The other side: the anchoring must still actually happen.
+    await renderForm();
+    layOut('section:icon');
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose an icon' }));
+    scrollDown();
+
+    await fireEvent.press(screen.getAllByRole('radio', { name: 'car' })[0]!);
+
+    expect(scrollSpy).toHaveBeenCalled();
   });
 });

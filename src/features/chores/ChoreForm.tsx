@@ -49,7 +49,7 @@ import { AssignmentPicker, type PickerMember } from './AssignmentPicker';
 import { SubtaskEditor, type SubtaskDraft } from './SubtaskEditor';
 import { DateField } from '@/features/common/DateField';
 import { CategoryPicker, PriorityPicker, type NewCategoryDraft } from './CategoryPicker';
-import { FormScroll, useAnchor } from '@/features/common/FormScroll';
+import { FormScroll, useAnchor, useFormScroll } from '@/features/common/FormScroll';
 import { IconPicker } from '@/features/common/IconPicker';
 import { toIconName, type IconName } from '@/design/icons';
 import { TimeField } from '@/features/common/TimeField';
@@ -175,7 +175,7 @@ export function ChoreForm({
   const [newCategory, setNewCategory] = useState<NewCategoryDraft | null>(null);
 
   /**
-   * The id of a category this form has already created, if it did.
+   * A category this form has already created, under the name it was created as.
    *
    * The chore save is a second write and can fail on its own — a network blip,
    * an RLS refusal. Without this, pressing Save again re-ran the creation, hit
@@ -183,25 +183,24 @@ export function ChoreForm({
    * became **unsaveable from this form**, with the only clue a duplicate-name
    * error rendered several hundred points above the button that was pressed.
    *
-   * Cleared whenever the draft is edited, so changing your mind about the name
-   * after a failure does not file the chore under the old one.
+   * Keyed on the **name**, because the name is what collides. The first version
+   * forgot the id on any edit to the draft at all, which meant tapping a colour
+   * swatch after a failed save re-armed the very bug this exists to remove.
+   * Changing the name still creates a fresh one, so a chore is never filed
+   * under a name that is no longer typed.
    */
-  const [createdCategoryId, setCreatedCategoryId] = useState<string | null>(null);
-
-  const editDraft = (draft: NewCategoryDraft | null) => {
-    setCreatedCategoryId(null);
-    setNewCategory(draft);
-  };
+  const [created, setCreated] = useState<{ name: string; id: string } | null>(null);
 
   /*
    * One anchor per section that grows and shrinks. The icon grid is the one
    * Jake reported; the others are the same control shape and were the "few
    * places" he also mentioned.
    */
-  const categoryAnchor = useAnchor();
-  const iconAnchor = useAnchor();
-  const startsOnAnchor = useAnchor();
-  const remindAnchor = useAnchor();
+  const scroll = useFormScroll();
+  const categoryAnchor = useAnchor(scroll);
+  const iconAnchor = useAnchor(scroll);
+  const startsOnAnchor = useAnchor(scroll);
+  const remindAnchor = useAnchor(scroll);
   // The device default, so the field can name it rather than say "the default".
   const reminderPolicy = useReminderPolicy();
   const reminderDefaultTime = reminderPolicy.defaultTime;
@@ -268,13 +267,6 @@ export function ChoreForm({
   const submit = () => {
     if (!canSave) return;
 
-    // Already created on an earlier press whose chore save then failed. Reuse
-    // it rather than creating it twice.
-    if (createdCategoryId !== null) {
-      save(createdCategoryId);
-      return;
-    }
-
     /*
      * A drafted category is created here, and the chore is filed under it.
      *
@@ -285,6 +277,12 @@ export function ChoreForm({
      */
     const drafted = newCategory === null ? null : newCategory.name.trim();
     if (drafted !== null && drafted.length > 0) {
+      // Already created on an earlier press whose chore save then failed.
+      if (created !== null && created.name === drafted) {
+        save(created.id);
+        return;
+      }
+
       void createCategory
         .mutateAsync({
           name: drafted,
@@ -292,7 +290,7 @@ export function ChoreForm({
           icon: newCategory?.icon ?? null,
         })
         .then((id) => {
-          setCreatedCategoryId(id);
+          setCreated({ name: drafted, id });
           save(id);
         })
         .catch(() => {
@@ -328,6 +326,8 @@ export function ChoreForm({
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <FormScroll
+        scroll={scroll}
+        testID="chore-form-scroll"
         contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl, gap: space.xl }}
         keyboardShouldPersistTaps="handled"
         /*
@@ -372,7 +372,7 @@ export function ChoreForm({
 
         {/* Category first: it picks the icon for you, and the icon picker is
             directly below so you can see that happen and keep going. */}
-        <View {...categoryAnchor.anchorProps}>
+        <View testID="section:category" {...categoryAnchor.anchorProps}>
           <CategoryPicker
             categories={categories}
             categoryId={categoryId}
@@ -381,17 +381,17 @@ export function ChoreForm({
               // tears the draft block down, so the form has to come back to
               // this section the same way cancelling it does.
               if (newCategory !== null) categoryAnchor.returnHere();
-              editDraft(null);
+              setNewCategory(null);
               chooseCategory(id);
             }}
             draft={newCategory}
-            onChangeDraft={editDraft}
+            onChangeDraft={setNewCategory}
             createError={(createCategory.error as Error | null)?.message ?? null}
             onCollapse={categoryAnchor.returnHere}
           />
         </View>
 
-        <View {...iconAnchor.anchorProps}>
+        <View testID="section:icon" {...iconAnchor.anchorProps}>
           <IconPicker value={icon} onChange={setIcon} onCollapse={iconAnchor.returnHere} />
         </View>
 
@@ -410,7 +410,7 @@ export function ChoreForm({
           start date for either is a control with nothing to control.
         */}
         {recurrence.rule.kind === 'once' || recurrence.rule.kind === 'unscheduled' ? null : (
-          <View {...startsOnAnchor.anchorProps}>
+          <View testID="section:starts-on" {...startsOnAnchor.anchorProps}>
             <FieldGroup
               label="Starts on"
               hint={
@@ -434,7 +434,7 @@ export function ChoreForm({
         {/* A Someday chore produces no occurrences, so there is nothing to
             remind about and a time control would do nothing. */}
         {recurrence.rule.kind === 'unscheduled' ? null : (
-          <View {...remindAnchor.anchorProps}>
+          <View testID="section:remind" {...remindAnchor.anchorProps}>
             <TimeField
               value={timesOfDay}
               onChange={setTimesOfDay}
