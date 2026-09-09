@@ -107,7 +107,20 @@ export function SingleTimeField({ value, onChange, label, presets }: Props) {
             value={toPickerDate(draft)}
             mode="time"
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={(_event, date) => {
+            onChange={(event, date) => {
+              /*
+               * A dismissal arrives *with* a date — see the library's
+               * `createDismissEvtParams` — so checking only for a missing one
+               * made Android's Cancel button commit whatever the dialog
+               * happened to be showing. This field sets the household's default
+               * reminder time, so that was Cancel quietly changing it.
+               *
+               * Same defect, same shape, as the one fixed in TimeField.
+               */
+              if (event.type === 'dismissed') {
+                setPicking(false);
+                return;
+              }
               if (date === undefined) return;
               const picked = fromPickerDate(date);
               setDraft(picked);

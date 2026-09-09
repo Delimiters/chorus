@@ -427,10 +427,7 @@ export function ChoreRow({
               floor lifted — which is why Jake kept reporting the row bursting
               its cell after expanding and collapsing, on build after build.
             */}
-            <View
-              testID="title-column"
-              style={slim ? { flex: 1, minWidth: 0 } : { flexShrink: 1, minWidth: 0 }}
-            >
+            <View testID="title-column" style={{ flex: 1, minWidth: 0 }}>
               <Txt
                 variant="bodyStrong"
                 style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
@@ -457,9 +454,17 @@ export function ChoreRow({
               `flexShrink: 0`: the title yields space, this does not. Shrinking
               here is what turned "Entertainment" into "Entertain…".
             */}
-            {(compact && category !== null) ||
-            (slim && overdue) ||
-            (slim && done && completedByLabel !== null) ? (
+            {/*
+              `compact`, never `slim`.
+
+              These three used to fold away on expansion, and the fold was
+              visible: dropping "14d" gave the title back its width, so a
+              two-line name became a one-line name at the moment of expanding
+              and the row reflowed under the thumb. The right-hand column now
+              holds exactly the same content in both states, and the expanded
+              body below drops its duplicates instead.
+            */}
+            {compact && (category !== null || overdue || (done && completedByLabel !== null)) ? (
               <View
                 style={{
                   flexDirection: 'row',
@@ -490,9 +495,14 @@ export function ChoreRow({
                   How late, shortened to `6d`. Lateness is the one thing that
                   cannot fold away — it is why a row is worth looking at at all
                   — but "6 days late" is a chip's worth of width for one
-                  number. Expanded, the full chip returns.
+                  number.
+
+                  It stays `6d` when the row expands. The full chip used to
+                  return there, and swapping them was what made the row reflow
+                  under the thumb: dropping this handed its width back to the
+                  title. See docs/DECISIONS.md, 2026-09-09.
                 */}
-                {slim && done && completedByLabel !== null ? (
+                {compact && done && completedByLabel !== null ? (
                   <Txt
                     variant="small"
                     tone="muted"
@@ -506,7 +516,7 @@ export function ChoreRow({
                   </Txt>
                 ) : null}
 
-                {slim && overdue ? (
+                {compact && overdue ? (
                   <Txt variant="small" tone="danger">
                     {`${item.daysOverdue}d`}
                   </Txt>
@@ -525,7 +535,11 @@ export function ChoreRow({
           */}
           {slim ? null : (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-              {overdue ? <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip> : null}
+              {/* Compact rows carry lateness in the header line above, in
+                  both states — repeating it here would say it twice. */}
+              {overdue && !compact ? (
+                <Chip tone="overdue">{formatLateness(item.daysOverdue)}</Chip>
+              ) : null}
 
               {priority === 'crucial' ? <Chip tone="overdue">Crucial</Chip> : null}
 
@@ -541,7 +555,7 @@ export function ChoreRow({
                 </Chip>
               ) : null}
 
-              {done && completedByLabel !== null ? (
+              {done && completedByLabel !== null && !compact ? (
                 <Txt variant="small" tone="muted">
                   {completedByLabel}
                 </Txt>
@@ -586,6 +600,7 @@ export function ChoreRow({
         */}
         {subtasks.length > 0 || compact ? (
           <Pressable
+            testID="steps-toggle"
             onPress={() => setStepsOpen((wasOpen: boolean) => !wasOpen)}
             accessibilityRole="button"
             accessibilityState={{ expanded: stepsOpen }}
@@ -596,25 +611,34 @@ export function ChoreRow({
                     stepsOpen ? 'Hide them' : 'Show them'
                   }.`
             }
-            // 20 laid out, 44 tappable. `hitSlop` grows the target without
-            // growing the box, which is the only way to have both on a row
-            // this tight — the gap either side is real space, not padding
-            // inside a button, so the words stop short of it.
-            hitSlop={slim ? { top: 14, bottom: 14, left: 12, right: 12 } : undefined}
+            /*
+              On a compact row: 20 laid out, 44 tappable. `hitSlop` grows the
+              target without growing the box, which is the only way to have
+              both on a row this tight — a laid-out 44 square was setting the
+              height of every row on Today and taking 44 points of width from
+              the title.
+
+              Keyed on `compact`, never on `stepsOpen`. That is the whole
+              point: `compact` cannot change while a row is open, so the
+              chevron's footprint is fixed for the life of the expansion. An
+              earlier version keyed it on `slim` (`compact && !stepsOpen`),
+              which moved the title column's right edge by 24pt the instant you
+              tapped it. A full-height row keeps the plain 44pt box it always
+              had; it has the vertical room, and it never had the defect.
+            */
+            hitSlop={compact ? { top: 14, bottom: 14, left: 12, right: 12 } : undefined}
             style={{
-              width: slim ? 20 : MIN_TARGET,
-              height: slim ? 20 : MIN_TARGET,
+              width: compact ? 20 : MIN_TARGET,
+              height: compact ? 20 : MIN_TARGET,
               alignItems: 'center',
               justifyContent: 'center',
-              // Pulled into the row's own padding so the icon sits on the
-              // edge of the cell rather than inset from it.
-              marginTop: slim ? 1 : -8,
-              marginRight: slim ? 0 : -space.sm,
+              marginTop: compact ? 1 : -8,
+              ...(compact ? {} : { marginRight: -space.sm }),
             }}
           >
             <MaterialCommunityIcons
               name={stepsOpen ? 'chevron-up' : 'chevron-down'}
-              size={slim ? 20 : 26}
+              size={compact ? 20 : 26}
               color={colors.textFaint}
             />
           </Pressable>
@@ -805,13 +829,26 @@ export function SubHeader({
           backgroundColor: ink == null ? colors.textFaint : inkColor(ink, isDark),
         }}
       />
-      <Txt variant="small" tone="faint" accessibilityRole="header" style={{ flex: 1 }}>
+      {/*
+        The count is part of the heading to a screen reader, not a stray number
+        after it. Left as a sibling it was announced as a bare "3" following
+        "Chores", with nothing saying what had been counted.
+      */}
+      <Txt
+        variant="small"
+        tone="faint"
+        accessibilityRole="header"
+        accessibilityLabel={count === undefined ? title : `${title}, ${count}`}
+        style={{ flex: 1 }}
+      >
         {title}
       </Txt>
       {count === undefined ? null : (
-        <Txt variant="small" tone="faint">
-          {count}
-        </Txt>
+        <View accessibilityElementsHidden importantForAccessibility="no">
+          <Txt variant="small" tone="faint">
+            {count}
+          </Txt>
+        </View>
       )}
     </View>
   );

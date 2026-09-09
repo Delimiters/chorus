@@ -713,15 +713,17 @@ describe('two people sharing one household', () => {
     ];
   });
 
-  it('does not re-plan shared work already on the other day', async () => {
+  it('plans shared work onto both days, not whichever phone opened first', async () => {
     /*
-     * `anyone` work counts for both of you, so each device auto-planned its own
-     * copy and the same row appeared on both plans — one directly above the
-     * other once both days shared a screen.
+     * This asserted the opposite until 2026-09-09: `anyone` work was claimed by
+     * whichever device ran the auto-plan first, so the other person never saw
+     * it. Jake: *"seems to be randomly distributing the 'Anyone can do' tasks
+     * between us? They should all go to both of us, and if somebody's not going
+     * to do them they can remove them from their plan."*
      *
-     * The fixture is the point: `mockAllEntries` holds a row that
-     * `mockEntries` does not. Returning the same list from both hooks — which
-     * is what this file used to do — makes this fix untestable by definition.
+     * "Randomly" was accurate — it depended on who opened Chorus first that
+     * morning. The fixture holds the chore on the *other* person's day; it must
+     * still land on yours.
      */
     mockEntries = [];
     mockAllEntries = [
@@ -732,7 +734,7 @@ describe('two people sharing one household', () => {
     renderView();
 
     await waitFor(() => expect(mockAdd).toHaveBeenCalled());
-    expect(addedKeys()).toEqual(['v1:bins']);
+    expect(addedKeys().sort()).toEqual(['v1:bins', 'v1:litter']);
   });
 
   it('adds to the day the picker was opened for', async () => {

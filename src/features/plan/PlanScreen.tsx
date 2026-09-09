@@ -26,7 +26,7 @@ import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
-import { ChoreRow, SectionHeader } from '@/design/ChoreRow';
+import { ChoreRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
 import { DragList } from '@/design/DragList';
 import { positionBetween } from '@/core/plan/reorder';
 import { Sheet, SheetAction } from '@/design/Sheet';
@@ -89,6 +89,8 @@ interface PlanScreenProps {
   readonly proposal?: { items: readonly AgendaItem[]; reason: string } | null;
   readonly onAcceptProposal?: (items: readonly AgendaItem[]) => void;
   readonly onAdd: () => void;
+  /** Which chores recur — the screen's own `chores` prop has no schedules. */
+  readonly recurringChoreIds: ReadonlySet<string>;
   /** Add to somebody else's day. Absent while there is no housemate. */
   readonly onAddFor?: ((ownerId: string) => void) | undefined;
 }
@@ -100,6 +102,7 @@ export function PlanScreen({
   refetch,
   onAdd,
   onAddFor,
+  recurringChoreIds,
   proposal = null,
   onAcceptProposal,
 }: PlanScreenProps) {
@@ -397,6 +400,60 @@ export function PlanScreen({
    */
   const myOwnerId = userId ?? undefined;
 
+  /*
+   * Recurring housework and one-off tasks, kept apart.
+   *
+   * Jake: *"we need to split the daily plan into sections ... or else it just
+   * gets too overwhelming."* One-off work started being auto-planned a couple
+   * of days ago, which added 38 rows to this household's day — and a task you
+   * do once reads nothing like the washing-up, so a single list of both is
+   * where the overwhelm came from.
+   *
+   * Empty groups draw nothing: a "One-time tasks" heading over no rows is a
+   * statement that there is work you cannot see.
+   */
+  const splitByKind = (section: ReturnType<typeof sectionsFor>) => ({
+    recurring: {
+      ...section,
+      active: section.active.filter((p) => recurringChoreIds.has(p.item.choreId)),
+      sunk: section.sunk.filter((p) => recurringChoreIds.has(p.item.choreId)),
+    },
+    oneOff: {
+      ...section,
+      active: section.active.filter((p) => !recurringChoreIds.has(p.item.choreId)),
+      sunk: section.sunk.filter((p) => !recurringChoreIds.has(p.item.choreId)),
+    },
+  });
+
+  const renderDay = (
+    section: ReturnType<typeof sectionsFor>,
+    ownerId: string | undefined,
+  ): React.ReactNode => {
+    const { recurring, oneOff } = splitByKind(section);
+    const both =
+      recurring.active.length + recurring.sunk.length > 0 &&
+      oneOff.active.length + oneOff.sunk.length > 0;
+
+    return (
+      <>
+        {recurring.active.length + recurring.sunk.length === 0 ? null : (
+          <>
+            {/* Only labelled when there is something to tell it apart from. */}
+            {both ? <SubHeader title="Chores" count={recurring.active.length} /> : null}
+            {renderPlanSection(recurring, ownerId)}
+          </>
+        )}
+
+        {oneOff.active.length + oneOff.sunk.length === 0 ? null : (
+          <>
+            {both ? <SubHeader title="One-time tasks" count={oneOff.active.length} /> : null}
+            {renderPlanSection(oneOff, ownerId)}
+          </>
+        )}
+      </>
+    );
+  };
+
   const renderPlanSection = (
     section: ReturnType<typeof sectionsFor>,
     ownerId: string | undefined,
@@ -689,7 +746,7 @@ export function PlanScreen({
               title={progress.finished ? 'Done today' : 'Doing today'}
               count={progress.finished ? progress.done : progress.total - progress.done}
             />
-            {renderPlanSection(mySections, myOwnerId)}
+            {renderDay(mySections, myOwnerId)}
 
             <View
               style={{
@@ -739,7 +796,7 @@ export function PlanScreen({
                 {`${theirName} hasn't planned anything today. Their day fills up when they open the app — or you can put something on it.`}
               </Txt>
             ) : (
-              renderPlanSection(theirSections, housemate.userId)
+              renderDay(theirSections, housemate.userId)
             )}
 
             <View

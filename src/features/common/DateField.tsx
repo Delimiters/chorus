@@ -31,9 +31,27 @@ interface Props {
   weekStartsOn?: Weekday;
   /** Dates before this cannot be chosen. Defaults to allowing any date. */
   earliest?: CivilDate;
+  /**
+   * Called when the calendar closes, so a form can scroll back to this field.
+   *
+   * On the *close*, not on `onChange`. Picking a date does not close the
+   * calendar, and neither do the quick chips — which fire `onChange` while it
+   * is shut. Hanging the scroll off `onChange` therefore moved the form under
+   * the finger that had just tapped a day, which is the behaviour the anchor
+   * exists to prevent rather than an instance of it.
+   */
+  onCollapse?: () => void;
 }
 
-export function DateField({ value, onChange, today, label, weekStartsOn = 0, earliest }: Props) {
+export function DateField({
+  value,
+  onChange,
+  today,
+  label,
+  weekStartsOn = 0,
+  earliest,
+  onCollapse,
+}: Props) {
   const { colors } = useTheme();
   const standard: readonly { label: string; date: CivilDate }[] = [
     { label: 'Today', date: today },
@@ -77,6 +95,11 @@ export function DateField({ value, onChange, today, label, weekStartsOn = 0, ear
    */
   const [open, setOpen] = useState(() => !standard.some((option) => option.date === value));
 
+  const closeCalendar = () => {
+    setOpen(false);
+    onCollapse?.();
+  };
+
   return (
     <View style={{ gap: space.sm }}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
@@ -117,7 +140,7 @@ export function DateField({ value, onChange, today, label, weekStartsOn = 0, ear
           })}
 
         <Pressable
-          onPress={() => setOpen((o) => !o)}
+          onPress={() => (open ? closeCalendar() : setOpen(true))}
           accessibilityRole="button"
           accessibilityState={{ expanded: open }}
           accessibilityLabel={open ? 'Close the calendar' : 'Pick another date'}
@@ -165,7 +188,7 @@ export function DateField({ value, onChange, today, label, weekStartsOn = 0, ear
             onSelect={(date) => {
               if (allowed(date)) onChange(date);
             }}
-            onToggleExpanded={() => setOpen(false)}
+            onToggleExpanded={closeCalendar}
           />
         </View>
       ) : null}

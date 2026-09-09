@@ -18,6 +18,128 @@ Newest first.
 
 ---
 
+## 2026-09-09 — Upcoming lost its "What's on <date>" header
+
+**Was:** the screen opened with a display-sized title, the date beneath it, and
+a `· N DONE` count. It had a comment justifying itself: the date is the thing
+the list is *about*, and a list of chores with no date on it is ambiguous.
+
+**Now:** the list starts at the sort control.
+
+**Why:** Jake — *"this big What's on <date> header is weird and confusing.
+Honestly I think we should just get rid of that header entirely. We already
+know we're on the upcoming tab."* The tab bar names the screen, and the rows
+carry their own dates.
+
+**Cost:** the done-count for the day is no longer anywhere on Upcoming. Today
+still has it. Nobody has asked for it back.
+
+---
+
+## 2026-09-09 — A one-time task can no longer be dragged among the chores
+
+**Was:** one `DragList` per person per day, so any row could be dragged
+anywhere in that day.
+
+**Now:** two lists — Chores and One-time tasks — so dragging is within a group.
+
+**Why:** a consequence of the split Jake asked for, not a decision taken on its
+own. Two headed groups whose rows can be dragged across the heading would make
+the headings lie.
+
+**Cost:** reordering a one-off relative to a chore is gone. `positionBetween`
+now averages within-group neighbours, so it can mint a position equal to a
+non-group row that sorts between them; harmless only because the grouping is
+applied *after* the sort, and worth remembering before anyone flattens the
+lists again.
+
+---
+
+## 2026-09-09 — A compact row keeps its lateness marker while expanded
+
+**Was:** a compact row showed lateness as `14d` beside the title, and swapped it
+for a full "14 DAYS LATE" chip on expansion. Two presentations of one number,
+chosen for emphasis: the terse one where space is scarce, the loud one where it
+is not.
+
+**Now:** `14d` in both states, and the chip is gone from compact rows. The chip
+still exists for the full-height rows on Chores and Upcoming.
+
+**Why:** the swap was the last cause of the row moving under the thumb, which
+Jake reported four times. Dropping the marker on expansion handed its width back
+to the title, so a two-line name became a one-line name at the exact moment of
+expanding. Confirmed on the simulator by screenshot diff, and pinned by a test
+that counts the marker in both states.
+
+**Cost:** the words "days late" no longer appear anywhere on Today. The number
+does, in red, and it is the part that changes. Two tests that pinned the swap
+(`shows one line per chore until the row is asked for more`, `says how long it
+has been waiting`) were rewritten to pin the new rule instead — worth knowing,
+because they read like coverage of Jake's "lateness must keep accumulating"
+request and they still are, just at a different presentation.
+
+---
+
+## 2026-09-09 — A new category is a draft until the chore is saved
+
+**Was:** the "+ New" fields on the chore form ended in an "Add category" button
+that created the category immediately, then selected it. Argued for as avoiding
+a trip to the settings screen mid-form, which it did.
+
+**Now:** the fields are a draft the form holds. The category is created inside
+the chore's own save, and the chore is filed under the returned id. Failure
+(a duplicate name) surfaces under the fields and the chore is not saved.
+
+**Why:** Jake — *"we don't need the 'Add category' button to save it... when I
+save the chore itself you can add the category and assign that chore to it."*
+It also fixed something nobody had reported: backing out of a half-written chore
+left the category behind in the house, created by a screen that had been
+cancelled.
+
+**Cost:** creating a category now needs a valid chore. Somebody who only wants a
+category has to use the Categories screen — which is the right place for it, and
+now has its own editor screen anyway.
+
+---
+
+## 2026-09-09 — Category is picked before Icon
+
+**Was:** Name, Notes, Icon, Category+Priority.
+
+**Now:** Name, Notes, Category, Icon, Priority. `CategoryAndPriorityPicker` was
+split into `CategoryPicker` and `PriorityPicker` to make room.
+
+**Why:** choosing a category adopts that category's icon. With the icon first,
+that adoption happened off-screen above you. Jake — *"since icon gets auto
+selected by category, you should be able to pick the category first so it can
+auto select the icon and you can keep scrolling if you're good with the
+default."*
+
+---
+
+## 2026-09-09 — Shared work lands on both plans, and the day is split by kind
+
+**Was:** `anyone` work was claimed by whichever phone ran the auto-plan first,
+so it appeared on one person's day and not the other's. That was introduced to
+stop the same chore appearing twice once both days shared a screen.
+
+**Now:** it lands on both. Taking it off your own day is how you say it is not
+yours today.
+
+**Why:** Jake — *"seems to be randomly distributing the 'Anyone can do' tasks
+between us? They should all go to both of us, and if somebody's not going to do
+them they can remove them from their plan."* "Randomly" was accurate: which
+phone opened Chorus first that morning decided it, which is not a decision
+either of them made. A shared chore on both days is not a duplicate — each row
+is one person's intention.
+
+**And the day is split** into chores and one-time tasks, with the headings shown
+only when there is both kinds. One-off work started being auto-planned two days
+earlier, adding 38 rows to this household's day, and a task you do once reads
+nothing like the washing-up.
+
+---
+
 ## 2026-09-08 — Settings copy describes effects, not reasoning
 
 **Was:** hints on the Settings screen explained why defaults were chosen and

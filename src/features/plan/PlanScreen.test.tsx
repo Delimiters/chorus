@@ -23,6 +23,11 @@ let mockEntries: PlanEntry[] = [];
 let mockTheirCount = 0;
 let mockTheirTotal = 0;
 let mockPlanUnknown = false;
+/*
+ * Everything recurs unless a test says otherwise, which keeps the existing
+ * fixtures in one group and their assertions about ordering intact.
+ */
+let mockRecurring: ReadonlySet<string> = new Set();
 let mockSubtasks = new Map<string, { id: string; title: string }[]>();
 const mockToggleSubtask = jest.fn();
 let mockTheirEntries: { occurrenceKey: string; position: number; plannedFor: string }[] = [];
@@ -139,6 +144,7 @@ function renderScreen(
       <PlanScreen
         available={available}
         chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+        recurringChoreIds={mockRecurring}
         today={TODAY}
         refetch={async () => {}}
         onAdd={onAdd}
@@ -158,6 +164,7 @@ const rerenderWith = (rerender: (ui: React.ReactElement) => void, available: Age
         <PlanScreen
           available={available}
           chores={available.map((i) => chore(i.choreId, i.choreTitle))}
+          recurringChoreIds={mockRecurring}
           today={TODAY}
           refetch={async () => {}}
           onAdd={onAdd}
@@ -176,6 +183,7 @@ beforeEach(() => {
   mockTheirTotal = 0;
   mockTheirEntries = [];
   mockSubtasks = new Map();
+  mockRecurring = new Set(['dishes', 'trash', 'mail', 'bins', 'mopping', 'litter', 'gutters']);
   mockToggleSubtask.mockClear();
   mockPlanUnknown = false;
   mockTapped.mockClear();
@@ -564,6 +572,7 @@ describe('the finish moment', () => {
         <PlanScreen
           available={[item('dishes', 'Dishes', 'completed')]}
           chores={[chore('dishes', 'Dishes')]}
+          recurringChoreIds={mockRecurring}
           today={TODAY}
           refetch={async () => {}}
           onAdd={onAdd}
@@ -963,5 +972,65 @@ describe('the steps inside a planned chore', () => {
       ticked: true,
       occurrenceKey: 'v1:dishes',
     });
+  });
+});
+
+describe('splitting the day by kind of work', () => {
+  /*
+   * Jake: *"we need to split the daily plan into sections. There should be a
+   * Recurring Chores section and a One Time Tasks section, or else it just gets
+   * too overwhelming."*
+   *
+   * One-off work started being auto-planned two days earlier, which put 38 rows
+   * on this household's day — and a task you do once reads nothing like the
+   * washing-up, so one undifferentiated list is where the overwhelm came from.
+   */
+  it('heads each group when there is both kinds', () => {
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1), entry('taxes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    expect(screen.getByRole('header', { name: /^Chores/ })).toBeOnTheScreen();
+    expect(screen.getByRole('header', { name: /^One-time tasks/ })).toBeOnTheScreen();
+  });
+
+  it('draws no heading when the day is all one kind', () => {
+    /*
+     * A "One-time tasks" heading over nothing says there is work you cannot
+     * see, and a "Chores" heading on a day of only chores is furniture.
+     */
+    mockRecurring = new Set(['dishes', 'trash']);
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    expect(screen.queryByRole('header', { name: /^Chores/ })).toBeNull();
+    expect(screen.queryByRole('header', { name: /^One-time tasks/ })).toBeNull();
+    // The rows are still there — the grouping is what is absent, not the work.
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.getByText('Trash')).toBeOnTheScreen();
+  });
+
+  it('keeps a one-off out of the chores group', () => {
+    /*
+     * The split has to be on what the chore *is*, not on where it happens to
+     * sort — otherwise the headings are decoration.
+     *
+     * The one-off is therefore given the *earlier* position. With
+     * `dishes` first this assertion held whether or not the grouping ran at
+     * all, because `planFor` sorts by position and would have produced the
+     * same order on its own: the exact shape AGENTS.md warns about, where the
+     * simplest fixture is the one input the right and wrong implementations
+     * agree on.
+     */
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('taxes', 1), entry('dishes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    const rows = screen
+      .getAllByTestId(/^(drag|done)-row:/)
+      .map((row) => (row.props.testID as string).replace(/^(drag|done)-row:v1:/, ''));
+
+    // Chores first, then one-time tasks.
+    expect(rows).toEqual(['dishes', 'taxes']);
   });
 });

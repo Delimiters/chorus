@@ -34,6 +34,14 @@ interface TxtProps {
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
   accessibilityRole?: 'header' | 'text';
+  /**
+   * What a screen reader says instead of the text.
+   *
+   * For when the visible text is only part of the fact — a section heading
+   * whose count is rendered as a separate node beside it, so unlabelled it is
+   * announced as "Chores" and then a bare "3".
+   */
+  accessibilityLabel?: string;
   /** For text worth copying — an error message, an invite code. */
   selectable?: boolean;
 }
@@ -45,6 +53,7 @@ export function Txt({
   style,
   numberOfLines,
   accessibilityRole,
+  accessibilityLabel,
   selectable,
 }: TxtProps) {
   const colors = useColors();
@@ -64,6 +73,7 @@ export function Txt({
       style={[type[variant] as TextStyle, { color }, style]}
       numberOfLines={numberOfLines}
       accessibilityRole={accessibilityRole}
+      {...(accessibilityLabel === undefined ? {} : { accessibilityLabel })}
       selectable={selectable}
     >
       {children}

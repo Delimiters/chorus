@@ -13,15 +13,29 @@
  * you are filing a chore and none of the existing names fit — sending someone
  * to a settings screen at that point means abandoning a half-written form, and
  * the usual result is that nobody bothers and everything stays in Other.
+ *
+ * **Creating one has no confirm step.** It used to end in an "Add category"
+ * button, which was a second save on a screen that already has one, and which
+ * did the creation immediately — so backing out of the chore left the category
+ * behind. Jake: *"we don't need the 'Add category' button to save it, if I'm
+ * adding a new category for that chore just let me fill in the info and then
+ * when I save the chore itself you can add the category and assign that chore
+ * to it."* The fields are now a draft the chore form owns and writes on save.
+ *
+ * **Category and priority are two components, not one.** They were a pair
+ * because they render as adjacent chip rows, which is a fact about their looks
+ * rather than about the form: filing a chore under a category adopts that
+ * category's icon, so the icon picker has to sit *between* them for the choice
+ * to be visible when it happens. Jake: *"since icon gets auto selected by
+ * category, you should be able to pick the category first."*
  */
 
-import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { describePriority, PRIORITIES, type Priority } from '@/core/chore/priority';
 import { OTHER_TITLE } from '@/core/occurrence/grouping';
 import type { Category } from '@/data/api/categories';
-import { Button, Field, Txt } from '@/design/components';
+import { Field, Txt } from '@/design/components';
 import { IconPicker } from '@/features/common/IconPicker';
 import type { IconName } from '@/design/icons';
 import { FieldGroup } from '@/design/controls';
@@ -29,131 +43,131 @@ import { INKS, inkColor, inkSoft } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { MIN_TARGET, radius, space } from '@/design/tokens';
 
+/** A category being written but not yet created. */
+export interface NewCategoryDraft {
+  name: string;
+  ink: string | null;
+  icon: IconName | null;
+}
+
+export const EMPTY_CATEGORY_DRAFT: NewCategoryDraft = { name: '', ink: null, icon: null };
+
 interface Props {
   categories: readonly Category[];
   categoryId: string | null;
   onChangeCategory: (categoryId: string | null) => void;
-  priority: Priority;
-  onChangePriority: (priority: Priority) => void;
   /**
-   * Creates a category and resolves to its id, which is then selected.
+   * The half-written new category, or null when the fields are closed.
    *
-   * A callback rather than the mutation itself, so this component stays
-   * presentational and testable without standing up a QueryClient.
+   * Owned by the form rather than by this component, because the chore's save
+   * is what creates it — a draft kept here would be unreachable from there.
    */
-  onCreateCategory: (input: {
-    name: string;
-    ink: string | null;
-    icon: string | null;
-  }) => Promise<string>;
-  /** True while a creation is in flight. */
-  creating?: boolean;
-  /** Surfaced under the inline form — a duplicate name is the common one. */
+  draft: NewCategoryDraft | null;
+  onChangeDraft: (draft: NewCategoryDraft | null) => void;
+  /** Surfaced under the fields — a duplicate name is the common one. */
   createError?: string | null;
+  /** Puts the form back at this section when the fields close. */
+  onCollapse?: (() => void) | undefined;
 }
 
-export function CategoryAndPriorityPicker({
+export function CategoryPicker({
   categories,
   categoryId,
   onChangeCategory,
-  priority,
-  onChangePriority,
-  onCreateCategory,
-  creating = false,
+  draft,
+  onChangeDraft,
   createError = null,
+  onCollapse,
 }: Props) {
   const { colors, isDark } = useTheme();
-  const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newInk, setNewInk] = useState<string | null>(null);
-  const [newIcon, setNewIcon] = useState<IconName | null>(null);
+  const adding = draft !== null;
 
-  const submitNew = () => {
-    const name = newName.trim();
-    if (name.length === 0) return;
-    void onCreateCategory({ name, ink: newInk, icon: newIcon }).then((id) => {
-      // Selecting it is the point. Creating a category mid-form and then
-      // having to find and tap it would be a worse version of the trip to
-      // settings this exists to avoid.
-      onChangeCategory(id);
-      setAdding(false);
-      setNewName('');
-      setNewInk(null);
-      setNewIcon(null);
-    });
+  const closeDraft = () => {
+    onChangeDraft(null);
+    onCollapse?.();
   };
 
   return (
-    <View style={{ gap: space.xl }}>
-      <FieldGroup
-        label="Category"
-        hint={
-          categories.length === 0
-            ? 'No categories yet — add one below, or leave this chore in Other.'
-            : undefined
-        }
-      >
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-          {categories.map((category) => {
-            const selected = category.id === categoryId;
-            const tint = category.ink === null ? colors.text : inkColor(category.ink, isDark);
-            return (
-              <Chip
-                key={category.id}
-                label={category.name}
-                selected={selected}
-                onPress={() => onChangeCategory(category.id)}
-                accessibilityLabel={`Category: ${category.name}`}
-                tint={tint}
-                wash={category.ink === null ? colors.sunken : inkSoft(category.ink, isDark)}
-              />
-            );
-          })}
-
-          {/* Always last, and always present — it is where a chore lands when
-              you do not choose, so it must be reachable to undo a choice. */}
-          <Chip
-            label={OTHER_TITLE}
-            selected={categoryId === null}
-            onPress={() => onChangeCategory(null)}
-            accessibilityLabel={`Category: ${OTHER_TITLE}`}
-            tint={colors.text}
-            wash={colors.sunken}
-          />
-
-          <Chip
-            label={adding ? '× Cancel' : '+ New'}
-            selected={false}
-            onPress={() => {
-              setAdding((open) => !open);
-              setNewName('');
-              setNewInk(null);
-            }}
-            accessibilityLabel={adding ? 'Cancel new category' : 'Add a category'}
-            tint={colors.text}
-            wash={colors.sunken}
-          />
-        </View>
-
-        {adding ? (
-          <View style={{ gap: space.sm, paddingTop: space.sm }}>
-            <Field
-              label="New category"
-              value={newName}
-              onChangeText={setNewName}
-              placeholder="Kitchen"
-              maxLength={40}
-              autoFocus
-              {...(createError === null ? {} : { error: createError })}
+    <FieldGroup
+      label="Category"
+      hint={
+        categories.length === 0
+          ? 'No categories yet — add one below, or leave this chore in Other.'
+          : undefined
+      }
+    >
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
+        {categories.map((category) => {
+          const selected = category.id === categoryId;
+          const tint = category.ink === null ? colors.text : inkColor(category.ink, isDark);
+          return (
+            <Chip
+              key={category.id}
+              label={category.name}
+              selected={selected}
+              onPress={() => onChangeCategory(category.id)}
+              accessibilityLabel={`Category: ${category.name}`}
+              tint={tint}
+              wash={category.ink === null ? colors.sunken : inkSoft(category.ink, isDark)}
             />
+          );
+        })}
 
+        {/* Always last, and always present — it is where a chore lands when
+              you do not choose, so it must be reachable to undo a choice. */}
+        <Chip
+          label={OTHER_TITLE}
+          selected={categoryId === null}
+          onPress={() => onChangeCategory(null)}
+          accessibilityLabel={`Category: ${OTHER_TITLE}`}
+          tint={colors.text}
+          wash={colors.sunken}
+        />
+
+        <Chip
+          label={adding ? '× Cancel' : '+ New'}
+          selected={false}
+          onPress={() => {
+            if (adding) closeDraft();
+            else {
+              // Choosing to write a new one is choosing not to use an
+              // existing one; leaving a chip selected underneath would make
+              // the save ambiguous.
+              onChangeCategory(null);
+              onChangeDraft(EMPTY_CATEGORY_DRAFT);
+            }
+          }}
+          accessibilityLabel={adding ? 'Cancel new category' : 'Add a category'}
+          tint={colors.text}
+          wash={colors.sunken}
+        />
+      </View>
+
+      {draft !== null ? (
+        <View style={{ gap: space.sm, paddingTop: space.sm }}>
+          {/* No confirm button below: this is saved with the chore. Saying so
+                stops the fields reading as an unfinished step. */}
+          <Field
+            label="New category"
+            hint="Saved when you save the chore."
+            value={draft.name}
+            onChangeText={(name) => onChangeDraft({ ...draft, name })}
+            placeholder="Kitchen"
+            maxLength={40}
+            autoFocus
+            {...(createError === null ? {} : { error: createError })}
+          />
+
+          {/* Labelled, unlike the loose swatch row it replaced. Eight coloured
+              dots under a name field do not say what they colour. */}
+          <FieldGroup label="Colour">
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
               {INKS.map((option) => {
-                const selected = newInk === option.name;
+                const selected = draft.ink === option.name;
                 return (
                   <Pressable
                     key={option.name}
-                    onPress={() => setNewInk(selected ? null : option.name)}
+                    onPress={() => onChangeDraft({ ...draft, ink: selected ? null : option.name })}
                     accessibilityRole="radio"
                     accessibilityState={{ selected }}
                     accessibilityLabel={`Colour: ${option.label}`}
@@ -180,35 +194,53 @@ export function CategoryAndPriorityPicker({
                 );
               })}
             </View>
+          </FieldGroup>
 
-            <IconPicker value={newIcon} onChange={setNewIcon} />
-
-            <Button
-              label="Add category"
-              onPress={submitNew}
-              loading={creating}
-              disabled={newName.trim().length === 0}
-            />
-          </View>
-        ) : null}
-      </FieldGroup>
-
-      <FieldGroup label="Priority" hint="Sorts the chore within whatever it is grouped by.">
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-          {PRIORITIES.map((level) => (
-            <Chip
-              key={level}
-              label={describePriority(level)}
-              selected={level === priority}
-              onPress={() => onChangePriority(level)}
-              accessibilityLabel={`Priority: ${describePriority(level)}`}
-              tint={colors.text}
-              wash={colors.sunken}
-            />
-          ))}
+          {/* Named, because the chore's own icon picker sits directly below
+              this block and two "Icon" headings in a column read as one
+              control that has somehow been drawn twice. */}
+          <IconPicker
+            label="Category icon"
+            value={draft.icon}
+            onChange={(icon) => onChangeDraft({ ...draft, icon })}
+            {...(onCollapse === undefined ? {} : { onCollapse })}
+          />
         </View>
-      </FieldGroup>
-    </View>
+      ) : null}
+    </FieldGroup>
+  );
+}
+
+/**
+ * How the chore sorts within whatever it is grouped by.
+ *
+ * Split out of the category picker so the icon picker can sit between the two —
+ * see the note at the top of this file.
+ */
+export function PriorityPicker({
+  priority,
+  onChangePriority,
+}: {
+  priority: Priority;
+  onChangePriority: (priority: Priority) => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <FieldGroup label="Priority" hint="Sorts the chore within whatever it is grouped by.">
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
+        {PRIORITIES.map((level) => (
+          <Chip
+            key={level}
+            label={describePriority(level)}
+            selected={level === priority}
+            onPress={() => onChangePriority(level)}
+            accessibilityLabel={`Priority: ${describePriority(level)}`}
+            tint={colors.text}
+            wash={colors.sunken}
+          />
+        ))}
+      </View>
+    </FieldGroup>
   );
 }
 

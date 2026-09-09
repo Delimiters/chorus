@@ -9,7 +9,8 @@
  * whose turn every future occurrence is.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { ScrollView } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilTime } from '@/core/civil/types';
@@ -29,10 +30,16 @@ const mockCategories = [
   { id: 'c-plain', name: 'Plain', ink: null, icon: null, position: 2 },
 ];
 
+const mockCreateCategory = jest.fn();
+
 jest.mock('@/data/hooks/useCategories', () => ({
   useCategoryList: () => mockCategories,
   useCategories: () => ({ data: [], isPending: false, isError: false }),
-  useCreateCategory: () => ({ mutateAsync: jest.fn(), isPending: false, error: null }),
+  useCreateCategory: () => ({
+    mutateAsync: mockCreateCategory,
+    isPending: false,
+    error: null,
+  }),
 }));
 
 const TODAY = civilDate('2026-07-30'); // a Thursday
@@ -255,6 +262,12 @@ describe('the reminder times', () => {
   });
 
   it('takes any time from the wheel, not just the shortcuts', async () => {
+    /*
+     * No confirm press between the wheel and the save. Jake: *"once I set the
+     * time I should be good to go."* The "Add 6:45 pm" button that used to sit
+     * under the wheel was easy to miss, and missing it discarded a time that
+     * was plainly on screen.
+     */
     const { onSubmit } = await renderForm();
     await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
     await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
@@ -262,9 +275,99 @@ describe('the reminder times', () => {
       type: 'set',
       nativeEvent: { timestamp: new Date(2026, 0, 1, 18, 45).getTime() },
     });
-    await fireEvent.press(screen.getByLabelText('Add a reminder at 6:45 pm'));
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
     expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['18:45']);
+  });
+
+  it('moves the reminder as the wheel turns rather than leaving one per notch', async () => {
+    /*
+     * The cost of committing on every change. A spinner reports continuously,
+     * so without remembering which time this wheel already added, scrolling
+     * from 9am to 6:45pm would leave a chip at every minute it passed through.
+     */
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    for (const [h, m] of [
+      [10, 0],
+      [14, 30],
+      [18, 45],
+    ] as const) {
+      await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+        type: 'set',
+        nativeEvent: { timestamp: new Date(2026, 0, 1, h, m).getTime() },
+      });
+    }
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['18:45']);
+  });
+
+  it('does not eat a reminder the wheel is spun across', async () => {
+    /*
+     * The cost of the fix for the notch pile-up, if it is done by remembering
+     * only the *last* time this wheel produced. Spin onto a time that is
+     * already in the list and the two dedupe into one, so the wheel adopts the
+     * user's existing reminder as its own — and deletes it on the next notch.
+     *
+     * The hour column holds the minutes fixed, so crossing an existing
+     * reminder is the ordinary case rather than a corner.
+     */
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 9am'));
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    for (const [h, m] of [
+      [10, 0],
+      [9, 0], // straight through the reminder that is already there
+      [8, 0],
+    ] as const) {
+      await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+        type: 'set',
+        nativeEvent: { timestamp: new Date(2026, 0, 1, h, m).getTime() },
+      });
+    }
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['08:00', '09:00']);
+  });
+
+  it('does not resurrect a reminder removed while the wheel is open', async () => {
+    /*
+     * The other end of the baseline. It is the list as it was when the wheel
+     * opened, so anything deleted after that is still in it — and the next
+     * notch republishes `baseline + the time showing`, putting it back.
+     */
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 9am'));
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    await fireEvent.press(screen.getByLabelText('Remove the reminder at 9 am'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(2026, 0, 1, 18, 45).getTime() },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['18:45']);
+  });
+
+  it('keeps a second reminder when a second wheel is opened for one', async () => {
+    // The other half: "I should only have to press another button if I need to
+    // add ANOTHER reminder." Closing and reopening must not move the first.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(2026, 0, 1, 7, 0).getTime() },
+    });
+    await fireEvent.press(screen.getByLabelText('Close the time picker'));
+
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(2026, 0, 1, 19, 30).getTime() },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['07:00', '19:30']);
   });
 
   it('only reads hours and minutes off the wheel, never its date', async () => {
@@ -277,7 +380,6 @@ describe('the reminder times', () => {
       type: 'set',
       nativeEvent: { timestamp: new Date(1999, 11, 31, 6, 5).getTime() },
     });
-    await fireEvent.press(screen.getByLabelText('Add a reminder at 6:05 am'));
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
     expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['06:05']);
   });
@@ -776,5 +878,231 @@ describe('the note on a row', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ notes: 'by 4pm Monday' }));
+  });
+});
+
+describe('a category written on the chore form', () => {
+  beforeEach(() => {
+    mockCreateCategory.mockReset();
+    mockCreateCategory.mockResolvedValue('c-new');
+  });
+
+  it('is not created until the chore is saved', async () => {
+    /*
+     * It used to be created by an "Add category" button, immediately — so
+     * backing out of a half-written chore left the category behind in the
+     * house, with no screen that had asked for it. Jake: *"if I'm adding a new
+     * category for that chore just let me fill in the info and then when I save
+     * the chore itself you can add the category."*
+     */
+    await renderForm();
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+
+    expect(mockCreateCategory).not.toHaveBeenCalled();
+  });
+
+  it('is created on save, and the chore is filed under it', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep the garage');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+    await fireEvent.press(screen.getByLabelText('Colour: Teal'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).toHaveBeenCalledWith({
+      name: 'Garage',
+      ink: 'teal',
+      icon: null,
+    });
+    expect(submitted(onSubmit).categoryId).toBe('c-new');
+  });
+
+  it('does not save the chore when the category cannot be created', async () => {
+    // A duplicate name is the common one. Saving the chore anyway would file it
+    // under nothing while the name sat in a field that looked accepted.
+    mockCreateCategory.mockRejectedValue(new Error('duplicate'));
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep the garage');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('can be retried when the chore save fails, without a duplicate-name deadlock', async () => {
+    /*
+     * Two writes, and the second can fail on its own. The category is already
+     * committed at that point, so a retry that creates it again hits
+     * `unique (household_id, name)` and rejects — which left the chore
+     * unsaveable from this form, with the only clue an error several hundred
+     * points above the button that had just been pressed.
+     */
+    mockCreateCategory.mockResolvedValue('c-new');
+
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep the garage');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+
+    /*
+     * First press. The category is created and `onSubmit` is called; the chore
+     * write behind it is what fails, which this form only ever learns about
+     * through its `error` prop — so from here it looks like nothing happened
+     * and the user presses again.
+     */
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    // The creation is a promise; the id it resolves to is what the retry has
+    // to reuse, so the retry must not happen before it lands.
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(mockCreateCategory).toHaveBeenCalledTimes(1);
+    onSubmit.mockClear();
+
+    // Second press: no second creation, and the chore is filed under the
+    // category the first press made.
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).toHaveBeenCalledTimes(1);
+    expect(submitted(onSubmit).categoryId).toBe('c-new');
+  });
+
+  it('can be retried after the colour is changed, since the name is what collides', async () => {
+    /*
+     * The gap between the two tests around this one. The deadlock is keyed on
+     * the *name* — `unique (household_id, name)` — but the first fix forgot the
+     * remembered id on any draft edit at all, so touching a colour swatch after
+     * a failed chore save re-armed the exact bug it was written to remove.
+     */
+    mockCreateCategory.mockResolvedValue('c-garage');
+
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep it');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+
+    await fireEvent.press(screen.getByLabelText('Colour: Teal'));
+    onSubmit.mockClear();
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).toHaveBeenCalledTimes(1);
+    expect(submitted(onSubmit).categoryId).toBe('c-garage');
+  });
+
+  it('creates a fresh category when the name is changed after a failure', async () => {
+    // The retry must not file the chore under a name that is no longer typed.
+    mockCreateCategory.mockResolvedValueOnce('c-garage');
+    mockCreateCategory.mockResolvedValueOnce('c-shed');
+
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep it');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Shed');
+    onSubmit.mockClear();
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).toHaveBeenLastCalledWith({
+      name: 'Shed',
+      ink: null,
+      icon: null,
+    });
+    expect(submitted(onSubmit).categoryId).toBe('c-shed');
+  });
+
+  it('creates nothing when the fields were opened and left empty', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep the garage');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).not.toHaveBeenCalled();
+    expect(submitted(onSubmit).categoryId).toBeNull();
+  });
+});
+
+describe('the form scrolling itself while you are using it', () => {
+  /*
+   * Asserted here, on the form, and not only in FormScroll.test.tsx.
+   *
+   * The defect was never in `DateField` or in `FormScroll` — both were fine on
+   * their own. It was in how this file wired them together: `onChange` was
+   * treated as "a panel closed", and `DateField` fires it from the quick chips
+   * while the calendar is shut. So the component test that pins `DateField`'s
+   * contract stays green no matter what the caller does with it, which is the
+   * "a correct pure function composed wrongly" shape AGENTS.md records twice.
+   *
+   * A spy on the real ScrollView, because the scroll is the observable thing —
+   * jest-expo runs no layout, so there is nothing else to look at.
+   */
+  let scrollSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    scrollSpy = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    scrollSpy.mockRestore();
+  });
+
+  /**
+   * Give a section a real position.
+   *
+   * Without this the anchor has no measurement, `returnHere` does nothing, and
+   * every "does not scroll" assertion below passes for the wrong reason — the
+   * exact vacuity AGENTS.md says to look for. Laying the section out at 900
+   * and scrolling to 4000 means a live anchor *would* fire.
+   */
+  const layOut = (testID: string) =>
+    fireEvent(screen.getByTestId(testID), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 900, width: 390, height: 120 } },
+    });
+
+  /** Far enough down that anything anchored above would be scrolled back to. */
+  const scrollDown = () =>
+    fireEvent.scroll(screen.getByTestId('chore-form-scroll'), {
+      nativeEvent: {
+        contentOffset: { x: 0, y: 4000 },
+        contentSize: { width: 390, height: 6000 },
+        layoutMeasurement: { width: 390, height: 800 },
+      },
+    });
+
+  it('does not move when a start date is chosen and nothing has collapsed', async () => {
+    await renderForm();
+    layOut('section:starts-on');
+    scrollDown();
+
+    await fireEvent.press(screen.getByText('Tomorrow'));
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not move when a day is picked out of the calendar', async () => {
+    await renderForm();
+    layOut('section:starts-on');
+    await fireEvent.press(screen.getByRole('button', { name: 'Pick another date' }));
+    scrollDown();
+
+    await fireEvent.press(screen.getAllByLabelText(/^Fri 31,/)[0]!);
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it('comes back to the icon row when the grid closes', async () => {
+    // The other side: the anchoring must still actually happen.
+    await renderForm();
+    layOut('section:icon');
+    await fireEvent.press(screen.getByRole('button', { name: 'Choose an icon' }));
+    scrollDown();
+
+    await fireEvent.press(screen.getAllByRole('radio', { name: 'car' })[0]!);
+
+    expect(scrollSpy).toHaveBeenCalled();
   });
 });

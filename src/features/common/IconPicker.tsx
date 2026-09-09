@@ -25,20 +25,48 @@ import { MIN_TARGET, radius, space } from '@/design/tokens';
 interface Props {
   value: IconName | null;
   onChange: (value: IconName | null) => void;
+  /**
+   * The field's heading. "Icon" unless it would collide with another one.
+   *
+   * The chore form nests one of these inside the new-category fields, directly
+   * above its own — two "ICON" headings in a column, for two different things.
+   */
+  label?: string;
+  /**
+   * Called when the grid closes, so the form can scroll back to this control.
+   *
+   * The grid is sixty-odd glyphs tall. Choosing one closes it, the content
+   * above the scroll position shrinks by that much, and the offset stays put —
+   * which lands you somewhere near the bottom of the form having chosen an
+   * icon. See src/features/common/FormScroll.tsx.
+   */
+  onCollapse?: () => void;
 }
 
-export function IconPicker({ value, onChange }: Props) {
+export function IconPicker({ value, onChange, label = 'Icon', onCollapse }: Props) {
   const { colors } = useTheme();
+  const lower = label.toLowerCase();
+  const article = /^[aeiou]/.test(lower) ? 'an' : 'a';
   const [open, setOpen] = useState(false);
 
+  const close = () => {
+    setOpen(false);
+    onCollapse?.();
+  };
+
   return (
-    <FieldGroup label="Icon">
+    <FieldGroup label={label}>
       <View style={{ gap: space.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           <Pressable
-            onPress={() => setOpen((o) => !o)}
+            onPress={() => (open ? close() : setOpen(true))}
             accessibilityRole="button"
-            accessibilityLabel={open ? 'Close the icon list' : 'Choose an icon'}
+            /*
+              Follows the heading. With the chore form's new-category fields
+              open there are two of these on screen, and a screen reader
+              announcing "Choose an icon" twice cannot say which is which.
+            */
+            accessibilityLabel={open ? `Close the ${lower} list` : `Choose ${article} ${lower}`}
             style={{
               minHeight: MIN_TARGET,
               flexDirection: 'row',
@@ -53,7 +81,7 @@ export function IconPicker({ value, onChange }: Props) {
               <MaterialCommunityIcons name={value} size={20} color={colors.text} />
             )}
             <Txt variant="small" tone="muted">
-              {open ? '× Close' : value === null ? 'Choose an icon' : 'Change'}
+              {open ? '× Close' : value === null ? `Choose ${article} ${lower}` : 'Change'}
             </Txt>
           </Pressable>
 
@@ -90,7 +118,7 @@ export function IconPicker({ value, onChange }: Props) {
                         key={icon}
                         onPress={() => {
                           onChange(icon);
-                          setOpen(false);
+                          close();
                         }}
                         accessibilityRole="radio"
                         accessibilityState={{ selected }}
