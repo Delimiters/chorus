@@ -92,11 +92,15 @@ export function FormScroll({
  * Marks one section as somewhere worth returning to.
  *
  * Spread `anchorProps` onto a **direct child of the scroll view's content
- * container**: `onLayout` reports a position relative to the parent, so on a
- * nested view the number would be an offset within that view and the scroll
- * would land near the top of the form. Nesting is not an error worth guarding
- * against in code — the whole point of an anchor further out is that returning
- * to the enclosing section is the useful behaviour anyway.
+ * container**, and nothing else.
+ *
+ * `onLayout` reports a position relative to the parent. On a nested view that
+ * is an offset *within* the parent — near zero for anything at the top of its
+ * own wrapper — so `returnTo` is handed a y of about zero and scrolls to the
+ * top of the whole form. That is strictly worse than doing nothing, and it is
+ * worth being blunt about: an earlier version of this comment called it
+ * "returning to the enclosing section", which it is not, and which would have
+ * read as permission to nest one.
  */
 export function useAnchor(): {
   anchorProps: { onLayout: (event: LayoutChangeEvent) => void };

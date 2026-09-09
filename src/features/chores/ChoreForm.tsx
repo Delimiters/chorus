@@ -174,6 +174,25 @@ export function ChoreForm({
    */
   const [newCategory, setNewCategory] = useState<NewCategoryDraft | null>(null);
 
+  /**
+   * The id of a category this form has already created, if it did.
+   *
+   * The chore save is a second write and can fail on its own — a network blip,
+   * an RLS refusal. Without this, pressing Save again re-ran the creation, hit
+   * the `unique (household_id, name)` constraint, and rejected: the chore
+   * became **unsaveable from this form**, with the only clue a duplicate-name
+   * error rendered several hundred points above the button that was pressed.
+   *
+   * Cleared whenever the draft is edited, so changing your mind about the name
+   * after a failure does not file the chore under the old one.
+   */
+  const [createdCategoryId, setCreatedCategoryId] = useState<string | null>(null);
+
+  const editDraft = (draft: NewCategoryDraft | null) => {
+    setCreatedCategoryId(null);
+    setNewCategory(draft);
+  };
+
   /*
    * One anchor per section that grows and shrinks. The icon grid is the one
    * Jake reported; the others are the same control shape and were the "few
@@ -249,6 +268,13 @@ export function ChoreForm({
   const submit = () => {
     if (!canSave) return;
 
+    // Already created on an earlier press whose chore save then failed. Reuse
+    // it rather than creating it twice.
+    if (createdCategoryId !== null) {
+      save(createdCategoryId);
+      return;
+    }
+
     /*
      * A drafted category is created here, and the chore is filed under it.
      *
@@ -265,7 +291,10 @@ export function ChoreForm({
           ink: newCategory?.ink ?? null,
           icon: newCategory?.icon ?? null,
         })
-        .then((id) => save(id))
+        .then((id) => {
+          setCreatedCategoryId(id);
+          save(id);
+        })
         .catch(() => {
           // Surfaced by `createError` below. Swallowed so an unhandled
           // rejection does not take the screen down with it.
@@ -348,12 +377,15 @@ export function ChoreForm({
             categories={categories}
             categoryId={categoryId}
             onChangeCategory={(id) => {
-              // Choosing an existing one abandons anything half-written.
-              setNewCategory(null);
+              // Choosing an existing one abandons anything half-written. That
+              // tears the draft block down, so the form has to come back to
+              // this section the same way cancelling it does.
+              if (newCategory !== null) categoryAnchor.returnHere();
+              editDraft(null);
               chooseCategory(id);
             }}
             draft={newCategory}
-            onChangeDraft={setNewCategory}
+            onChangeDraft={editDraft}
             createError={(createCategory.error as Error | null)?.message ?? null}
             onCollapse={categoryAnchor.returnHere}
           />
@@ -389,10 +421,8 @@ export function ChoreForm({
             >
               <DateField
                 value={startsOn}
-                onChange={(date) => {
-                  setStartsOn(date);
-                  startsOnAnchor.returnHere();
-                }}
+                onChange={setStartsOn}
+                onCollapse={startsOnAnchor.returnHere}
                 today={today}
                 label="Start date"
                 weekStartsOn={calendar.weekStartsOn}
@@ -498,7 +528,7 @@ export function ChoreForm({
             label={editing ? 'Save changes' : 'Add chore'}
             onPress={submit}
             disabled={!canSave}
-            loading={isSaving}
+            loading={isSaving || createCategory.isPending}
           />
           <Button label="Cancel" onPress={onCancel} variant="ghost" />
 

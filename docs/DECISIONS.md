@@ -18,6 +18,43 @@ Newest first.
 
 ---
 
+## 2026-09-09 — Upcoming lost its "What's on <date>" header
+
+**Was:** the screen opened with a display-sized title, the date beneath it, and
+a `· N DONE` count. It had a comment justifying itself: the date is the thing
+the list is *about*, and a list of chores with no date on it is ambiguous.
+
+**Now:** the list starts at the sort control.
+
+**Why:** Jake — *"this big What's on <date> header is weird and confusing.
+Honestly I think we should just get rid of that header entirely. We already
+know we're on the upcoming tab."* The tab bar names the screen, and the rows
+carry their own dates.
+
+**Cost:** the done-count for the day is no longer anywhere on Upcoming. Today
+still has it. Nobody has asked for it back.
+
+---
+
+## 2026-09-09 — A one-time task can no longer be dragged among the chores
+
+**Was:** one `DragList` per person per day, so any row could be dragged
+anywhere in that day.
+
+**Now:** two lists — Chores and One-time tasks — so dragging is within a group.
+
+**Why:** a consequence of the split Jake asked for, not a decision taken on its
+own. Two headed groups whose rows can be dragged across the heading would make
+the headings lie.
+
+**Cost:** reordering a one-off relative to a chore is gone. `positionBetween`
+now averages within-group neighbours, so it can mint a position equal to a
+non-group row that sorts between them; harmless only because the grouping is
+applied *after* the sort, and worth remembering before anyone flattens the
+lists again.
+
+---
+
 ## 2026-09-09 — A compact row keeps its lateness marker while expanded
 
 **Was:** a compact row showed lateness as `14d` beside the title, and swapped it

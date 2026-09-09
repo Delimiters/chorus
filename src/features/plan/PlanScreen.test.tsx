@@ -1011,10 +1011,19 @@ describe('splitting the day by kind of work', () => {
   });
 
   it('keeps a one-off out of the chores group', () => {
-    // The split has to be on what the chore *is*, not on where it happens to
-    // sort — otherwise the headings are decoration.
+    /*
+     * The split has to be on what the chore *is*, not on where it happens to
+     * sort — otherwise the headings are decoration.
+     *
+     * The one-off is therefore given the *earlier* position. With
+     * `dishes` first this assertion held whether or not the grouping ran at
+     * all, because `planFor` sorts by position and would have produced the
+     * same order on its own: the exact shape AGENTS.md warns about, where the
+     * simplest fixture is the one input the right and wrong implementations
+     * agree on.
+     */
     mockRecurring = new Set(['dishes']);
-    mockEntries = [entry('dishes', 1), entry('taxes', 2)];
+    mockEntries = [entry('taxes', 1), entry('dishes', 2)];
     renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
 
     const rows = screen

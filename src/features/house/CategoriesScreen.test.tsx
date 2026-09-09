@@ -17,14 +17,23 @@ import { CategoriesScreen } from './CategoriesScreen';
 
 const mockPush = jest.fn();
 
-let mockCategories: { id: string; name: string; ink: string | null; icon: string | null }[] = [];
+type Row = { id: string; name: string; ink: string | null; icon: string | null };
+
+let mockCategories: Row[] = [];
+let mockQuery: { data: Row[]; isPending: boolean; isError: boolean; error: Error | null };
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn(), canGoBack: () => true, replace: jest.fn() }),
 }));
 
+/*
+ * `isPending` / `isError`, which is what the screen reads. The first version of
+ * this mock returned `{ isLoading, error }` — the wrong shape — and passed only
+ * because `undefined` is falsy, so the loading and error guards were never
+ * exercised and would have gone on not being exercised silently.
+ */
 jest.mock('@/data/hooks/useCategories', () => ({
-  useCategories: () => ({ data: mockCategories, isLoading: false, error: null }),
+  useCategories: () => mockQuery,
   useCreateCategory: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useUpdateCategory: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteCategory: () => ({ mutate: jest.fn(), error: null }),
@@ -44,6 +53,29 @@ beforeEach(() => {
     { id: 'kitchen', name: 'Kitchen', ink: 'blue', icon: null },
     { id: 'garden', name: 'Garden', ink: 'green', icon: null },
   ];
+  mockQuery = { data: mockCategories, isPending: false, isError: false, error: null };
+});
+
+describe('while the categories are not there', () => {
+  it('waits rather than showing an empty list', () => {
+    mockQuery = { data: [], isPending: true, isError: false, error: null };
+    renderScreen();
+
+    expect(screen.getByText('Loading categories')).toBeOnTheScreen();
+    expect(screen.queryByText('Kitchen')).toBeNull();
+  });
+
+  it('says what went wrong rather than showing nothing', () => {
+    mockQuery = {
+      data: [],
+      isPending: false,
+      isError: true,
+      error: new Error('The house could not be reached.'),
+    };
+    renderScreen();
+
+    expect(screen.getByText('The house could not be reached.')).toBeOnTheScreen();
+  });
 });
 
 describe('editing a category', () => {

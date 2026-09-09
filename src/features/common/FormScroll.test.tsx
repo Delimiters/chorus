@@ -12,7 +12,9 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { ScrollView, View } from 'react-native';
 
+import { civilDate } from '@/core/civil/date';
 import { ThemeProvider } from '@/design/theme';
+import { DateField } from './DateField';
 import { IconPicker } from './IconPicker';
 import { ANCHOR_INSET, FormScroll, useAnchor } from './FormScroll';
 
@@ -71,6 +73,77 @@ const renderHarness = () =>
       <Wrapped />
     </ThemeProvider>,
   );
+
+/*
+ * A second control, because the first version of this file only ever drove the
+ * icon picker — and the bug it missed was in the other one. `DateField` fires
+ * `onChange` without closing anything (its quick chips fire it while the
+ * calendar is shut, and picking a day leaves the calendar open), so an anchor
+ * hung off `onChange` scrolled the form when nothing had shrunk.
+ */
+function DateHarness() {
+  return (
+    <FormScroll testID="form-scroll">
+      <DateInner />
+    </FormScroll>
+  );
+}
+
+function DateInner() {
+  const anchor = useAnchor();
+  return (
+    <View testID="section" {...anchor.anchorProps}>
+      <DateField
+        value={civilDate('2026-07-30')}
+        onChange={jest.fn()}
+        today={civilDate('2026-07-30')}
+        label="Start date"
+        onCollapse={anchor.returnHere}
+      />
+    </View>
+  );
+}
+
+const renderDateHarness = () =>
+  render(
+    <ThemeProvider>
+      <DateHarness />
+    </ThemeProvider>,
+  );
+
+describe('a control that changes its value without closing', () => {
+  it('does not scroll when a quick option is tapped', () => {
+    renderDateHarness();
+    layOutSection();
+    scrollTo(SECTION_Y + 600);
+
+    fireEvent.press(screen.getByText('Tomorrow'));
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not scroll when a day is picked and the calendar stays open', () => {
+    renderDateHarness();
+    layOutSection();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Pick another date' }));
+    scrollTo(SECTION_Y + 600);
+    fireEvent.press(screen.getByLabelText(/^Fri 31,/));
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it('scrolls back when the calendar is actually closed', () => {
+    renderDateHarness();
+    layOutSection();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Pick another date' }));
+    scrollTo(SECTION_Y + 600);
+    fireEvent.press(screen.getByRole('button', { name: 'Close the calendar' }));
+
+    expect(scrollSpy).toHaveBeenCalledWith({ y: SECTION_Y - ANCHOR_INSET, animated: true });
+  });
+});
 
 describe('choosing something from a panel that then closes', () => {
   it('scrolls back to the section that closed', () => {

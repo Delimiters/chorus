@@ -63,7 +63,13 @@ export function CategoryEditor({ categoryId }: Props) {
   // Editing something that has not arrived yet: waiting beats opening an empty
   // form, which looks like a new category and saves as a duplicate.
   if (categoryId !== null && existing === undefined) {
-    if (categories.isLoading) return <LoadingState />;
+    /*
+     * `isPending`, not `isLoading`. A query disabled by `skipToken` — which is
+     * what this one is before a household is known — reports `isLoading:
+     * false`, so the guard fell straight through to "no longer exists" and
+     * accused the house of having deleted a category it had not yet loaded.
+     */
+    if (categories.isPending) return <LoadingState label="Loading the category" />;
     return <ErrorState message="That category no longer exists." />;
   }
 

@@ -18,13 +18,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OTHER_TITLE } from '@/core/occurrence/grouping';
-import {
-  useCategories,
-  useCreateCategory,
-  useDeleteCategory,
-  useReorderCategories,
-  useUpdateCategory,
-} from '@/data/hooks/useCategories';
+import { useCategories, useDeleteCategory, useReorderCategories } from '@/data/hooks/useCategories';
 import { BackBar, Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { inkColor } from '@/design/inks';
 import { useTheme } from '@/design/theme';
@@ -35,8 +29,6 @@ export function CategoriesScreen() {
   const { colors, isDark } = useTheme();
   const router = useRouter();
   const categories = useCategories();
-  const create = useCreateCategory();
-  const update = useUpdateCategory();
   const remove = useDeleteCategory();
   const reorder = useReorderCategories();
 
@@ -51,11 +43,7 @@ export function CategoriesScreen() {
   const rows = categories.data ?? [];
 
   const error =
-    (create.error as Error | null)?.message ??
-    (update.error as Error | null)?.message ??
-    (remove.error as Error | null)?.message ??
-    (reorder.error as Error | null)?.message ??
-    null;
+    (remove.error as Error | null)?.message ?? (reorder.error as Error | null)?.message ?? null;
 
   if (categories.isPending) return <LoadingState label="Loading categories" />;
   if (categories.isError) {

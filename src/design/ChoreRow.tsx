@@ -495,7 +495,12 @@ export function ChoreRow({
                   How late, shortened to `6d`. Lateness is the one thing that
                   cannot fold away — it is why a row is worth looking at at all
                   — but "6 days late" is a chip's worth of width for one
-                  number. Expanded, the full chip returns.
+                  number.
+
+                  It stays `6d` when the row expands. The full chip used to
+                  return there, and swapping them was what made the row reflow
+                  under the thumb: dropping this handed its width back to the
+                  title. See docs/DECISIONS.md, 2026-09-09.
                 */}
                 {compact && done && completedByLabel !== null ? (
                   <Txt
@@ -606,25 +611,34 @@ export function ChoreRow({
                     stepsOpen ? 'Hide them' : 'Show them'
                   }.`
             }
-            // 20 laid out, 44 tappable. `hitSlop` grows the target without
-            // growing the box, which is the only way to have both on a row
-            // this tight — the gap either side is real space, not padding
-            // inside a button, so the words stop short of it.
-            // 20 laid out, 44 tappable, in **both** states. `hitSlop` grows the
-            // target without growing the box, which is the only way to have both
-            // on a row this tight.
-            hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
+            /*
+              On a compact row: 20 laid out, 44 tappable. `hitSlop` grows the
+              target without growing the box, which is the only way to have
+              both on a row this tight — a laid-out 44 square was setting the
+              height of every row on Today and taking 44 points of width from
+              the title.
+
+              Keyed on `compact`, never on `stepsOpen`. That is the whole
+              point: `compact` cannot change while a row is open, so the
+              chevron's footprint is fixed for the life of the expansion. An
+              earlier version keyed it on `slim` (`compact && !stepsOpen`),
+              which moved the title column's right edge by 24pt the instant you
+              tapped it. A full-height row keeps the plain 44pt box it always
+              had; it has the vertical room, and it never had the defect.
+            */
+            hitSlop={compact ? { top: 14, bottom: 14, left: 12, right: 12 } : undefined}
             style={{
-              width: 20,
-              height: 20,
+              width: compact ? 20 : MIN_TARGET,
+              height: compact ? 20 : MIN_TARGET,
               alignItems: 'center',
               justifyContent: 'center',
-              marginTop: 1,
+              marginTop: compact ? 1 : -8,
+              ...(compact ? {} : { marginRight: -space.sm }),
             }}
           >
             <MaterialCommunityIcons
               name={stepsOpen ? 'chevron-up' : 'chevron-down'}
-              size={20}
+              size={compact ? 20 : 26}
               color={colors.textFaint}
             />
           </Pressable>
@@ -815,13 +829,26 @@ export function SubHeader({
           backgroundColor: ink == null ? colors.textFaint : inkColor(ink, isDark),
         }}
       />
-      <Txt variant="small" tone="faint" accessibilityRole="header" style={{ flex: 1 }}>
+      {/*
+        The count is part of the heading to a screen reader, not a stray number
+        after it. Left as a sibling it was announced as a bare "3" following
+        "Chores", with nothing saying what had been counted.
+      */}
+      <Txt
+        variant="small"
+        tone="faint"
+        accessibilityRole="header"
+        accessibilityLabel={count === undefined ? title : `${title}, ${count}`}
+        style={{ flex: 1 }}
+      >
         {title}
       </Txt>
       {count === undefined ? null : (
-        <Txt variant="small" tone="faint">
-          {count}
-        </Txt>
+        <View accessibilityElementsHidden importantForAccessibility="no">
+          <Txt variant="small" tone="faint">
+            {count}
+          </Txt>
+        </View>
       )}
     </View>
   );

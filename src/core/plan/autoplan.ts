@@ -62,21 +62,21 @@ interface Options {
   /** The day being filled. */
   readonly on: CivilDate;
   /**
-   * Occurrence keys already spoken for that day — **anybody's plan, not only
-   * this person's**.
+   * Occurrence keys already on **this person's** day.
    *
-   * `anyone` work counts for everyone, so each device auto-planned its own copy
-   * and the shared chore appeared on both plans at once. With both days on one
-   * screen that is the same row twice, one above the other, and at this
-   * household's size roughly half the screen. It also produced duplicate React
-   * keys and duplicate test ids for the same occurrence.
+   * It was briefly anybody's, so that `anyone` work was claimed by whichever
+   * device auto-planned first and appeared on exactly one of the two plans.
+   * That was reversed: Jake — *"They should all go to both of us, and if
+   * somebody's not going to do them they can remove them from their plan."*
+   * See docs/DECISIONS.md, 2026-09-09.
    *
-   * Whoever's plan claims it first keeps it, which is what "anyone" means: once
-   * it is on somebody's day it is theirs, and the other person's list should
-   * not still be offering it.
+   * The consequence the claim-first version was avoiding is real and is now
+   * accepted: with both days on one screen a shared chore renders twice, once
+   * under each person, and its React key and test id appear twice with it.
+   * Anything reading rows across both days has to expect duplicate keys.
    *
    * Work with a subject — `everyone` fans out per person — has a distinct key
-   * per person, so both still get their own.
+   * per person regardless.
    */
   readonly planned: ReadonlySet<string>;
 }

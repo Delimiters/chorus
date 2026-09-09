@@ -45,6 +45,8 @@ interface Props {
 
 export function IconPicker({ value, onChange, label = 'Icon', onCollapse }: Props) {
   const { colors } = useTheme();
+  const lower = label.toLowerCase();
+  const article = /^[aeiou]/.test(lower) ? 'an' : 'a';
   const [open, setOpen] = useState(false);
 
   const close = () => {
@@ -59,7 +61,12 @@ export function IconPicker({ value, onChange, label = 'Icon', onCollapse }: Prop
           <Pressable
             onPress={() => (open ? close() : setOpen(true))}
             accessibilityRole="button"
-            accessibilityLabel={open ? 'Close the icon list' : 'Choose an icon'}
+            /*
+              Follows the heading. With the chore form's new-category fields
+              open there are two of these on screen, and a screen reader
+              announcing "Choose an icon" twice cannot say which is which.
+            */
+            accessibilityLabel={open ? `Close the ${lower} list` : `Choose ${article} ${lower}`}
             style={{
               minHeight: MIN_TARGET,
               flexDirection: 'row',

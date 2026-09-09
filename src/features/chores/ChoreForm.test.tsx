@@ -9,7 +9,7 @@
  * whose turn every future occurrence is.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilTime } from '@/core/civil/types';
@@ -299,6 +299,34 @@ describe('the reminder times', () => {
     }
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
     expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['18:45']);
+  });
+
+  it('does not eat a reminder the wheel is spun across', async () => {
+    /*
+     * The cost of the fix for the notch pile-up, if it is done by remembering
+     * only the *last* time this wheel produced. Spin onto a time that is
+     * already in the list and the two dedupe into one, so the wheel adopts the
+     * user's existing reminder as its own — and deletes it on the next notch.
+     *
+     * The hour column holds the minutes fixed, so crossing an existing
+     * reminder is the ordinary case rather than a corner.
+     */
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 9am'));
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    for (const [h, m] of [
+      [10, 0],
+      [9, 0], // straight through the reminder that is already there
+      [8, 0],
+    ] as const) {
+      await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+        type: 'set',
+        nativeEvent: { timestamp: new Date(2026, 0, 1, h, m).getTime() },
+      });
+    }
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['08:00', '09:00']);
   });
 
   it('keeps a second reminder when a second wheel is opened for one', async () => {
@@ -881,6 +909,66 @@ describe('a category written on the chore form', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
 
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('can be retried when the chore save fails, without a duplicate-name deadlock', async () => {
+    /*
+     * Two writes, and the second can fail on its own. The category is already
+     * committed at that point, so a retry that creates it again hits
+     * `unique (household_id, name)` and rejects — which left the chore
+     * unsaveable from this form, with the only clue an error several hundred
+     * points above the button that had just been pressed.
+     */
+    mockCreateCategory.mockResolvedValue('c-new');
+
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep the garage');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+
+    /*
+     * First press. The category is created and `onSubmit` is called; the chore
+     * write behind it is what fails, which this form only ever learns about
+     * through its `error` prop — so from here it looks like nothing happened
+     * and the user presses again.
+     */
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    // The creation is a promise; the id it resolves to is what the retry has
+    // to reuse, so the retry must not happen before it lands.
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(mockCreateCategory).toHaveBeenCalledTimes(1);
+    onSubmit.mockClear();
+
+    // Second press: no second creation, and the chore is filed under the
+    // category the first press made.
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).toHaveBeenCalledTimes(1);
+    expect(submitted(onSubmit).categoryId).toBe('c-new');
+  });
+
+  it('creates a fresh category when the name is changed after a failure', async () => {
+    // The retry must not file the chore under a name that is no longer typed.
+    mockCreateCategory.mockResolvedValueOnce('c-garage');
+    mockCreateCategory.mockResolvedValueOnce('c-shed');
+
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Sweep it');
+    await fireEvent.press(screen.getByLabelText('Add a category'));
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Garage');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+
+    await fireEvent.changeText(screen.getByLabelText('New category'), 'Shed');
+    onSubmit.mockClear();
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(mockCreateCategory).toHaveBeenLastCalledWith({
+      name: 'Shed',
+      ink: null,
+      icon: null,
+    });
+    expect(submitted(onSubmit).categoryId).toBe('c-shed');
   });
 
   it('creates nothing when the fields were opened and left empty', async () => {

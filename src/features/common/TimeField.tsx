@@ -18,9 +18,18 @@
  * ANOTHER reminder."* The chip above the wheel is therefore live: it appears at
  * the default the moment the wheel opens and follows every turn of it.
  *
- * Which means the wheel must remember *which* chip is its own — `pending` — or
- * spinning from 09:00 to 09:05 would leave both behind, and a slow scroll
- * through the hour would leave a dozen.
+ * Which means the wheel must know which chip is its own, or a slow scroll
+ * through the hour would leave a dozen behind. It does that by remembering the
+ * list *as it was when the wheel opened* — `baseline` — and republishing
+ * `baseline + the time now showing` on every notch.
+ *
+ * **Not by remembering the last time it produced.** That was the first version
+ * and it silently deleted reminders: spin onto a time that is already in the
+ * list, the two dedupe into one, the wheel adopts the user's existing reminder
+ * as its own, and the next notch takes it away. The hour column holds the
+ * minutes fixed, so crossing an existing reminder is the ordinary case rather
+ * than a corner. With a baseline, crossing one dedupes harmlessly and moving
+ * off it restores it, because the baseline still holds it.
  *
  * The picker deals in `Date` because the OS does. That never escapes this
  * file: values arrive and leave as `CivilTime`, converted at the boundary. A
@@ -80,19 +89,39 @@ interface Props {
 export function TimeField({ value, onChange, defaultTime, silence = null, onCollapse }: Props) {
   const { colors } = useTheme();
   const [picking, setPicking] = useState(false);
-  /** The time this wheel has already added, so spinning moves it rather than piling up. */
-  const [pending, setPending] = useState<CivilTime | null>(null);
+  /** The list as it was when this wheel opened; null while it is closed. */
+  const [baseline, setBaseline] = useState<readonly CivilTime[] | null>(null);
+  /** What the wheel is showing, so it does not snap back to the default on re-render. */
+  const [showing, setShowing] = useState<CivilTime>(defaultTime);
 
   const openWheel = () => {
     setPicking(true);
-    setPending(defaultTime);
-    onChange(withTime(value, defaultTime));
+    setBaseline(value);
+    setShowing(defaultTime);
+    /*
+     * iOS only. Android's picker is a modal dialog, so there would be no live
+     * chip to see this happen — and its Cancel would then leave behind a
+     * reminder nobody chose. There, the choice is committed when the dialog
+     * reports one.
+     */
+    if (Platform.OS === 'ios') onChange(withTime(value, defaultTime));
   };
 
   const closeWheel = () => {
     setPicking(false);
-    setPending(null);
+    setBaseline(null);
     onCollapse?.();
+  };
+
+  /**
+   * A shortcut pressed while the wheel is open.
+   *
+   * It has to join the baseline too, or the wheel's next notch would republish
+   * a list that never contained it.
+   */
+  const addPreset = (time: CivilTime) => {
+    setBaseline((previous) => (previous === null ? null : withTime(previous, time)));
+    onChange(withTime(value, time));
   };
 
   return (
@@ -144,7 +173,7 @@ export function TimeField({ value, onChange, defaultTime, silence = null, onColl
                 key={preset.value}
                 label={`+ ${preset.label}`}
                 accessibilityLabel={`Add a reminder at ${preset.label}`}
-                onPress={() => onChange(withTime(value, preset.value as CivilTime))}
+                onPress={() => addPreset(preset.value as CivilTime)}
               />
             ),
           )}
@@ -168,22 +197,25 @@ export function TimeField({ value, onChange, defaultTime, silence = null, onColl
             }}
           >
             <DateTimePicker
-              value={toPickerDate(pending ?? defaultTime)}
+              value={toPickerDate(showing)}
               mode="time"
               display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              onChange={(_event, date) => {
+              onChange={(event, date) => {
+                /*
+                 * A dismissal arrives *with* a date — see the library's
+                 * `createDismissEvtParams` — so checking only for a missing one
+                 * makes Android's Cancel button add a reminder.
+                 */
+                if (event.type === 'dismissed') {
+                  closeWheel();
+                  return;
+                }
                 if (date === undefined) return;
                 const picked = fromPickerDate(date);
-                // Move this wheel's own reminder rather than adding a second
-                // one. Without the filter, every notch of the spinner would
-                // leave a chip behind.
-                onChange(
-                  withTime(
-                    value.filter((t) => t !== pending),
-                    picked,
-                  ),
-                );
-                setPending(picked);
+                setShowing(picked);
+                // The baseline plus this one, so the wheel owns exactly one
+                // entry however far it is spun, and owns nothing else.
+                onChange(withTime(baseline ?? value, picked));
                 // Android's dialog dismisses itself and reports once.
                 if (Platform.OS !== 'ios') closeWheel();
               }}

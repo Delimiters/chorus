@@ -749,9 +749,13 @@ export function TodayScreen() {
           Not yet due, and folded away.
 
           These are here because they fall inside the thirty-day horizon, not
-          because any chore asked to appear early — `showFrom` is gone. Leaving
-          them expanded is what made the list unreadable; the count sits on the
-          header, so the size of the pile is visible without the pile being.
+          because any chore asked to appear early — this screen no longer reads
+          `showFrom` when deciding what to list. The column and the recurrence
+          picker still have it, and the engine still marks a chore `due` early
+          because of it; what changed is that visibility here is the horizon
+          rather than the flag. Leaving them expanded is what made the list
+          unreadable; the count sits on the header, so the size of the pile is
+          visible without the pile being.
         */}
         {comingUp.length > 0 ? (
           <View>
