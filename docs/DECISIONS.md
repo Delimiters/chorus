@@ -18,6 +18,29 @@ Newest first.
 
 ---
 
+## 2026-09-09 — Shared work lands on both plans, and the day is split by kind
+
+**Was:** `anyone` work was claimed by whichever phone ran the auto-plan first,
+so it appeared on one person's day and not the other's. That was introduced to
+stop the same chore appearing twice once both days shared a screen.
+
+**Now:** it lands on both. Taking it off your own day is how you say it is not
+yours today.
+
+**Why:** Jake — *"seems to be randomly distributing the 'Anyone can do' tasks
+between us? They should all go to both of us, and if somebody's not going to do
+them they can remove them from their plan."* "Randomly" was accurate: which
+phone opened Chorus first that morning decided it, which is not a decision
+either of them made. A shared chore on both days is not a duplicate — each row
+is one person's intention.
+
+**And the day is split** into chores and one-time tasks, with the headings shown
+only when there is both kinds. One-off work started being auto-planned two days
+earlier, adding 38 rows to this household's day, and a task you do once reads
+nothing like the washing-up.
+
+---
+
 ## 2026-09-08 — Settings copy describes effects, not reasoning
 
 **Was:** hints on the Settings screen explained why defaults were chosen and

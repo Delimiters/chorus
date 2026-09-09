@@ -23,12 +23,7 @@ import { useHousehold } from '@/data/hooks/useHousehold';
 import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { quantiseWindow, useOccurrences, useToday_View } from '@/data/hooks/useOccurrences';
-import {
-  useAddToPlan,
-  useMyPlanEntries,
-  usePlanEntries,
-  usePlanLoading,
-} from '@/data/hooks/usePlan';
+import { useAddToPlan, useMyPlanEntries, usePlanLoading } from '@/data/hooks/usePlan';
 import { ErrorState, LoadingState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
 import { PlanScreen } from './PlanScreen';
@@ -53,8 +48,6 @@ export function PlanView() {
   const { view, chores, today, isLoading, error, refetch } = useToday_View();
   const categories = useCategoryList();
   const entries = useMyPlanEntries(today);
-  /** Both plans, for deciding what is already spoken for. */
-  const allEntries = usePlanEntries(today);
   const entriesLoading = usePlanLoading(today);
   /*
    * Whose day the picker is filling. `null` is your own.
@@ -147,6 +140,11 @@ export function PlanView() {
             }) as unknown as AgendaItem,
         ),
     [chores, today],
+  );
+
+  const recurringChoreIds = useMemo(
+    () => new Set(chores.filter((c) => isRecurring(c.schedule)).map((c) => c.id)),
+    [chores],
   );
 
   const available = useMemo(
@@ -380,15 +378,23 @@ export function PlanView() {
     if (inFlight.current || failedFor.current === today) return;
 
     /*
-     * Everybody's plan, not only yours.
+     * Your plan only, so shared work lands on both days.
      *
-     * `anyone` work counts for both of you, so each device auto-planned its own
-     * copy and the shared chore ended up on both days — which, now that both
-     * days are on one screen, is the same row twice, one above the other.
-     * Whoever's plan has it keeps it; that is what "anyone" means.
+     * This briefly claimed `anyone` work for whichever phone opened the app
+     * first, to stop the same chore appearing in both sections of the plan
+     * screen. Jake, seeing the result: *"The daily plan seems to be randomly
+     * distributing the 'Anyone can do' tasks between us? They should all go to
+     * both of us, and if somebody's not going to do them they can remove them
+     * from their plan."*
+     *
+     * He is right, and "randomly" is exactly what it was — the assignment
+     * depended on who happened to open Chorus first that morning, which is not
+     * a decision either of you made. A shared chore on both days is not a
+     * duplicate: each row is one person's intention, and taking it off your own
+     * day is how you say it is not yours today.
      */
     const planned = new Set(
-      allEntries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
+      entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
 
     /*
@@ -449,7 +455,6 @@ export function PlanView() {
     autoPlannedOn,
     today,
     entries,
-    allEntries,
     view.mine,
     chores,
     add,
@@ -552,6 +557,14 @@ export function PlanView() {
       <PlanScreen
         available={available}
         chores={chores}
+        /*
+         * Which chores recur, decided here because this layer has their
+         * schedules — the screen's `chores` prop is a lighter shape. The plan
+         * splits its rows on it: recurring housework and one-off tasks are
+         * different kinds of work and reading them as one list is what made a
+         * fifty-row day overwhelming.
+         */
+        recurringChoreIds={recurringChoreIds}
         today={today}
         refetch={refetch}
         onAdd={() => {
