@@ -49,7 +49,7 @@ import { MIN_TARGET, space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
 import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
-import { formatDayLong, formatFlexibleWindow } from '@/features/common/format';
+import { formatFlexibleWindow } from '@/features/common/format';
 import { addDays } from '@/core/civil/date';
 
 /**
@@ -643,29 +643,19 @@ export function TodayScreen() {
           />
         }
       >
-        <Stack gap={2} style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
-          {/*
-            Not "Today" any more: this list lives on the Upcoming tab and holds
-            work that is late as well as work that is coming, so neither the tab
-            name nor "Today" describes it. It is also not "Chores", which is the
-            library tab — the difference is that these rows can be ticked off.
-          */}
-          <Txt variant="display" accessibilityRole="header">
-            What&apos;s on
-          </Txt>
-          <Txt variant="mono" tone="faint">
-            {formatDayLong(today).toUpperCase()}
-            {view.doneCount > 0 ? ` · ${view.doneCount} DONE` : ''}
-          </Txt>
+        {/*
+          No title, and no date line.
 
-          {/* Under the date rather than beside the count: it is news about a
-              person, not another statistic about the list. */}
-          {othersDid === '' ? null : (
-            <Txt variant="small" tone="muted">
-              {othersDid} today
-            </Txt>
-          )}
-        </Stack>
+          It read "What's on / THURSDAY 30 JULY", which Jake called weird and
+          confusing — the tab bar already says which screen this is, and a date
+          heading on a list that spans thirty days describes only its first row.
+          What is left starts with the controls that actually change the list.
+        */}
+        {othersDid === '' ? null : (
+          <Txt variant="small" tone="muted" style={{ paddingHorizontal: space.sm }}>
+            {othersDid} today
+          </Txt>
+        )}
 
         {/*
           Search, above the list and below the date.
@@ -739,7 +729,15 @@ export function TodayScreen() {
         {/* Only when there is something to arrange. Controls above an empty
             screen are furniture. */}
         {nothingToDo || nothingDueNow ? null : (
-          <View style={{ paddingHorizontal: space.sm, paddingBottom: space.md }}>
+          <View
+            style={{
+              paddingHorizontal: space.sm,
+              // Room above as well as below: the search field sat directly on
+              // top of this control with nothing between them.
+              paddingTop: space.md,
+              paddingBottom: space.md,
+            }}
+          >
             <ArrangementControl arrangement={viewPref.arrangement} onChange={setArrangement} />
           </View>
         )}
@@ -750,10 +748,10 @@ export function TodayScreen() {
         {/*
           Not yet due, and folded away.
 
-          These are on the screen at all because `showFrom` brought them
-          forward; leaving them expanded is what made the list unreadable. The
-          count is on the header, so the size of the pile is visible without
-          the pile being.
+          These are here because they fall inside the thirty-day horizon, not
+          because any chore asked to appear early — `showFrom` is gone. Leaving
+          them expanded is what made the list unreadable; the count sits on the
+          header, so the size of the pile is visible without the pile being.
         */}
         {comingUp.length > 0 ? (
           <View>

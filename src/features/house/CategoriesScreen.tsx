@@ -18,7 +18,6 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OTHER_TITLE } from '@/core/occurrence/grouping';
-import type { Category } from '@/data/api/categories';
 import {
   useCategories,
   useCreateCategory,
@@ -26,14 +25,11 @@ import {
   useReorderCategories,
   useUpdateCategory,
 } from '@/data/hooks/useCategories';
-import { BackBar, Button, ErrorState, Field, LoadingState, Stack, Txt } from '@/design/components';
-import { FieldGroup } from '@/design/controls';
-import { INKS, inkColor, inkSoft } from '@/design/inks';
+import { BackBar, Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { inkColor } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { ReorderableList } from './ReorderableList';
-import { IconPicker } from '@/features/common/IconPicker';
-import { toIconName, type IconName } from '@/design/icons';
 
 export function CategoriesScreen() {
   const { colors, isDark } = useTheme();
@@ -44,10 +40,6 @@ export function CategoriesScreen() {
   const remove = useDeleteCategory();
   const reorder = useReorderCategories();
 
-  const [name, setName] = useState('');
-  const [ink, setInk] = useState<string | null>(null);
-  const [icon, setIcon] = useState<IconName | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
   /**
    * The ScrollView must stop scrolling while a row is held.
    *
@@ -58,31 +50,6 @@ export function CategoriesScreen() {
 
   const rows = categories.data ?? [];
 
-  const startEdit = (category: Category) => {
-    setEditingId(category.id);
-    setName(category.name);
-    setInk(category.ink);
-    setIcon(toIconName(category.icon));
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setName('');
-    setInk(null);
-    setIcon(null);
-  };
-
-  const save = () => {
-    const trimmed = name.trim();
-    if (trimmed.length === 0) return;
-    if (editingId === null) {
-      create.mutate({ name: trimmed, ink, icon }, { onSuccess: cancelEdit });
-    } else {
-      update.mutate({ categoryId: editingId, name: trimmed, ink, icon }, { onSuccess: cancelEdit });
-    }
-  };
-
-  const busy = create.isPending || update.isPending;
   const error =
     (create.error as Error | null)?.message ??
     (update.error as Error | null)?.message ??
@@ -164,7 +131,7 @@ export function CategoriesScreen() {
               <Txt style={{ flex: 1 }}>{category.name}</Txt>
 
               <Pressable
-                onPress={() => startEdit(category)}
+                onPress={() => router.push(`/category/${category.id}`)}
                 accessibilityRole="button"
                 accessibilityLabel={`Edit ${category.name}`}
                 style={{ minHeight: MIN_TARGET, minWidth: MIN_TARGET, justifyContent: 'center' }}
@@ -195,63 +162,15 @@ export function CategoriesScreen() {
           ) : null}
         </Stack>
 
-        <Stack gap={space.md}>
-          <Field
-            label={editingId === null ? 'New category' : 'Rename category'}
-            value={name}
-            onChangeText={setName}
-            placeholder="Kitchen"
-            maxLength={40}
-          />
+        {/*
+          Editing happens on its own screen.
 
-          <FieldGroup label="Colour">
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-              {INKS.map((option) => {
-                const selected = ink === option.name;
-                return (
-                  <Pressable
-                    key={option.name}
-                    onPress={() => setInk(selected ? null : option.name)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected }}
-                    accessibilityLabel={option.label}
-                    style={{
-                      minWidth: MIN_TARGET,
-                      minHeight: MIN_TARGET,
-                      borderRadius: radius.sm,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: inkSoft(option.name, isDark),
-                      borderWidth: selected ? 2 : 0,
-                      borderColor: inkColor(option.name, isDark),
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 16,
-                        height: 16,
-                        borderRadius: 8,
-                        backgroundColor: inkColor(option.name, isDark),
-                      }}
-                    />
-                  </Pressable>
-                );
-              })}
-            </View>
-          </FieldGroup>
-
-          <IconPicker value={icon} onChange={setIcon} />
-
-          <Button
-            label={editingId === null ? 'Add category' : 'Save changes'}
-            onPress={save}
-            loading={busy}
-            disabled={name.trim().length === 0}
-          />
-          {editingId === null ? null : (
-            <Button label="Cancel" variant="ghost" onPress={cancelEdit} />
-          )}
-        </Stack>
+          This was an inline form pinned below the list, so pressing Edit on a
+          row filled in something you could not see once there were more
+          categories than fit — which reads as a dead button. See
+          `CategoryEditor`.
+        */}
+        <Button label="New category" onPress={() => router.push('/category/new')} />
 
         <Txt variant="small" tone="faint">
           Deleting a category keeps its chores — they move to “{OTHER_TITLE}”.

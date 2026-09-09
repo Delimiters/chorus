@@ -427,10 +427,7 @@ export function ChoreRow({
               floor lifted — which is why Jake kept reporting the row bursting
               its cell after expanding and collapsing, on build after build.
             */}
-            <View
-              testID="title-column"
-              style={slim ? { flex: 1, minWidth: 0 } : { flexShrink: 1, minWidth: 0 }}
-            >
+            <View testID="title-column" style={{ flex: 1, minWidth: 0 }}>
               <Txt
                 variant="bodyStrong"
                 style={done || skipped ? { textDecorationLine: 'line-through' } : undefined}
@@ -586,6 +583,7 @@ export function ChoreRow({
         */}
         {subtasks.length > 0 || compact ? (
           <Pressable
+            testID="steps-toggle"
             onPress={() => setStepsOpen((wasOpen: boolean) => !wasOpen)}
             accessibilityRole="button"
             accessibilityState={{ expanded: stepsOpen }}
@@ -600,21 +598,21 @@ export function ChoreRow({
             // growing the box, which is the only way to have both on a row
             // this tight — the gap either side is real space, not padding
             // inside a button, so the words stop short of it.
-            hitSlop={slim ? { top: 14, bottom: 14, left: 12, right: 12 } : undefined}
+            // 20 laid out, 44 tappable, in **both** states. `hitSlop` grows the
+            // target without growing the box, which is the only way to have both
+            // on a row this tight.
+            hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
             style={{
-              width: slim ? 20 : MIN_TARGET,
-              height: slim ? 20 : MIN_TARGET,
+              width: 20,
+              height: 20,
               alignItems: 'center',
               justifyContent: 'center',
-              // Pulled into the row's own padding so the icon sits on the
-              // edge of the cell rather than inset from it.
-              marginTop: slim ? 1 : -8,
-              marginRight: slim ? 0 : -space.sm,
+              marginTop: 1,
             }}
           >
             <MaterialCommunityIcons
               name={stepsOpen ? 'chevron-up' : 'chevron-down'}
-              size={slim ? 20 : 26}
+              size={20}
               color={colors.textFaint}
             />
           </Pressable>

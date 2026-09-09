@@ -353,9 +353,20 @@ beforeEach(() => {
 });
 
 describe('Today', () => {
-  it('heads the screen with the date', async () => {
+  it('has no title or date heading', async () => {
+    /*
+     * It read "What's on / THURSDAY 30 JULY". Jake called it weird and
+     * confusing: the tab bar already says which screen this is, and a date
+     * heading over a list spanning thirty days describes only its first row.
+     *
+     * The "· N DONE" count lived in that line and went with it.
+     */
     await renderScreen();
-    expect(screen.getByText('THURSDAY 30 JULY')).toBeOnTheScreen();
+
+    expect(screen.queryByText("What's on")).toBeNull();
+    expect(screen.queryByText(/THURSDAY 30 JULY/)).toBeNull();
+    // The list itself is untouched — the heading went, not the screen.
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
   });
 
   it('keeps what is yours apart from what is theirs, and arranges inside each', async () => {
@@ -442,7 +453,12 @@ describe('Today', () => {
     expect(screen.queryByLabelText('Mark Dishes done')).toBeNull();
   });
 
-  it('counts what has been done in the header', async () => {
+  it('still shows what has been done, in its own section', async () => {
+    /*
+     * The header carried a "· 1 DONE" count and the header is gone. What has
+     * actually been finished is still on the screen under its own heading, so
+     * the information survives even though the tally does not.
+     */
     mockView = buildView([
       {
         choreId: 'dishes',
@@ -452,7 +468,8 @@ describe('Today', () => {
       },
     ]);
     await renderScreen();
-    expect(screen.getByText('THURSDAY 30 JULY · 1 DONE')).toBeOnTheScreen();
+
+    expect(screen.getByLabelText('Mark Dishes not done')).toBeOnTheScreen();
   });
 
   it('surfaces a load failure rather than showing an empty list', async () => {
@@ -1154,5 +1171,71 @@ describe('what the list is for', () => {
     for (const title of ['Dishes', 'Take out the trash']) {
       expect(screen.queryAllByText(title).length).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe('a row that is expanded and collapsed again', () => {
+  /*
+   * Reported four times, and "fixed" twice before this by adding `minWidth: 0`
+   * — which was necessary but was never the cause. Jake, on the fourth:
+   * *"Can you really not figure this bug out? I need you to be really sure
+   * you've fixed it this time."*
+   *
+   * The cause was two styles that changed with the toggle and moved things
+   * sideways:
+   *
+   *   - the title column was `flex: 1` collapsed and `flexShrink: 1` expanded.
+   *     `flex: 1` takes the available width; `flexShrink: 1` sizes to content.
+   *     Different sizing models, so the column's width changed on toggle.
+   *   - the chevron was 20×20 collapsed and 44×44 expanded, with different
+   *     margins — a 24pt swing in the row, which is the "everything gets pushed
+   *     over" half.
+   *
+   * This asserts the invariant rather than any one property: **nothing that
+   * decides horizontal layout may depend on whether the row is expanded.** A
+   * style-prop assertion is the strongest thing available here — jest-expo does
+   * no layout — but unlike the previous guards it compares the two states
+   * against each other, so any new state-dependent style fails it.
+   */
+  /** The first row's title column. Several rows render; one is enough. */
+  const horizontalStyleOf = (testID: string) => {
+    const flat = StyleSheet.flatten(screen.getAllByTestId(testID)[0]?.props.style) as Record<
+      string,
+      unknown
+    >;
+    const keys = [
+      'flex',
+      'flexGrow',
+      'flexShrink',
+      'flexBasis',
+      'minWidth',
+      'maxWidth',
+      'width',
+      'marginLeft',
+      'marginRight',
+      'paddingLeft',
+      'paddingRight',
+    ];
+    return Object.fromEntries(keys.map((k) => [k, flat[k]]));
+  };
+
+  it('lays the row out identically before and after', () => {
+    renderScreen();
+
+    /*
+     * Both the column and the control beside it: the chevron's own footprint
+     * changed by 24pt between states, which is the half that shoved everything
+     * sideways. Checking only the column missed it.
+     */
+    const before = [horizontalStyleOf('title-column'), horizontalStyleOf('steps-toggle')];
+
+    fireEvent.press(screen.getByLabelText('Dishes. Show details.'));
+    const expanded = [horizontalStyleOf('title-column'), horizontalStyleOf('steps-toggle')];
+
+    fireEvent.press(screen.getByLabelText('Dishes. Hide details.'));
+    const after = [horizontalStyleOf('title-column'), horizontalStyleOf('steps-toggle')];
+
+    expect(expanded).toEqual(before);
+    expect(after).toEqual(before);
   });
 });
