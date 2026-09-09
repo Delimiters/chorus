@@ -178,7 +178,7 @@ The four, because the pattern is more convincing than the principle:
   household membership, so a value rebuilt from scratch was byte-identical to
   one that had been preserved.
 
-Two corollaries:
+Three corollaries:
 
 1. **Ask what would make the assertion vacuous, then check the fixture is not
    that.** The simplest fixture usually is.
@@ -186,6 +186,39 @@ Two corollaries:
    for four phases — the invite API existed, was tested, and had no screen. Every
    test went through the layer the missing UI would have used. Some things are
    only found by using the app.
+3. **The harness must be shaped like the real caller.** A component test that
+   assembles the pieces differently from the app proves the pieces work in an
+   arrangement nobody ships.
+
+## The harness that was shaped wrong
+
+Worth its own section, because it is the most expensive version of "a passing
+test is not evidence" this project has hit, and because the shape recurs.
+
+`FormScroll` put its scroll API in a React context and had `useAnchor()` read it.
+`ChoreForm` calls `useAnchor()` in its own body and renders `<FormScroll>` in its
+own JSX — so the hooks ran **above** the provider, every anchor received `null`,
+and the entire feature did nothing in the app. It shipped as a fix for a bug Jake
+had reported by name.
+
+`FormScroll.test.tsx` was green throughout, because a hook cannot be called
+above a provider in the *same* component — so the harness had been split across
+two components to make it work at all. The split was written down as a caveat in
+a comment. It was in fact the bug, reported by the test file and read as a note
+about testing.
+
+Three things follow:
+
+- **When a test harness needs a shape the caller cannot have, that is a
+  finding.** Do not comment around it.
+- **Prefer an explicit handle over a context** for anything a single screen owns
+  and passes down. The conversion turned the silent `null` into four compile
+  errors, which is the whole argument.
+- **Test the wiring where the wiring lives.** The three tests that would have
+  caught this render `ChoreForm` and spy on the real `ScrollView`; the component
+  test cannot see a caller at all. Note they also needed an explicit `onLayout`
+  event to be *able* to fail — without one the anchor has no measurement, and
+  every "does not scroll" assertion passes for the wrong reason.
 
 ## Retrospective review, after every phase
 
