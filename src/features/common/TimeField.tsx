@@ -113,15 +113,22 @@ export function TimeField({ value, onChange, defaultTime, silence = null, onColl
     onCollapse?.();
   };
 
-  /**
-   * A shortcut pressed while the wheel is open.
-   *
-   * It has to join the baseline too, or the wheel's next notch would republish
-   * a list that never contained it.
+  /*
+   * Anything that edits the list while the wheel is open has to edit the
+   * baseline with it. The baseline is the list as it was when the wheel opened,
+   * and every notch republishes it — so an edit it does not know about is
+   * undone by the next turn of the wheel. Both directions were wrong once:
+   * without `addPreset` a shortcut added here vanished, and without
+   * `removeTime` a chip deleted here came back.
    */
   const addPreset = (time: CivilTime) => {
     setBaseline((previous) => (previous === null ? null : withTime(previous, time)));
     onChange(withTime(value, time));
+  };
+
+  const removeTime = (time: CivilTime) => {
+    setBaseline((previous) => (previous === null ? null : previous.filter((t) => t !== time)));
+    onChange(value.filter((t) => t !== time));
   };
 
   return (
@@ -147,7 +154,7 @@ export function TimeField({ value, onChange, defaultTime, silence = null, onColl
             {value.map((time) => (
               <Pressable
                 key={time}
-                onPress={() => onChange(value.filter((t) => t !== time))}
+                onPress={() => removeTime(time)}
                 accessibilityRole="button"
                 accessibilityLabel={`Remove the reminder at ${formatCivilTime(time)}`}
                 style={{

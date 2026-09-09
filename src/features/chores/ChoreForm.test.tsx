@@ -329,6 +329,25 @@ describe('the reminder times', () => {
     expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['08:00', '09:00']);
   });
 
+  it('does not resurrect a reminder removed while the wheel is open', async () => {
+    /*
+     * The other end of the baseline. It is the list as it was when the wheel
+     * opened, so anything deleted after that is still in it — and the next
+     * notch republishes `baseline + the time showing`, putting it back.
+     */
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByLabelText('Add a reminder at 9am'));
+    await fireEvent.press(screen.getByLabelText('Pick a reminder time'));
+    await fireEvent.press(screen.getByLabelText('Remove the reminder at 9 am'));
+    await fireEvent(screen.getByLabelText('Pick a reminder time'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: new Date(2026, 0, 1, 18, 45).getTime() },
+    });
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+    expect(submitted(onSubmit).schedule.timesOfDay).toEqual(['18:45']);
+  });
+
   it('keeps a second reminder when a second wheel is opened for one', async () => {
     // The other half: "I should only have to press another button if I need to
     // add ANOTHER reminder." Closing and reopening must not move the first.
