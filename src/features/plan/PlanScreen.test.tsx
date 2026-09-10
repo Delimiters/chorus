@@ -51,6 +51,48 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
   useToggleCompletion: () => ({ mutate: mockToggle }),
 }));
 
+/**
+ * Two sets, not one derived from the other.
+ *
+ * A row *shows* the household's flags and the sheet *toggles* yours, and the
+ * two genuinely differ whenever your housemate flags something you have not —
+ * which is the case the feature is designed around. Deriving one from the
+ * other made every test agree by construction, so the test named "shows a flag
+ * somebody else set" would have passed against code reading the wrong set.
+ */
+let mockMyFlags: Set<string> = new Set();
+/** Flagged by the housemate. The two overlap freely; that is the point. */
+let mockTheirFlags: Set<string> = new Set();
+const mockToggleFlag = jest.fn();
+
+jest.mock('@/data/hooks/useFlags', () => ({
+  /*
+   * choreId -> the users who flagged it, derived from who flagged rather than
+   * kept as a third set.
+   *
+   * The version before this had a separate `mockAnyFlags`, which let a test
+   * say "flagged, by nobody" — an entry with an empty array. `liveFlagsByChore`
+   * cannot produce that, and two tests were relying on it: filtering out empty
+   * arrays in the screen, which is behaviourally identical in production,
+   * turned them red. Building the map from the union makes the impossible
+   * state unrepresentable.
+   *
+   * `ME` and `THEM` are referenced directly. A `jest.mock` factory may not
+   * close over arbitrary variables, but babel-plugin-jest-hoist lifts `const`
+   * declarators with pure initialisers alongside it — which this file already
+   * depends on for `useUserId: () => ME`. Duplicating the ids as literals was
+   * how they came to disagree with the screen's in the first place.
+   */
+  useFlagsByChore: () => {
+    const map = new Map<string, string[]>();
+    for (const id of mockMyFlags) map.set(id, [ME]);
+    for (const id of mockTheirFlags) map.set(id, [...(map.get(id) ?? []), THEM]);
+    return map;
+  },
+  useMyFlags: () => mockMyFlags,
+  useToggleFlag: () => ({ mutate: mockToggleFlag }),
+}));
+
 jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => [] }));
 
 let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
@@ -83,6 +125,7 @@ jest.mock('@/data/hooks/useHousehold', () => ({
         ],
   }),
   useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder, error: mockGroupOrderError }),
+  useHousehold: () => ({ data: { weekStartsOn: 0, timeZone: 'UTC' } }),
 }));
 
 const mockTapped = jest.fn();
@@ -220,6 +263,9 @@ beforeEach(() => {
   mockMarkCelebrated.mockClear();
   mockRemove.mockClear();
   mockReorder.mockClear();
+  mockMyFlags = new Set();
+  mockTheirFlags = new Set();
+  mockToggleFlag.mockClear();
   mockToggle.mockClear();
   onAdd.mockClear();
   mockAddFor.mockClear();
@@ -1173,6 +1219,24 @@ describe('which kind of work leads the day', () => {
     expect(screen.queryByRole('button', { name: /^Show .* first$/ })).toBeNull();
   });
 
+  it('offers nothing to flip when the flagged group leaves only one kind', () => {
+    /*
+     * A day of one flagged chore and two plain ones has two *groups* and one
+     * *kind*. Gating on group count rather than kind count put the control
+     * here, and tapping it swapped two entries of which one was empty: nothing
+     * moved, and the label flipped. The flagged group manufactures this case
+     * by emptying a kind, so it is not a corner.
+     */
+    mockMyFlags = new Set(['dishes']);
+    mockRecurring = new Set(['dishes', 'trash', 'mail']);
+    mockEntries = [entry('dishes', 1), entry('trash', 2), entry('mail', 3)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash'), item('mail', 'Post')]);
+
+    // The grouping is visible — so this is not "no groups, no control".
+    expect(screen.getByRole('header', { name: /^Flagged/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Show .* first$/ })).toBeNull();
+  });
+
   it('does not fall through into the housemate’s section', () => {
     /*
      * The fixture that was missing, and the reason it mattered: the version
@@ -1220,5 +1284,273 @@ describe('which kind of work leads the day', () => {
     ]);
 
     expect(screen.getAllByRole('button', { name: /^Show .* first$/ })).toHaveLength(1);
+  });
+});
+
+describe('flagging from the plan', () => {
+  /*
+   * The "!!" existed on Today and was absent here entirely — a row could carry
+   * a flag the plan never drew, and there was no way to set one from the
+   * screen you actually work off. Jake: *"I don't see a button to add the !!
+   * on daily plan."*
+   */
+  it('shows a flag somebody else set, because a flag is the household’s', () => {
+    /*
+     * Flagged by *them* and not by you — the case the whole feature is built
+     * around, and the one the old fixture could not express because it derived
+     * both sets from one. A row reading `myFlags` instead of the household's
+     * draws nothing here.
+     */
+    mockMyFlags = new Set();
+    mockTheirFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByRole('button', { name: /Dishes.*Flagged for this week/ })).toBeOnTheScreen();
+  });
+
+  it('lifts a row your housemate flagged, not only your own', () => {
+    mockMyFlags = new Set();
+    mockTheirFlags = new Set(['taxes']);
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1), entry('taxes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    const rows = screen
+      .getAllByTestId(/^(drag|done)-row:/)
+      .map((row) => (row.props.testID as string).replace(/^(drag|done)-row:v1:/, ''));
+    expect(rows).toEqual(['taxes', 'dishes']);
+  });
+
+  it('draws no flag on work that has none', () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.queryByRole('button', { name: /Flagged for this week/ })).toBeNull();
+  });
+
+  it('keeps "Take off today" as the first action in the sheet', () => {
+    /*
+     * On the plan the question is almost always *not today*, which is this
+     * sheet's own stated reason for existing — so that is the reflex tap.
+     * "Flag it" was briefly first, which turns the muscle memory that clears a
+     * row into one that flags it. Nothing pinned the order, and it has now
+     * flipped twice.
+     */
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+
+    const actions = screen
+      .getAllByRole('button')
+      .map((b) => String(b.props.accessibilityLabel ?? ''))
+      .filter((label) => /Take off today|Flag it for this week|Edit the chore/.test(label));
+
+    expect(actions[0]).toMatch(/Take off today/);
+  });
+
+  it('offers to flag, and moves it to the top of the day', () => {
+    /*
+     * A written position, not a sort rule. Jake asked for the flag to be the
+     * row's *default* position — "allow you to move it afterwards if needed" —
+     * and a sort that put flagged work first would win over every later drag.
+     *
+     * Above the smallest stored position on the day, which is 1 here, so -1
+     * beats a tie with anything already sitting there.
+     */
+    mockEntries = [entry('dishes', 3), entry('bins', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+    fireEvent.press(screen.getByRole('button', { name: /Flag it for this week/ }));
+
+    expect(mockToggleFlag).toHaveBeenCalledWith('dishes');
+    expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 0, ME);
+  });
+
+  it('writes no position when the row is already the top of the day', () => {
+    /*
+     * `stored` includes the row's own position, so a second write just makes
+     * it the minimum again: the number falls and nothing moves. Comparing
+     * against the minimum stops the write rather than letting it drift.
+     */
+    mockMyFlags = new Set();
+    mockTheirFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1), entry('bins', 3)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+    fireEvent.press(screen.getByRole('button', { name: /Flag it for this week/ }));
+
+    expect(mockToggleFlag).toHaveBeenCalledWith('dishes');
+    expect(mockReorder).not.toHaveBeenCalled();
+  });
+
+  it('still writes a position for a row lifted by a flag set on Today', () => {
+    /*
+     * The case a `theirsToo` gate got wrong. Flagging from Today writes no
+     * position, so a row your housemate flagged there is lifted while its
+     * stored position is still mid-day. Skipping the write because "it is
+     * already at the top" means that once both flags lapse it drops back into
+     * the middle — losing the one thing the position is for.
+     */
+    mockMyFlags = new Set();
+    mockTheirFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 3), entry('bins', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+    fireEvent.press(screen.getByRole('button', { name: /Flag it for this week/ }));
+
+    expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 0, ME);
+  });
+
+  it('promises the drop only when yours is the last flag on it', () => {
+    mockMyFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+
+    expect(screen.getByText(/drops back in with the rest of the day/)).toBeOnTheScreen();
+  });
+
+  it('says the row stays up when the housemate has flagged it too', () => {
+    /*
+     * The lift belongs to the household: either flag is enough to raise the
+     * row, and it comes down only when the last one does. Promising it "drops
+     * back in with the rest of the day" here is simply false — you tap, and
+     * nothing moves.
+     */
+    mockMyFlags = new Set(['dishes']);
+    mockTheirFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+
+    expect(screen.getByText(/stays at the top/)).toBeOnTheScreen();
+    expect(screen.queryByText(/drops back in with the rest of the day/)).toBeNull();
+  });
+
+  it('leaves the position alone when the flag comes off', () => {
+    // Where it sits is a decision you have since made; lifting the flag is not
+    // a request to undo it.
+    mockMyFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 3), entry('bins', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+    fireEvent.press(screen.getByRole('button', { name: /Unflag it/ }));
+
+    expect(mockToggleFlag).toHaveBeenCalledWith('dishes');
+    expect(mockReorder).not.toHaveBeenCalled();
+  });
+
+  it('moves it to the top of the day it was flagged on, not always yours', () => {
+    mockTheirEntries = [
+      { occurrenceKey: 'v1:bins', position: 9, plannedFor: TODAY },
+      { occurrenceKey: 'v1:mail', position: 4, plannedFor: TODAY },
+    ];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('bins', 'Bins', 'due', { kind: 'fixed', userId: THEM }),
+      item('mail', 'Post', 'due', { kind: 'fixed', userId: THEM }),
+    ]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Bins, .*Open options\.$/ }));
+    fireEvent.press(screen.getByRole('button', { name: /Flag it for this week/ }));
+
+    // Their day's smallest is 4, so 3 — not something derived from your day,
+    // whose smallest is 1.
+    expect(mockReorder).toHaveBeenCalledWith('v1:bins', 3, THEM);
+  });
+});
+
+describe('flagged work leads the whole day', () => {
+  /*
+   * Jake, having seen the sections: *"Cells with !! should go to the top
+   * automatically."* Top of the plan, not top of whichever section the row
+   * happens to belong to — a flagged task buried under eleven chores because
+   * it is a task is not "the top".
+   *
+   * The two order assertions below flag the row that the ordinary rules would
+   * put *last*, so a screen that had lost the hoist produces the opposite
+   * sequence rather than the same one. The rest are about headings and
+   * draggability, where there is no order to invert.
+   */
+  const rowOrder = () =>
+    screen
+      .getAllByTestId(/^(drag|done)-row:/)
+      .map((row) => (row.props.testID as string).replace(/^(drag|done)-row:v1:/, ''));
+
+  it('lifts a flagged one-off above the chores', () => {
+    mockMyFlags = new Set(['taxes']);
+    mockMyGroupOrder = 'chores';
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1), entry('taxes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    // Without the hoist this is ['dishes', 'taxes'] — chores lead, and the
+    // stored positions agree.
+    expect(rowOrder()).toEqual(['taxes', 'dishes']);
+  });
+
+  it('lifts a flagged chore above the tasks when tasks lead', () => {
+    mockMyFlags = new Set(['dishes']);
+    mockMyGroupOrder = 'oneOff';
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 2), entry('taxes', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    expect(rowOrder()).toEqual(['dishes', 'taxes']);
+  });
+
+  it('heads the flagged group so the lift is explained', () => {
+    mockMyFlags = new Set(['taxes']);
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1), entry('taxes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    expect(screen.getByRole('header', { name: /^Flagged/ })).toBeOnTheScreen();
+  });
+
+  it('draws no headings at all when everything is flagged', () => {
+    // One group needs no label: there is nothing to tell it apart from, and a
+    // lone "Flagged" heading over the whole day is furniture.
+    mockMyFlags = new Set(['dishes', 'taxes']);
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1), entry('taxes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    expect(screen.queryByRole('header', { name: /^Flagged/ })).toBeNull();
+    expect(screen.queryByRole('header', { name: /^Chores/ })).toBeNull();
+  });
+
+  it('keeps flagged rows draggable among themselves', () => {
+    /*
+     * "Maybe you should still be able to reorder them?" — they are their own
+     * list, so they reorder like any other group. Asserted through the
+     * accessibility path, since a drag gesture is not reachable here.
+     */
+    mockMyFlags = new Set(['dishes', 'taxes']);
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1), entry('taxes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    const row = screen.getByTestId('drag-row:v1:taxes');
+    expect(row.props.accessibilityActions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'moveUp' })]),
+    );
+
+    act(() => {
+      row.props.onAccessibilityAction({ nativeEvent: { actionName: 'moveUp' } });
+    });
+
+    // Dishes sits at 1 and the taxes are landing above it with nothing before,
+    // so the position is 0 — a real write, within the flagged group.
+    expect(mockReorder).toHaveBeenCalledWith('v1:taxes', 0, ME);
   });
 });

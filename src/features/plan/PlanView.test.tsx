@@ -111,8 +111,41 @@ jest.mock('@/stores/routineStore', () => ({
     }),
 }));
 
+/**
+ * Two sets, not one derived from the other.
+ *
+ * A row *shows* the household's flags and the sheet *toggles* yours, and the
+ * two genuinely differ whenever your housemate flags something you have not —
+ * which is the case the feature is designed around. Deriving one from the
+ * other made every test agree by construction, so the test named "shows a flag
+ * somebody else set" would have passed against code reading the wrong set.
+ */
+let mockMyFlags: Set<string> = new Set();
+let mockTheirFlags: Set<string> = new Set();
+const mockToggleFlag = jest.fn();
+
+/*
+ * The same shape as PlanScreen.test.tsx's, and for the same reasons: the map is
+ * derived from who flagged rather than kept as a third set, so "flagged by
+ * nobody" cannot be written; and the ids come from `mockMe`/`mockThem` rather
+ * than literals, which is how the two came to disagree with the screen's.
+ *
+ * Nothing here assigns these yet. It is wired correctly anyway because the
+ * first test that does should get what it asked for rather than a housemate's
+ * flag where it wanted its own.
+ */
+jest.mock('@/data/hooks/useFlags', () => ({
+  useFlagsByChore: () => {
+    const map = new Map<string, string[]>();
+    for (const id of mockMyFlags) map.set(id, [mockMe]);
+    for (const id of mockTheirFlags) map.set(id, [...(map.get(id) ?? []), mockThem]);
+    return map;
+  },
+  useMyFlags: () => mockMyFlags,
+  useToggleFlag: () => ({ mutate: mockToggleFlag }),
+}));
+
 jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => [] }));
-jest.mock('@/data/hooks/useFlags', () => ({ useMyFlags: () => new Set<string>() }));
 const mockScheduleToday = jest.fn();
 jest.mock('@/data/hooks/useChores', () => ({
   useScheduleToday: () => ({ mutate: mockScheduleToday }),

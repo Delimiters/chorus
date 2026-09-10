@@ -36,6 +36,52 @@ still has it. Nobody has asked for it back.
 
 ---
 
+## 2026-09-10 — Flagged work leads the whole plan, and cross-section dragging stays gone
+
+**Was:** the plan grouped into Chores and One-time tasks, each its own drag
+list. Flags — the red "!!" — existed on Today only: the plan neither drew them
+nor offered to set one. The entry above, from 2026-09-09, recorded losing
+cross-group dragging as an accepted cost of the split.
+
+**Now:** flagged rows are lifted out of both kinds into a leading group of their
+own, and the plan's row sheet can flag and unflag. Flagging also writes a
+position above everything stored for that day.
+
+**Why:** Jake, having lived with the sections — *"I don't see a button to add
+the !! on daily plan. Cells with !! should go to the top automatically."* He was
+already flagging work; it simply had no effect on the screen he works off.
+
+Lifting rather than sorting-within-a-kind, because he asked for the top of the
+plan and a flagged task buried under eleven chores because it happens to be a
+task is not that. Confirmed with him directly rather than guessed.
+
+**The cross-section drag complaint is the same cost, reported.** Jake: *"I can
+no longer drag to reorder"* — meaning across the boundary; within a section it
+works. That is not being restored. A one-off dragged in among the chores is
+still a one-off, so the next render puts it back and the headings start lying.
+The flag is now the way to promote something above everything, which is what
+cross-group dragging would have been used for.
+
+**Cost:** two mechanisms decide vertical order — the flag, and the position.
+Unflagging drops a row back among the rest wherever its position puts it, which
+is where the flag left it rather than where it started. That is deliberate:
+where it sits is a decision since made, and lifting a flag is not a request to
+undo it. It will still surprise somebody.
+
+**A correction, same day.** The position write was briefly gated on "nobody
+else has flagged this", on the reasoning that a row already lifted by a
+housemate's flag needs no lifting. That is wrong twice over. Flagging from
+*Today* writes no position at all, so a row they flagged there is lifted while
+its stored position is still mid-day — skip the write and, once both flags
+lapse, it drops into the middle rather than staying where the flag put it,
+losing the only thing the position is for. And the drift the gate was added to
+stop does not exist: `stored` includes the row's own position, so a second
+write simply makes it the minimum again — the number falls and nothing moves.
+The gate is now "you are adding your flag *and* the row is not already the top
+of the day", which stops the redundant write without dropping the guarantee.
+
+---
+
 ## 2026-09-09 — A one-time task can no longer be dragged among the chores
 
 **Was:** one `DragList` per person per day, so any row could be dragged

@@ -35,7 +35,13 @@ import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import { useMembers, useSetPlanGroupOrder, type PlanGroupOrder } from '@/data/hooks/useHousehold';
+import {
+  useHousehold,
+  useMembers,
+  useSetPlanGroupOrder,
+  type PlanGroupOrder,
+} from '@/data/hooks/useHousehold';
+import { useFlagsByChore, useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
 import { useToggleCompletion } from '@/data/hooks/useOccurrences';
 import {
   useMyPlanEntries,
@@ -111,6 +117,22 @@ export function PlanScreen({
   const userId = useUserId();
   const members = useMembers();
   const setGroupOrder = useSetPlanGroupOrder();
+
+  /*
+   * Flags — the red "!!" — were on Today and not here at all, so a chore could
+   * be flagged but the plan neither showed it nor offered to set one. Jake:
+   * *"I don't see a button to add the !! on daily plan."*
+   *
+   * `useFlagsByChore` is the whole household's, and decides what a row *shows*:
+   * a flag your housemate set is still a flag. `useMyFlags` is what the sheet
+   * toggles, because you can only lift your own.
+   */
+  const household = useHousehold();
+  const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  const flagsByChore = useFlagsByChore(today as never, weekStartsOn);
+  const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
+  const myFlags = useMyFlags(today as never, weekStartsOn);
+  const toggleFlag = useToggleFlag(today as never, weekStartsOn);
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
   const remove = useRemoveFromPlan(today as never);
@@ -413,39 +435,94 @@ export function PlanScreen({
   const groupOrder: PlanGroupOrder =
     (members.data ?? []).find((m) => m.userId === userId)?.planGroupOrder ?? 'chores';
 
-  /*
-   * Recurring housework and one-off tasks, kept apart.
+  /**
+   * The day, in the order it is drawn: flagged work, then the two kinds.
    *
-   * Jake: *"we need to split the daily plan into sections ... or else it just
-   * gets too overwhelming."* One-off work started being auto-planned a couple
-   * of days ago, which added 38 rows to this household's day — and a task you
-   * do once reads nothing like the washing-up, so a single list of both is
-   * where the overwhelm came from.
+   * Jake asked for the split — *"There should be a Recurring Chores section and
+   * a One Time Tasks section, or else it just gets too overwhelming"* — and
+   * separately for flagged work to lead: *"Cells with !! should go to the top
+   * automatically."*
+   *
+   * Flagged rows are lifted out of whichever kind they belong to rather than
+   * sorted to the front of it. A flag is how you say "this one, before the
+   * rest", and a flagged task buried under eleven chores because it happens to
+   * be a task is not that.
+   *
+   * ── The cost, which Jake has now hit twice ────────────────────────────────
+   *
+   * Each group is its own `DragList`, so a row can only be dragged **within**
+   * its group. Jake: *"I can no longer drag to reorder"* — meaning across the
+   * boundary. That is not a bug to fix but the price of the sections
+   * themselves: a one-off dragged in among the chores is still a one-off, so
+   * the next render would put it back and the headings would have started
+   * lying. Promoting something above everything is what the flag is for, which
+   * is why flagging writes a position as well as a flag.
    *
    * Empty groups draw nothing: a "One-time tasks" heading over no rows is a
    * statement that there is work you cannot see.
    */
-  const splitByKind = (section: ReturnType<typeof sectionsFor>) => ({
-    recurring: {
+  const groupsFor = (section: ReturnType<typeof sectionsFor>) => {
+    const only = (predicate: (choreId: string) => boolean) => ({
       ...section,
-      active: section.active.filter((p) => recurringChoreIds.has(p.item.choreId)),
-      sunk: section.sunk.filter((p) => recurringChoreIds.has(p.item.choreId)),
-    },
-    oneOff: {
-      ...section,
-      active: section.active.filter((p) => !recurringChoreIds.has(p.item.choreId)),
-      sunk: section.sunk.filter((p) => !recurringChoreIds.has(p.item.choreId)),
-    },
-  });
+      active: section.active.filter((p) => predicate(p.item.choreId)),
+      sunk: section.sunk.filter((p) => predicate(p.item.choreId)),
+    });
 
-  /** True when a day has work of both kinds, so the split is visible at all. */
-  const showsBoth = (section: ReturnType<typeof sectionsFor>): boolean => {
-    const { recurring, oneOff } = splitByKind(section);
-    return (
-      recurring.active.length + recurring.sunk.length > 0 &&
-      oneOff.active.length + oneOff.sunk.length > 0
-    );
+    const flagged = only((id) => anyFlags.has(id));
+    const chores = only((id) => !anyFlags.has(id) && recurringChoreIds.has(id));
+    const oneOff = only((id) => !anyFlags.has(id) && !recurringChoreIds.has(id));
+
+    const byKind =
+      groupOrder === 'chores'
+        ? [
+            { key: 'chores' as const, title: 'Chores', data: chores },
+            { key: 'oneOff' as const, title: 'One-time tasks', data: oneOff },
+          ]
+        : [
+            { key: 'oneOff' as const, title: 'One-time tasks', data: oneOff },
+            { key: 'chores' as const, title: 'Chores', data: chores },
+          ];
+
+    return [{ key: 'flagged' as const, title: 'Flagged', data: flagged }, ...byKind];
   };
+
+  /** How many groups have anything in them — one needs no heading to tell it apart. */
+  const filledGroups = (section: ReturnType<typeof sectionsFor>): number =>
+    groupsFor(section).filter((g) => g.data.active.length + g.data.sunk.length > 0).length;
+
+  /**
+   * Whether both *kinds* have unflagged work, which is what the order control
+   * decides between.
+   *
+   * Deliberately not `filledGroups(section) > 1`, which counts the flagged
+   * group too. A day of one flagged chore and three plain ones has two groups
+   * and only one kind: the control would render, and tapping it would swap two
+   * entries of which one is empty — no visible change, and a label that has
+   * flipped. That is the toggle-that-looks-broken this file argues against
+   * elsewhere, and the flagged group actively manufactures the case by
+   * emptying a kind.
+   */
+  const bothKinds = (section: ReturnType<typeof sectionsFor>): boolean => {
+    const kinds = groupsFor(section).filter((g) => g.key !== 'flagged');
+    return kinds.every((g) => g.data.active.length + g.data.sunk.length > 0);
+  };
+
+  /**
+   * Whose flag is on the row the sheet is open for.
+   *
+   * `mine` decides what the button does — you can only lift your own. `theirsToo`
+   * decides what it *achieves*, because the lift is the household's: the row
+   * stays at the top while anyone's flag is live.
+   */
+  const flagState = (() => {
+    const choreId = removing?.item.choreId;
+    if (choreId === undefined) return { mine: false, theirsToo: false };
+    const setBy = flagsByChore.get(choreId) ?? [];
+    return {
+      mine: myFlags.has(choreId),
+      theirsToo: setBy.some((id) => id !== userId),
+    };
+  })();
 
   /**
    * The control for the order, or nothing when your day shows no split.
@@ -458,8 +535,12 @@ export function PlanScreen({
    *
    * The label says what tapping does, not what is currently true: a toggle
    * labelled with its own state is the oldest ambiguity in interface design.
+   *
+   * Offered only when both kinds have unflagged work in them. With one kind,
+   * there is nothing for the preference to decide and a tap changes nothing
+   * visible.
    */
-  const orderAction = showsBoth(mySections)
+  const orderAction = bothKinds(mySections)
     ? {
         label: groupOrder === 'chores' ? '⇅ Tasks first' : '⇅ Chores first',
         accessibilityLabel:
@@ -472,35 +553,24 @@ export function PlanScreen({
     section: ReturnType<typeof sectionsFor>,
     ownerId: string | undefined,
   ): React.ReactNode => {
-    const { recurring, oneOff } = splitByKind(section);
-    const both = showsBoth(section);
-
-    /*
-     * Whose work leads the day, and it is a preference rather than a decision.
-     *
-     * Jake wants the chores first and Emily wants the tasks first — *"I think
-     * we just need to make it something you can flip if you want."* It is
-     * stored on the profile rather than the device, so it follows the account
-     * and survives the reinstall this app goes through every seven days.
-     */
-    const groups =
-      groupOrder === 'chores'
-        ? ([
-            { key: 'chores', title: 'Chores', data: recurring },
-            { key: 'oneOff', title: 'One-time tasks', data: oneOff },
-          ] as const)
-        : ([
-            { key: 'oneOff', title: 'One-time tasks', data: oneOff },
-            { key: 'chores', title: 'Chores', data: recurring },
-          ] as const);
+    const groups = groupsFor(section);
+    // One group needs no heading: there is nothing to tell it apart from.
+    const labelled = filledGroups(section) > 1;
 
     return (
       <>
         {groups.map((group) =>
           group.data.active.length + group.data.sunk.length === 0 ? null : (
             <Fragment key={group.key}>
-              {/* Only labelled when there is something to tell it apart from. */}
-              {both ? <SubHeader title={group.title} count={group.data.active.length} /> : null}
+              {labelled ? (
+                <SubHeader
+                  title={group.title}
+                  count={group.data.active.length}
+                  // The exact colour the "!!" is drawn in, so the heading and
+                  // the rows under it are the same red rather than two.
+                  {...(group.key === 'flagged' ? { dot: colors.danger } : {})}
+                />
+              ) : null}
               {renderPlanSection(group.data, ownerId)}
             </Fragment>
           ),
@@ -610,6 +680,7 @@ export function PlanScreen({
         stepsOpenByDefault
         category={category === null ? null : { name: category.name, ink: category.ink }}
         priority={toPriority(meta?.priority)}
+        flagged={anyFlags.has(item.choreId)}
         icon={toIconName(meta?.icon ?? null)}
         compact
         completedByLabel={
@@ -946,6 +1017,99 @@ export function PlanScreen({
               setRemoving(null);
             }}
           />
+          {/*
+            Below "Take off today", not above it.
+            
+            This sheet's own reasoning is that on the plan the question is
+            almost always *not today*, so that is the reflex tap. Putting the
+            rarer action first means the muscle memory that used to clear a row
+            flags it instead.
+
+            Flagging from here moves the row to the top of its list, rather
+            than sorting flagged work above everything and holding it there.
+            
+            Jake asked for exactly that distinction: *"Cells with !! should go
+            to the top automatically... That can just be their default
+            position, and if you add it to one from the plan it should jump to
+            the top (but allow you to move it afterwards if needed)."* A sort
+            rule would win over every later drag, so the flag would quietly
+            take the ordering away from you. A written position is a starting
+            point you can then argue with.
+
+            Today sorts rather than writes, and that is right there: nothing on
+            that screen is hand-ordered, so there is no order to overrule.
+
+            Unflagging leaves the position alone. Where it sits is now a
+            decision you have made, and undoing the flag is not a request to
+            undo that too.
+
+            A flag belongs to the person who set it, but the *lift* belongs to
+            the household: either of you flagging is enough to raise the row,
+            and it comes down only when the last flag does. So the copy has to
+            say which of the four states you are in, rather than promise a
+            movement that a housemate's flag will quietly prevent.
+          */}
+          <SheetAction
+            label={flagState.mine ? 'Unflag it' : 'Flag it for this week'}
+            hint={
+              flagState.mine
+                ? flagState.theirsToo
+                  ? `Yours comes off. ${theirName} has flagged it too, so it stays at the top.`
+                  : 'It drops back in with the rest of the day, where its position puts it.'
+                : flagState.theirsToo
+                  ? `${theirName} has already flagged this, so it is at the top either way. This adds yours.`
+                  : 'Marks it "!!" until the week is out and lifts it to the top of the day. Both of you can see it.'
+            }
+            onPress={() => {
+              if (removing !== null) {
+                toggleFlag.mutate(removing.item.choreId);
+
+                /*
+                 * When you are adding your flag and the row is not already the
+                 * top of the day.
+                 *
+                 * Keyed on *where the row is*, not on whether somebody else
+                 * has also flagged it. Gating on `theirsToo` looked right — a
+                 * row they had flagged is already lifted, so why write? —
+                 * and quietly broke the promise the position exists to keep:
+                 * flagging from Today writes no position at all, so a row your
+                 * housemate flagged there sits mid-day underneath its lift.
+                 * Skip the write and, once both flags lapse, it drops back into
+                 * the middle rather than staying where the flag had put it.
+                 *
+                 * The drift that gate was added to stop is real but harmless:
+                 * `stored` includes this row's own position, so a second write
+                 * makes it the minimum again — the number falls, nothing moves.
+                 * Comparing against the minimum stops the write instead.
+                 *
+                 * Above everything stored for that day, not just above the
+                 * draggable part: finished rows keep their positions while
+                 * they sit below the list, so "the smallest of what is
+                 * showing" can tie with something already done.
+                 *
+                 * It is also what survives the flag being lifted: the row
+                 * drops back among the rest wherever this put it, rather than
+                 * springing back to where it was a week ago.
+                 */
+                if (!flagState.mine) {
+                  const day = removing.ownerId === myOwnerId ? mySections : theirSections;
+                  const stored = day.all.map((p) => p.position);
+                  const here = day.all.find(
+                    (p) => p.item.occurrenceKey === removing.item.occurrenceKey,
+                  )?.position;
+                  if (stored.length > 0 && here !== Math.min(...stored)) {
+                    reorderPlan.mutate(
+                      removing.item.occurrenceKey,
+                      Math.min(...stored) - 1,
+                      removing.ownerId,
+                    );
+                  }
+                }
+              }
+              setRemoving(null);
+            }}
+          />
+
           <SheetAction
             label="Edit the chore"
             onPress={() => {
