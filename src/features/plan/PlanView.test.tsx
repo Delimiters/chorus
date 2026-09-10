@@ -111,8 +111,18 @@ jest.mock('@/stores/routineStore', () => ({
     }),
 }));
 
+let mockFlags: Set<string> = new Set();
+const mockToggleFlag = jest.fn();
+
+jest.mock('@/data/hooks/useFlags', () => ({
+  // Household-wide, which is what a row shows.
+  useFlagsByChore: () => new Map([...mockFlags].map((id) => [id, ['me']])),
+  // Yours, which is what the sheet toggles.
+  useMyFlags: () => mockFlags,
+  useToggleFlag: () => ({ mutate: mockToggleFlag }),
+}));
+
 jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => [] }));
-jest.mock('@/data/hooks/useFlags', () => ({ useMyFlags: () => new Set<string>() }));
 const mockScheduleToday = jest.fn();
 jest.mock('@/data/hooks/useChores', () => ({
   useScheduleToday: () => ({ mutate: mockScheduleToday }),
