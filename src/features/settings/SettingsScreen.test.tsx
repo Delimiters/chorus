@@ -18,9 +18,20 @@ import { SettingsScreen } from './SettingsScreen';
 const mockUpdate = jest.fn();
 let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York' };
 
+let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
+const mockSetGroupOrder = jest.fn();
+
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: mockHousehold, isLoading: false, error: null }),
   useUpdateHousehold: () => ({ mutate: mockUpdate }),
+  useMembers: () => ({
+    data: [
+      { userId: 'me', displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
+      // The opposite, so reading the wrong person's row shows the wrong answer.
+      { userId: 'user-them', displayName: 'Sam', accent: 'pink', planGroupOrder: 'oneOff' },
+    ],
+  }),
+  useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder }),
 }));
 
 let mockAvailable = true;
@@ -80,6 +91,44 @@ beforeEach(() => {
   mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York' };
   useReminderStore.setState({ policy: DEFAULT_POLICY });
   mockAvailable = true;
+  mockMyGroupOrder = 'chores';
+  mockSetGroupOrder.mockClear();
+});
+
+describe('which group leads your plan', () => {
+  /*
+   * A duplicate of the control on the plan itself, deliberately: "↑ First" on a
+   * section heading is easy to miss, and Settings is where a standing
+   * preference is looked for. Both read the same profile row, so they cannot
+   * disagree.
+   */
+  it('shows your current order, not your housemate’s', async () => {
+    mockMyGroupOrder = 'chores';
+    await renderScreen();
+
+    expect(screen.getByRole('tab', { name: 'Chores', selected: true })).toBeOnTheScreen();
+    expect(screen.getByRole('tab', { name: 'One-time tasks', selected: false })).toBeOnTheScreen();
+  });
+
+  it('reflects the other choice when that is yours', async () => {
+    mockMyGroupOrder = 'oneOff';
+    await renderScreen();
+
+    expect(screen.getByRole('tab', { name: 'One-time tasks', selected: true })).toBeOnTheScreen();
+  });
+
+  it('saves the change against your profile', async () => {
+    await renderScreen();
+
+    await fireEvent.press(screen.getByRole('tab', { name: 'One-time tasks' }));
+
+    expect(mockSetGroupOrder).toHaveBeenCalledWith('oneOff');
+  });
+
+  it('says whose preference it is, since every other display setting is per phone', async () => {
+    await renderScreen();
+    expect(screen.getByText(/your housemate keeps their own order/i)).toBeOnTheScreen();
+  });
 });
 
 describe('household settings', () => {

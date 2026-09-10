@@ -23,7 +23,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CivilTime, Weekday } from '@/core/civil/types';
 import { MAX_PENDING } from '@/core/notify/plan';
-import { useHousehold, useUpdateHousehold } from '@/data/hooks/useHousehold';
+import {
+  useHousehold,
+  useMembers,
+  useSetPlanGroupOrder,
+  useUpdateHousehold,
+  type PlanGroupOrder,
+} from '@/data/hooks/useHousehold';
 import { notificationsAvailable } from '@/data/notifications';
 import { SectionHeader } from '@/design/ChoreRow';
 import { BackBar, Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
@@ -92,6 +98,12 @@ export function SettingsScreen() {
   const setIncludeRoutines = useReminderStore((s) => s.setIncludeRoutines);
   const setBucketTime = useReminderStore((s) => s.setBucketTime);
   const userId = useUserId();
+  const members = useMembers();
+  const setPlanGroupOrder = useSetPlanGroupOrder();
+  /* Chores while the query is in flight — the order the app shipped with, so
+     the control does not visibly flip a moment after the screen opens. */
+  const planGroupOrder: PlanGroupOrder =
+    (members.data ?? []).find((m) => m.userId === userId)?.planGroupOrder ?? 'chores';
   const routineItems = useRoutineItems();
   const setShareRoutine = useSetShareRoutine();
   const sharedByMe = routineItems.data?.sharedByMe ?? false;
@@ -170,6 +182,32 @@ export function SettingsScreen() {
               {timeZone}
             </Txt>,
           )}
+        </Stack>
+
+        {/*
+          Its own section, and pointedly not under "on this phone".
+          
+          Every other view preference here is per device. This one is on your
+          profile, because Jake and Emily want opposite answers and an account
+          is what tells them apart — filing it under a heading that says "this
+          phone" would be a lie about where it lives and who it follows.
+        */}
+        <SectionHeader title="Your daily plan" />
+        <Stack gap={space.sm}>
+          <FieldGroup
+            label="Show first"
+            hint="Which group leads your plan. Yours, not the household's — your housemate keeps their own order."
+          >
+            <SegmentedControl
+              segments={[
+                { value: 'chores', label: 'Chores' },
+                { value: 'oneOff', label: 'One-time tasks' },
+              ]}
+              value={planGroupOrder}
+              onChange={(order) => setPlanGroupOrder.mutate(order)}
+              label="Which group leads your plan"
+            />
+          </FieldGroup>
         </Stack>
 
         <SectionHeader title="Display on this phone" />

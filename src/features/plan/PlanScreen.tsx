@@ -16,7 +16,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -35,7 +35,7 @@ import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import { useMembers } from '@/data/hooks/useHousehold';
+import { useMembers, useSetPlanGroupOrder, type PlanGroupOrder } from '@/data/hooks/useHousehold';
 import { useToggleCompletion } from '@/data/hooks/useOccurrences';
 import {
   useMyPlanEntries,
@@ -110,6 +110,7 @@ export function PlanScreen({
   const router = useRouter();
   const userId = useUserId();
   const members = useMembers();
+  const setGroupOrder = useSetPlanGroupOrder();
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
   const remove = useRemoveFromPlan(today as never);
@@ -400,6 +401,18 @@ export function PlanScreen({
    */
   const myOwnerId = userId ?? undefined;
 
+  /**
+   * Which group leads the day — yours, read off your own membership row.
+   *
+   * `useMembers` already fetches every profile in the house, so this costs no
+   * extra request. Defaults to chores while the query is in flight, which is
+   * the order the app shipped with: a screen that reorders itself a moment
+   * after opening would be worse than one that is briefly wrong for the
+   * minority who chose the other way.
+   */
+  const groupOrder: PlanGroupOrder =
+    (members.data ?? []).find((m) => m.userId === userId)?.planGroupOrder ?? 'chores';
+
   /*
    * Recurring housework and one-off tasks, kept apart.
    *
@@ -425,30 +438,83 @@ export function PlanScreen({
     },
   });
 
+  /** True when a day has work of both kinds, so the split is visible at all. */
+  const showsBoth = (section: ReturnType<typeof sectionsFor>): boolean => {
+    const { recurring, oneOff } = splitByKind(section);
+    return (
+      recurring.active.length + recurring.sunk.length > 0 &&
+      oneOff.active.length + oneOff.sunk.length > 0
+    );
+  };
+
+  /*
+   * One control on the screen, on your own day where possible.
+   *
+   * The preference is about how *you* read the plan, so it applies to both
+   * days and needs saying once. It lands on the housemate's day only when your
+   * own has a single kind of work, since a day with no split has no headings
+   * to hang it on and the control would have nowhere to live.
+   */
+  const controlOnMyDay = showsBoth(mySections);
+
   const renderDay = (
     section: ReturnType<typeof sectionsFor>,
     ownerId: string | undefined,
+    withControl: boolean,
   ): React.ReactNode => {
     const { recurring, oneOff } = splitByKind(section);
-    const both =
-      recurring.active.length + recurring.sunk.length > 0 &&
-      oneOff.active.length + oneOff.sunk.length > 0;
+    const both = showsBoth(section);
+
+    /*
+     * Whose work leads the day, and it is a preference rather than a decision.
+     *
+     * Jake wants the chores first and Emily wants the tasks first — *"I think
+     * we just need to make it something you can flip if you want."* It is
+     * stored on the profile rather than the device, so it follows the account
+     * and survives the reinstall this app goes through every seven days.
+     */
+    const groups =
+      groupOrder === 'chores'
+        ? ([
+            { key: 'chores', title: 'Chores', data: recurring },
+            { key: 'oneOff', title: 'One-time tasks', data: oneOff },
+          ] as const)
+        : ([
+            { key: 'oneOff', title: 'One-time tasks', data: oneOff },
+            { key: 'chores', title: 'Chores', data: recurring },
+          ] as const);
 
     return (
       <>
-        {recurring.active.length + recurring.sunk.length === 0 ? null : (
-          <>
-            {/* Only labelled when there is something to tell it apart from. */}
-            {both ? <SubHeader title="Chores" count={recurring.active.length} /> : null}
-            {renderPlanSection(recurring, ownerId)}
-          </>
-        )}
-
-        {oneOff.active.length + oneOff.sunk.length === 0 ? null : (
-          <>
-            {both ? <SubHeader title="One-time tasks" count={oneOff.active.length} /> : null}
-            {renderPlanSection(oneOff, ownerId)}
-          </>
+        {groups.map((group, index) =>
+          group.data.active.length + group.data.sunk.length === 0 ? null : (
+            <Fragment key={group.key}>
+              {/* Only labelled when there is something to tell it apart from. */}
+              {both ? (
+                <SubHeader
+                  title={group.title}
+                  count={group.data.active.length}
+                  /*
+                   * On the second group only, so there is exactly one control
+                   * and it always means "move this up". Its position does not
+                   * change when tapped — the groups swap around it — so the
+                   * control stays where the thumb left it and only its label
+                   * changes.
+                   */
+                  action={
+                    withControl && index === 1
+                      ? {
+                          label: '↑ First',
+                          accessibilityLabel: `Show ${group.title.toLowerCase()} first`,
+                          onPress: () => setGroupOrder.mutate(group.key),
+                        }
+                      : undefined
+                  }
+                />
+              ) : null}
+              {renderPlanSection(group.data, ownerId)}
+            </Fragment>
+          ),
         )}
       </>
     );
@@ -746,7 +812,7 @@ export function PlanScreen({
               title={progress.finished ? 'Done today' : 'Doing today'}
               count={progress.finished ? progress.done : progress.total - progress.done}
             />
-            {renderDay(mySections, myOwnerId)}
+            {renderDay(mySections, myOwnerId, controlOnMyDay)}
 
             <View
               style={{
@@ -796,7 +862,11 @@ export function PlanScreen({
                 {`${theirName} hasn't planned anything today. Their day fills up when they open the app — or you can put something on it.`}
               </Txt>
             ) : (
-              renderDay(theirSections, housemate.userId)
+              renderDay(
+                theirSections,
+                housemate.userId,
+                !controlOnMyDay && showsBoth(theirSections),
+              )
             )}
 
             <View

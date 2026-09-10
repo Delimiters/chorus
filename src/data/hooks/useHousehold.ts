@@ -16,9 +16,11 @@ import {
   getHousehold,
   listMembers,
   listMyHouseholds,
+  setPlanGroupOrder,
   updateHousehold,
   type Household,
   type Member,
+  type PlanGroupOrder,
 } from '../api/households';
 import { createInvite, getActiveInvite, redeemInvite } from '../api/invites';
 import { qk } from '../queryKeys';
@@ -187,4 +189,49 @@ export function useUpdateHousehold() {
   });
 }
 
-export type { Household, Member };
+/**
+ * Flips which group leads your daily plan.
+ *
+ * Optimistic, because the control is on the screen it reorders: a tap that took
+ * a network round trip to visibly do anything reads as a tap that missed.
+ *
+ * `onMutate` runs **before** `mutationFn` — the recurring mistake in this
+ * codebase — so the snapshot taken here is the pre-write state, which is what
+ * `onError` needs to put back.
+ */
+export function useSetPlanGroupOrder() {
+  const householdId = useActiveHouseholdId();
+  const queryClient = useQueryClient();
+  const userId = useSessionStore((s) => s.userId);
+
+  const key = qk.members(householdId ?? '__none__');
+
+  return useMutation({
+    mutationFn: (order: PlanGroupOrder) => setPlanGroupOrder(order),
+
+    onMutate: async (order) => {
+      // Cancel first, or a refetch already in flight lands after this write and
+      // restores the old order — the same shape as the plan-reorder bug.
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<Member[]>(key);
+
+      if (previous !== undefined && userId !== null) {
+        queryClient.setQueryData<Member[]>(
+          key,
+          previous.map((m) => (m.userId === userId ? { ...m, planGroupOrder: order } : m)),
+        );
+      }
+      return { previous };
+    },
+
+    onError: (_error, _order, context) => {
+      if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous);
+    },
+
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: key });
+    },
+  });
+}
+
+export type { Household, Member, PlanGroupOrder };

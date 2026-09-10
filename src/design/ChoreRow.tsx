@@ -790,21 +790,37 @@ export function SectionHeader({ title, count }: { title: string; count?: number 
 }
 
 /**
- * A second-level heading, for a category nested inside an ownership section.
+ * A second-level heading, for a group nested inside an ownership section.
  *
  * Indented and quieter than `SectionHeader`, so the two levels read as a
- * hierarchy rather than as two competing lists. Carries the category's ink as
- * a dot, which is the cheapest way to make a group recognisable without
- * colouring the text and fighting contrast in one theme or the other.
+ * hierarchy rather than as two competing lists. Carries an ink as a dot, which
+ * is the cheapest way to make a group recognisable without colouring the text
+ * and fighting contrast in one theme or the other.
+ *
+ * ── Why it is bigger than the section header above it ─────────────────────
+ *
+ * It is 15pt sentence case; `SectionHeader` is 11pt uppercase and letterspaced.
+ * The hierarchy is carried by case, indentation and the dot rather than by
+ * size, which is why the child can be numerically larger without reading as
+ * the parent. It was 13pt and faint, and Jake could not read it: *"maybe make
+ * the header text on those slightly bigger? It's pretty small."*
  */
 export function SubHeader({
   title,
   ink,
   count,
+  action,
 }: {
   title: string;
   ink?: string | null;
   count?: number;
+  /**
+   * A control belonging to this group — on the plan, "put this one first".
+   *
+   * On the heading rather than in a toolbar because it acts on exactly this
+   * group, and a screen-level control would have to name which group it meant.
+   */
+  action?: { label: string; accessibilityLabel: string; onPress: () => void } | undefined;
 }) {
   const { colors, isDark } = useTheme();
   return (
@@ -823,8 +839,9 @@ export function SubHeader({
         accessibilityElementsHidden
         importantForAccessibility="no"
         style={{
-          width: 7,
-          height: 7,
+          // Grown with the text beside it; at 7 it read as a speck next to 15pt.
+          width: 8,
+          height: 8,
           borderRadius: 4,
           backgroundColor: ink == null ? colors.textFaint : inkColor(ink, isDark),
         }}
@@ -835,14 +852,40 @@ export function SubHeader({
         "Chores", with nothing saying what had been counted.
       */}
       <Txt
-        variant="small"
-        tone="faint"
+        variant="bodyStrong"
+        tone="muted"
         accessibilityRole="header"
         accessibilityLabel={count === undefined ? title : `${title}, ${count}`}
         style={{ flex: 1 }}
       >
         {title}
       </Txt>
+
+      {action === undefined ? null : (
+        <Pressable
+          onPress={action.onPress}
+          accessibilityRole="button"
+          accessibilityLabel={action.accessibilityLabel}
+          /* 20pt of text, 44pt of target. The row is a heading rather than a
+             toolbar, so the box stays small and `hitSlop` buys the rest — the
+             same trade as the chevron on a compact row. */
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.5 : 1,
+            paddingHorizontal: space.xs,
+            // `height`, not `minHeight`: a 44pt floor here would set the height
+            // of the heading row, and the enforcing test reads `minHeight` as a
+            // promise about the target. The target is the hitSlop above.
+            height: 20,
+            justifyContent: 'center',
+          })}
+        >
+          <Txt variant="small" tone="faint">
+            {action.label}
+          </Txt>
+        </Pressable>
+      )}
+
       {count === undefined ? null : (
         <View accessibilityElementsHidden importantForAccessibility="no">
           <Txt variant="small" tone="faint">
