@@ -859,6 +859,7 @@ export function SubHeader({
   ink,
   dot,
   count,
+  testID,
 }: {
   title: string;
   ink?: string | null;
@@ -872,6 +873,8 @@ export function SubHeader({
    */
   dot?: string;
   count?: number;
+  /** For tests: the dot is otherwise unreachable, being decorative. */
+  testID?: string;
 }) {
   const { colors, isDark } = useTheme();
   return (
@@ -889,6 +892,7 @@ export function SubHeader({
       <View
         accessibilityElementsHidden
         importantForAccessibility="no"
+        {...(testID === undefined ? {} : { testID: `${testID}-dot` })}
         style={{
           // Grown with the text beside it; at 7 it read as a speck next to 15pt.
           width: 8,

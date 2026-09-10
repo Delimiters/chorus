@@ -21,7 +21,7 @@ import { StyleSheet } from 'react-native';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ThemeProvider } from '@/design/theme';
 import { MIN_TARGET } from '@/design/tokens';
-import { ChoreRow, SectionHeader } from './ChoreRow';
+import { ChoreRow, SectionHeader, SubHeader } from './ChoreRow';
 
 const ITEM = {
   occurrenceKey: 'v1:sheets',
@@ -200,5 +200,41 @@ describe('a section header carrying a control', () => {
     );
 
     expect(screen.queryByRole('button')).toBeNull();
+  });
+});
+
+describe('a sub-header dot', () => {
+  /*
+   * The plan's flagged group is drawn in `colors.danger`, the same red as the
+   * "!!" on its rows. It was passed as the nearest *ink* instead, which gave
+   * two similar-but-different reds an inch apart under a comment claiming they
+   * matched — and `rust` is an assignable member accent, so a household where
+   * somebody picked it got a Flagged dot in their personal colour.
+   *
+   * Nothing pinned this: ignoring the prop entirely left all 1393 tests green.
+   */
+  const dotStyle = (element: ReturnType<typeof screen.getByTestId>) =>
+    StyleSheet.flatten(element.props.style) as { backgroundColor?: string; borderRadius?: number };
+
+  it('takes a resolved colour over the ink', () => {
+    render(
+      <ThemeProvider>
+        <SubHeader title="Flagged" count={1} ink="rust" dot="#B3261E" testID="sub" />
+      </ThemeProvider>,
+    );
+
+    const dot = screen.getByTestId('sub-dot', { includeHiddenElements: true });
+    expect(dotStyle(dot).backgroundColor).toBe('#B3261E');
+  });
+
+  it('still uses the ink when no colour is given', () => {
+    render(
+      <ThemeProvider>
+        <SubHeader title="Kitchen" count={1} ink="rust" testID="sub" />
+      </ThemeProvider>,
+    );
+
+    const dot = screen.getByTestId('sub-dot', { includeHiddenElements: true });
+    expect(dotStyle(dot).backgroundColor).not.toBe('#B3261E');
   });
 });

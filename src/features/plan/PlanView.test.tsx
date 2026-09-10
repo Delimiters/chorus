@@ -120,14 +120,27 @@ jest.mock('@/stores/routineStore', () => ({
  * other made every test agree by construction, so the test named "shows a flag
  * somebody else set" would have passed against code reading the wrong set.
  */
-let mockAnyFlags: Set<string> = new Set();
 let mockMyFlags: Set<string> = new Set();
+let mockTheirFlags: Set<string> = new Set();
 const mockToggleFlag = jest.fn();
 
+/*
+ * The same shape as PlanScreen.test.tsx's, and for the same reasons: the map is
+ * derived from who flagged rather than kept as a third set, so "flagged by
+ * nobody" cannot be written; and the ids come from `mockMe`/`mockThem` rather
+ * than literals, which is how the two came to disagree with the screen's.
+ *
+ * Nothing here assigns these yet. It is wired correctly anyway because the
+ * first test that does should get what it asked for rather than a housemate's
+ * flag where it wanted its own.
+ */
 jest.mock('@/data/hooks/useFlags', () => ({
-  // choreId -> the users who flagged it, which is what `useFlagsByChore` gives.
-  useFlagsByChore: () =>
-    new Map([...mockAnyFlags].map((id) => [id, mockMyFlags.has(id) ? ['me'] : ['them']] as const)),
+  useFlagsByChore: () => {
+    const map = new Map<string, string[]>();
+    for (const id of mockMyFlags) map.set(id, [mockMe]);
+    for (const id of mockTheirFlags) map.set(id, [...(map.get(id) ?? []), mockThem]);
+    return map;
+  },
   useMyFlags: () => mockMyFlags,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
 }));

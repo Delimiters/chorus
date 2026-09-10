@@ -68,6 +68,18 @@ is where the flag left it rather than where it started. That is deliberate:
 where it sits is a decision since made, and lifting a flag is not a request to
 undo it. It will still surprise somebody.
 
+**A correction, same day.** The position write was briefly gated on "nobody
+else has flagged this", on the reasoning that a row already lifted by a
+housemate's flag needs no lifting. That is wrong twice over. Flagging from
+*Today* writes no position at all, so a row they flagged there is lifted while
+its stored position is still mid-day — skip the write and, once both flags
+lapse, it drops into the middle rather than staying where the flag put it,
+losing the only thing the position is for. And the drift the gate was added to
+stop does not exist: `stored` includes the row's own position, so a second
+write simply makes it the minimum again — the number falls and nothing moves.
+The gate is now "you are adding your flag *and* the row is not already the top
+of the day", which stops the redundant write without dropping the guarantee.
+
 ---
 
 ## 2026-09-09 — A one-time task can no longer be dragged among the chores

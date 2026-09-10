@@ -508,22 +508,6 @@ export function PlanScreen({
   };
 
   /**
-   * The control for the order, or nothing when your day shows no split.
-   *
-   * It rides on *your* day's section header and nowhere else. An earlier
-   * version fell through to the housemate's section when your own day held one
-   * kind of work — which put a button that changes *your* preference inside a
-   * block headed "Emily's day", contradicting the one thing the copy elsewhere
-   * is careful to say. Settings carries the same control for that case.
-   *
-   * The label says what tapping does, not what is currently true: a toggle
-   * labelled with its own state is the oldest ambiguity in interface design.
-   *
-   * Offered only when both kinds have unflagged work in them. With one kind,
-   * there is nothing for the preference to decide and a tap changes nothing
-   * visible.
-   */
-  /**
    * Whose flag is on the row the sheet is open for.
    *
    * `mine` decides what the button does — you can only lift your own. `theirsToo`
@@ -540,6 +524,22 @@ export function PlanScreen({
     };
   })();
 
+  /**
+   * The control for the order, or nothing when your day shows no split.
+   *
+   * It rides on *your* day's section header and nowhere else. An earlier
+   * version fell through to the housemate's section when your own day held one
+   * kind of work — which put a button that changes *your* preference inside a
+   * block headed "Emily's day", contradicting the one thing the copy elsewhere
+   * is careful to say. Settings carries the same control for that case.
+   *
+   * The label says what tapping does, not what is currently true: a toggle
+   * labelled with its own state is the oldest ambiguity in interface design.
+   *
+   * Offered only when both kinds have unflagged work in them. With one kind,
+   * there is nothing for the preference to decide and a tap changes nothing
+   * visible.
+   */
   const orderAction = bothKinds(mySections)
     ? {
         label: groupOrder === 'chores' ? '⇅ Tasks first' : '⇅ Chores first',
@@ -1065,12 +1065,22 @@ export function PlanScreen({
                 toggleFlag.mutate(removing.item.choreId);
 
                 /*
-                 * Only when this flag is what lifts the row.
+                 * When you are adding your flag and the row is not already the
+                 * top of the day.
                  *
-                 * A row your housemate has already flagged is already at the
-                 * top, so adding yours moves nothing — and writing a position
-                 * anyway walked it one notch lower on every flag/unflag cycle,
-                 * silently, with nothing on screen to explain it.
+                 * Keyed on *where the row is*, not on whether somebody else
+                 * has also flagged it. Gating on `theirsToo` looked right — a
+                 * row they had flagged is already lifted, so why write? —
+                 * and quietly broke the promise the position exists to keep:
+                 * flagging from Today writes no position at all, so a row your
+                 * housemate flagged there sits mid-day underneath its lift.
+                 * Skip the write and, once both flags lapse, it drops back into
+                 * the middle rather than staying where the flag had put it.
+                 *
+                 * The drift that gate was added to stop is real but harmless:
+                 * `stored` includes this row's own position, so a second write
+                 * makes it the minimum again — the number falls, nothing moves.
+                 * Comparing against the minimum stops the write instead.
                  *
                  * Above everything stored for that day, not just above the
                  * draggable part: finished rows keep their positions while
@@ -1081,10 +1091,13 @@ export function PlanScreen({
                  * drops back among the rest wherever this put it, rather than
                  * springing back to where it was a week ago.
                  */
-                if (!flagState.mine && !flagState.theirsToo) {
+                if (!flagState.mine) {
                   const day = removing.ownerId === myOwnerId ? mySections : theirSections;
                   const stored = day.all.map((p) => p.position);
-                  if (stored.length > 0) {
+                  const here = day.all.find(
+                    (p) => p.item.occurrenceKey === removing.item.occurrenceKey,
+                  )?.position;
+                  if (stored.length > 0 && here !== Math.min(...stored)) {
                     reorderPlan.mutate(
                       removing.item.occurrenceKey,
                       Math.min(...stored) - 1,
