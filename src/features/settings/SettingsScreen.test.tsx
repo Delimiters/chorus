@@ -25,10 +25,14 @@ jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: mockHousehold, isLoading: false, error: null }),
   useUpdateHousehold: () => ({ mutate: mockUpdate }),
   useMembers: () => ({
+    /*
+     * The housemate first, and always the opposite. With 'me' at index 0 the
+     * assertions below passed against `members.data[0]`, which is the mis-read
+     * they are supposed to catch.
+     */
     data: [
-      { userId: 'me', displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
-      // The opposite, so reading the wrong person's row shows the wrong answer.
       { userId: 'user-them', displayName: 'Sam', accent: 'pink', planGroupOrder: 'oneOff' },
+      { userId: 'me', displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
     ],
   }),
   useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder }),

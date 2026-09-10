@@ -207,7 +207,17 @@ export function useSetPlanGroupOrder() {
   const key = qk.members(householdId ?? '__none__');
 
   return useMutation({
-    mutationFn: (order: PlanGroupOrder) => setPlanGroupOrder(order),
+    /*
+     * The id comes from the session store rather than a `getUser()` round trip
+     * inside the write. The policy is `id = auth.uid()` on both USING and WITH
+     * CHECK, so the database decides the row regardless of what is passed —
+     * the argument only narrows the filter, and a network call to learn a value
+     * already in hand doubled the latency of every flip.
+     */
+    mutationFn: (order: PlanGroupOrder) => {
+      if (userId === null) throw new Error('You are signed out.');
+      return setPlanGroupOrder(order, userId);
+    },
 
     onMutate: async (order) => {
       // Cancel first, or a refetch already in flight lands after this write and

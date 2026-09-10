@@ -12,8 +12,16 @@
  * supabase/tests/profile-preferences.test.sql. What is asserted here is the
  * round trip: written by one function, read back by the other, through
  * PostgREST, with a real join.
+ *
+ * The first version of this file hand-copied `listMembers`'s select string
+ * instead of calling it, which bought nothing: a review showed that deleting
+ * the column from the real query left typecheck, all 1372 unit tests *and*
+ * this suite green, because the unit tests mock the hook and this file was
+ * asserting against its own duplicate. Both functions now take an injectable
+ * client so the suite can run the real ones as a real signed-in user.
  */
 
+import { listMembersWith, setPlanGroupOrderWith } from '../../src/data/api/members';
 import { createUser, deleteUsers, uniqueEmail, uniqueInviteCode } from './clients';
 
 jest.setTimeout(60_000);
@@ -47,40 +55,16 @@ describe('a person’s plan group order', () => {
     await deleteUsers([owner.userId, joiner.userId]);
   });
 
-  /**
-   * The member list exactly as `listMembers` builds it.
-   *
-   * Duplicated from `src/data/api/households.ts` rather than imported, because
-   * that module reaches for the app's configured `supabase` singleton and this
-   * suite needs a client per signed-in user. The **select string is the thing
-   * under test**, so it is copied verbatim: a column dropped from the real one
-   * would leave this passing, which is why the assertion below also checks the
-   * value each person set rather than merely that a field exists.
-   */
-  const membersFor = async (client: typeof owner.client) => {
-    const { data, error } = await client
-      .from('household_members')
-      .select('user_id, role, sort_order, accent, profiles!inner(display_name, plan_group_order)')
-      .eq('household_id', householdId)
-      .order('sort_order');
-    if (error) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
-      userId: row.user_id,
-      planGroupOrder: (row.profiles as unknown as { plan_group_order: string }).plan_group_order,
-    }));
-  };
+  /** The real `listMembers`, read as a real signed-in user. */
+  const membersFor = (client: typeof owner.client) => listMembersWith(client, householdId);
 
   it('defaults to chores, which is the order the app already shipped', async () => {
     const members = await membersFor(owner.client);
     expect(members.find((m) => m.userId === owner.userId)?.planGroupOrder).toBe('chores');
   });
 
-  it('survives the round trip through the join the screen reads', async () => {
-    const written = await owner.client
-      .from('profiles')
-      .update({ plan_group_order: 'oneOff' })
-      .eq('id', owner.userId);
-    expect(written.error).toBeNull();
+  it('survives the round trip through the two functions the app uses', async () => {
+    await setPlanGroupOrderWith(owner.client, 'oneOff', owner.userId);
 
     const members = await membersFor(owner.client);
     expect(members.find((m) => m.userId === owner.userId)?.planGroupOrder).toBe('oneOff');
@@ -89,11 +73,7 @@ describe('a person’s plan group order', () => {
   it('is per person, so one housemate changing theirs does not move the other', async () => {
     // The whole point of the feature: Jake wants chores first and Emily wants
     // one-time tasks first, at the same time, in the same household.
-    const written = await joiner.client
-      .from('profiles')
-      .update({ plan_group_order: 'chores' })
-      .eq('id', joiner.userId);
-    expect(written.error).toBeNull();
+    await setPlanGroupOrderWith(joiner.client, 'chores', joiner.userId);
 
     const members = await membersFor(owner.client);
     expect(members.find((m) => m.userId === owner.userId)?.planGroupOrder).toBe('oneOff');
@@ -106,10 +86,9 @@ describe('a person’s plan group order', () => {
      * UPDATE silently: the write matches zero rows, PostgREST returns success,
      * and asserting `error` is null would pass forever while proving nothing.
      */
-    await joiner.client
-      .from('profiles')
-      .update({ plan_group_order: 'chores' })
-      .eq('id', owner.userId);
+    await expect(setPlanGroupOrderWith(joiner.client, 'chores', owner.userId)).rejects.toThrow(
+      /profile could not be found/i,
+    );
 
     const members = await membersFor(owner.client);
     expect(members.find((m) => m.userId === owner.userId)?.planGroupOrder).toBe('oneOff');
@@ -118,11 +97,26 @@ describe('a person’s plan group order', () => {
   it('rejects an order that is not one of the two', async () => {
     const { error } = await owner.client
       .from('profiles')
-      // Deliberately outside the union the app can produce; the CHECK is what
-      // stops a bad value reaching a screen that would match no branch on it.
+      // Deliberately outside the union the app can produce, so this one goes
+      // around `setPlanGroupOrder` — its signature cannot express the value.
+      // The CHECK is what stops a bad value reaching a screen that would match
+      // no branch on it.
       .update({ plan_group_order: 'sideways' })
       .eq('id', owner.userId);
 
     expect(error?.code).toBe('23514');
+  });
+
+  it('reads the column the screen reads, not merely some column', async () => {
+    /*
+     * The regression this file exists for, stated directly: drop
+     * `plan_group_order` from `listMembers`'s select and every reader falls
+     * back to 'chores' silently. Asserting a *non-default* value through the
+     * real function is what makes that fail.
+     */
+    await setPlanGroupOrderWith(joiner.client, 'oneOff', joiner.userId);
+
+    const members = await membersFor(joiner.client);
+    expect(members.find((m) => m.userId === joiner.userId)?.planGroupOrder).toBe('oneOff');
   });
 });

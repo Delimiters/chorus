@@ -765,13 +765,32 @@ export function FloatingRow({
 }
 
 /** An uppercase section rule, with an optional count on the right. */
-export function SectionHeader({ title, count }: { title: string; count?: number }) {
+export function SectionHeader({
+  title,
+  count,
+  action,
+}: {
+  title: string;
+  count?: number;
+  /**
+   * A control for the section as a whole — on the plan, which group leads it.
+   *
+   * Here rather than on a `SubHeader`, which is where it started. A group
+   * heading is the wrong home for a preference about the *pair* of groups:
+   * the control ends up on whichever group is second, so flipping the order
+   * moves it by the height of the group that changed places, and on a day of
+   * one chore and five tasks that is four rows down the screen. A section
+   * header does not move.
+   */
+  action?: { label: string; accessibilityLabel: string; onPress: () => void } | undefined;
+}) {
   return (
     <View
       style={{
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'baseline',
+        alignItems: 'center',
+        gap: space.sm,
         paddingHorizontal: space.sm,
         paddingTop: space.md,
         paddingBottom: 2,
@@ -780,6 +799,36 @@ export function SectionHeader({ title, count }: { title: string; count?: number 
       <Txt variant="label" tone="faint" accessibilityRole="header">
         {title}
       </Txt>
+
+      {action === undefined ? null : (
+        <Pressable
+          onPress={action.onPress}
+          accessibilityRole="button"
+          accessibilityLabel={action.accessibilityLabel}
+          /*
+            A real 44pt box, not 20pt of text wearing `hitSlop`.
+            
+            The first version did the latter and claimed the slop bought the
+            target back. It did not: `hitSlop` is honoured, but the rows below
+            are enumerated after this one and win the overlap, so the reachable
+            band was about 34pt and a low tap opened a chore instead. The
+            enforcing test reads `minHeight` for exactly this reason — routing
+            around it is how the promise gets made and then not kept.
+          */
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.5 : 1,
+            minHeight: MIN_TARGET,
+            justifyContent: 'center',
+            paddingHorizontal: space.xs,
+            marginLeft: 'auto',
+          })}
+        >
+          <Txt variant="small" tone="muted">
+            {action.label}
+          </Txt>
+        </Pressable>
+      )}
+
       {count !== undefined ? (
         <Txt variant="label" tone="faint">
           {count}
@@ -809,18 +858,10 @@ export function SubHeader({
   title,
   ink,
   count,
-  action,
 }: {
   title: string;
   ink?: string | null;
   count?: number;
-  /**
-   * A control belonging to this group — on the plan, "put this one first".
-   *
-   * On the heading rather than in a toolbar because it acts on exactly this
-   * group, and a screen-level control would have to name which group it meant.
-   */
-  action?: { label: string; accessibilityLabel: string; onPress: () => void } | undefined;
 }) {
   const { colors, isDark } = useTheme();
   return (
@@ -860,31 +901,6 @@ export function SubHeader({
       >
         {title}
       </Txt>
-
-      {action === undefined ? null : (
-        <Pressable
-          onPress={action.onPress}
-          accessibilityRole="button"
-          accessibilityLabel={action.accessibilityLabel}
-          /* 20pt of text, 44pt of target. The row is a heading rather than a
-             toolbar, so the box stays small and `hitSlop` buys the rest — the
-             same trade as the chevron on a compact row. */
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.5 : 1,
-            paddingHorizontal: space.xs,
-            // `height`, not `minHeight`: a 44pt floor here would set the height
-            // of the heading row, and the enforcing test reads `minHeight` as a
-            // promise about the target. The target is the hitSlop above.
-            height: 20,
-            justifyContent: 'center',
-          })}
-        >
-          <Txt variant="small" tone="faint">
-            {action.label}
-          </Txt>
-        </Pressable>
-      )}
 
       {count === undefined ? null : (
         <View accessibilityElementsHidden importantForAccessibility="no">

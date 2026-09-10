@@ -447,20 +447,30 @@ export function PlanScreen({
     );
   };
 
-  /*
-   * One control on the screen, on your own day where possible.
+  /**
+   * The control for the order, or nothing when your day shows no split.
    *
-   * The preference is about how *you* read the plan, so it applies to both
-   * days and needs saying once. It lands on the housemate's day only when your
-   * own has a single kind of work, since a day with no split has no headings
-   * to hang it on and the control would have nowhere to live.
+   * It rides on *your* day's section header and nowhere else. An earlier
+   * version fell through to the housemate's section when your own day held one
+   * kind of work — which put a button that changes *your* preference inside a
+   * block headed "Emily's day", contradicting the one thing the copy elsewhere
+   * is careful to say. Settings carries the same control for that case.
+   *
+   * The label says what tapping does, not what is currently true: a toggle
+   * labelled with its own state is the oldest ambiguity in interface design.
    */
-  const controlOnMyDay = showsBoth(mySections);
+  const orderAction = showsBoth(mySections)
+    ? {
+        label: groupOrder === 'chores' ? '⇅ Tasks first' : '⇅ Chores first',
+        accessibilityLabel:
+          groupOrder === 'chores' ? 'Show one-time tasks first' : 'Show chores first',
+        onPress: () => setGroupOrder.mutate(groupOrder === 'chores' ? 'oneOff' : 'chores'),
+      }
+    : undefined;
 
   const renderDay = (
     section: ReturnType<typeof sectionsFor>,
     ownerId: string | undefined,
-    withControl: boolean,
   ): React.ReactNode => {
     const { recurring, oneOff } = splitByKind(section);
     const both = showsBoth(section);
@@ -486,32 +496,11 @@ export function PlanScreen({
 
     return (
       <>
-        {groups.map((group, index) =>
+        {groups.map((group) =>
           group.data.active.length + group.data.sunk.length === 0 ? null : (
             <Fragment key={group.key}>
               {/* Only labelled when there is something to tell it apart from. */}
-              {both ? (
-                <SubHeader
-                  title={group.title}
-                  count={group.data.active.length}
-                  /*
-                   * On the second group only, so there is exactly one control
-                   * and it always means "move this up". Its position does not
-                   * change when tapped — the groups swap around it — so the
-                   * control stays where the thumb left it and only its label
-                   * changes.
-                   */
-                  action={
-                    withControl && index === 1
-                      ? {
-                          label: '↑ First',
-                          accessibilityLabel: `Show ${group.title.toLowerCase()} first`,
-                          onPress: () => setGroupOrder.mutate(group.key),
-                        }
-                      : undefined
-                  }
-                />
-              ) : null}
+              {both ? <SubHeader title={group.title} count={group.data.active.length} /> : null}
               {renderPlanSection(group.data, ownerId)}
             </Fragment>
           ),
@@ -811,8 +800,9 @@ export function PlanScreen({
             <SectionHeader
               title={progress.finished ? 'Done today' : 'Doing today'}
               count={progress.finished ? progress.done : progress.total - progress.done}
+              action={orderAction}
             />
-            {renderDay(mySections, myOwnerId, controlOnMyDay)}
+            {renderDay(mySections, myOwnerId)}
 
             <View
               style={{
@@ -862,11 +852,7 @@ export function PlanScreen({
                 {`${theirName} hasn't planned anything today. Their day fills up when they open the app — or you can put something on it.`}
               </Txt>
             ) : (
-              renderDay(
-                theirSections,
-                housemate.userId,
-                !controlOnMyDay && showsBoth(theirSections),
-              )
+              renderDay(theirSections, housemate.userId)
             )}
 
             <View

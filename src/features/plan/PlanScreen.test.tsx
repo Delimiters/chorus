@@ -58,11 +58,17 @@ const mockSetGroupOrder = jest.fn();
 
 jest.mock('@/data/hooks/useHousehold', () => ({
   useMembers: () => ({
+    /*
+     * The housemate is deliberately **first**, and permanently set to the
+     * opposite preference.
+     *
+     * With `ME` at index 0 the "reads your own preference" test below passed
+     * against `members.data[0]` — the exact mis-read its comment claimed to
+     * catch. The order of this array is the fixture's whole job.
+     */
     data: [
-      { userId: ME, displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
-      // Deliberately the opposite, so a screen that read the wrong person's
-      // preference would order the day backwards rather than pass by luck.
       { userId: THEM, displayName: 'Sam', accent: 'pink', planGroupOrder: 'oneOff' },
+      { userId: ME, displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
     ],
   }),
   useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder }),
@@ -1081,9 +1087,12 @@ describe('which kind of work leads the day', () => {
 
   it('reads your own preference, not your housemate’s', () => {
     /*
-     * The mocked housemate is permanently set to the opposite. Reading the
-     * wrong row — `members.data[0]`, say, or the first row of a list whose
-     * order is not guaranteed — orders the day backwards.
+     * The housemate sits at index 0 of the member list and is permanently set
+     * to `oneOff`, so reading the wrong row — `members.data[0]`, or the first
+     * row of a list whose order is not guaranteed — orders the day backwards.
+     *
+     * Identical in body to the test above; what makes it a different test is
+     * the fixture it runs against.
      */
     mockMyGroupOrder = 'chores';
     renderMixedDay();
@@ -1091,12 +1100,19 @@ describe('which kind of work leads the day', () => {
     expect(rowOrder()).toEqual(['dishes', 'taxes']);
   });
 
-  it('offers the flip on the second group, so it always means "move this up"', () => {
+  it("offers the flip on the day's own heading, labelled with what it will do", () => {
+    /*
+     * On the section header rather than a group heading. It started on the
+     * second group's `SubHeader`, which moved it by the height of whichever
+     * group changed places — four rows down a day of one chore and five tasks
+     * — and left it too short to hit, because a heading row cannot afford a
+     * 44pt box and `hitSlop` loses the overlap to the rows drawn after it.
+     */
     mockMyGroupOrder = 'chores';
     renderMixedDay();
 
     expect(screen.getByRole('button', { name: 'Show one-time tasks first' })).toBeOnTheScreen();
-    // Not on the leading group: there is nowhere for it to move.
+    // The label names the action, never the current state.
     expect(screen.queryByRole('button', { name: 'Show chores first' })).toBeNull();
   });
 
