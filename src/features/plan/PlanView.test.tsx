@@ -111,14 +111,24 @@ jest.mock('@/stores/routineStore', () => ({
     }),
 }));
 
-let mockFlags: Set<string> = new Set();
+/**
+ * Two sets, not one derived from the other.
+ *
+ * A row *shows* the household's flags and the sheet *toggles* yours, and the
+ * two genuinely differ whenever your housemate flags something you have not —
+ * which is the case the feature is designed around. Deriving one from the
+ * other made every test agree by construction, so the test named "shows a flag
+ * somebody else set" would have passed against code reading the wrong set.
+ */
+let mockAnyFlags: Set<string> = new Set();
+let mockMyFlags: Set<string> = new Set();
 const mockToggleFlag = jest.fn();
 
 jest.mock('@/data/hooks/useFlags', () => ({
-  // Household-wide, which is what a row shows.
-  useFlagsByChore: () => new Map([...mockFlags].map((id) => [id, ['me']])),
-  // Yours, which is what the sheet toggles.
-  useMyFlags: () => mockFlags,
+  // choreId -> the users who flagged it, which is what `useFlagsByChore` gives.
+  useFlagsByChore: () =>
+    new Map([...mockAnyFlags].map((id) => [id, mockMyFlags.has(id) ? ['me'] : ['them']] as const)),
+  useMyFlags: () => mockMyFlags,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
 }));
 

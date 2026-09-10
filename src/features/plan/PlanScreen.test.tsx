@@ -51,14 +51,43 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
   useToggleCompletion: () => ({ mutate: mockToggle }),
 }));
 
-let mockFlags: Set<string> = new Set();
+/**
+ * Two sets, not one derived from the other.
+ *
+ * A row *shows* the household's flags and the sheet *toggles* yours, and the
+ * two genuinely differ whenever your housemate flags something you have not —
+ * which is the case the feature is designed around. Deriving one from the
+ * other made every test agree by construction, so the test named "shows a flag
+ * somebody else set" would have passed against code reading the wrong set.
+ */
+let mockAnyFlags: Set<string> = new Set();
+let mockMyFlags: Set<string> = new Set();
+/** Flagged by the housemate as well — the two can overlap, which is the point. */
+let mockTheirFlags: Set<string> = new Set();
 const mockToggleFlag = jest.fn();
 
 jest.mock('@/data/hooks/useFlags', () => ({
-  // Household-wide, which is what a row shows.
-  useFlagsByChore: () => new Map([...mockFlags].map((id) => [id, ['me']])),
-  // Yours, which is what the sheet toggles.
-  useMyFlags: () => mockFlags,
+  /*
+   * choreId -> the users who flagged it, which is what `useFlagsByChore`
+   * gives. The ids are written out rather than referencing ME/THEM: a
+   * `jest.mock` factory may not close over anything that is not `mock`-
+   * prefixed, and getting this wrong silently made every row look as though
+   * the housemate had flagged it.
+   */
+  useFlagsByChore: () =>
+    new Map(
+      [...mockAnyFlags].map(
+        (id) =>
+          [
+            id,
+            [
+              ...(mockMyFlags.has(id) ? ['user-me'] : []),
+              ...(mockTheirFlags.has(id) ? ['user-them'] : []),
+            ],
+          ] as const,
+      ),
+    ),
+  useMyFlags: () => mockMyFlags,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
 }));
 
@@ -232,7 +261,9 @@ beforeEach(() => {
   mockMarkCelebrated.mockClear();
   mockRemove.mockClear();
   mockReorder.mockClear();
-  mockFlags = new Set();
+  mockAnyFlags = new Set();
+  mockMyFlags = new Set();
+  mockTheirFlags = new Set();
   mockToggleFlag.mockClear();
   mockToggle.mockClear();
   onAdd.mockClear();
@@ -1187,6 +1218,25 @@ describe('which kind of work leads the day', () => {
     expect(screen.queryByRole('button', { name: /^Show .* first$/ })).toBeNull();
   });
 
+  it('offers nothing to flip when the flagged group leaves only one kind', () => {
+    /*
+     * A day of one flagged chore and two plain ones has two *groups* and one
+     * *kind*. Gating on group count rather than kind count put the control
+     * here, and tapping it swapped two entries of which one was empty: nothing
+     * moved, and the label flipped. The flagged group manufactures this case
+     * by emptying a kind, so it is not a corner.
+     */
+    mockAnyFlags = new Set(['dishes']);
+    mockMyFlags = new Set(['dishes']);
+    mockRecurring = new Set(['dishes', 'trash', 'mail']);
+    mockEntries = [entry('dishes', 1), entry('trash', 2), entry('mail', 3)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash'), item('mail', 'Post')]);
+
+    // The grouping is visible — so this is not "no groups, no control".
+    expect(screen.getByRole('header', { name: /^Flagged/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Show .* first$/ })).toBeNull();
+  });
+
   it('does not fall through into the housemate’s section', () => {
     /*
      * The fixture that was missing, and the reason it mattered: the version
@@ -1245,11 +1295,31 @@ describe('flagging from the plan', () => {
    * on daily plan."*
    */
   it('shows a flag somebody else set, because a flag is the household’s', () => {
-    mockFlags = new Set(['dishes']);
+    /*
+     * Flagged by *them* and not by you — the case the whole feature is built
+     * around, and the one the old fixture could not express because it derived
+     * both sets from one. A row reading `myFlags` instead of the household's
+     * draws nothing here.
+     */
+    mockAnyFlags = new Set(['dishes']);
+    mockMyFlags = new Set();
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
 
     expect(screen.getByRole('button', { name: /Dishes.*Flagged for this week/ })).toBeOnTheScreen();
+  });
+
+  it('lifts a row your housemate flagged, not only your own', () => {
+    mockAnyFlags = new Set(['taxes']);
+    mockMyFlags = new Set();
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1), entry('taxes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+
+    const rows = screen
+      .getAllByTestId(/^(drag|done)-row:/)
+      .map((row) => (row.props.testID as string).replace(/^(drag|done)-row:v1:/, ''));
+    expect(rows).toEqual(['taxes', 'dishes']);
   });
 
   it('draws no flag on work that has none', () => {
@@ -1278,10 +1348,60 @@ describe('flagging from the plan', () => {
     expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 0, ME);
   });
 
+  it('writes no position when a housemate has already lifted it', () => {
+    /*
+     * The row is already at the top on their flag, so adding yours moves
+     * nothing — and writing a position anyway walked it one notch lower on
+     * every flag/unflag cycle, silently, with nothing on screen to say why.
+     */
+    mockAnyFlags = new Set(['dishes']);
+    mockMyFlags = new Set();
+    mockTheirFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 3), entry('bins', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+    fireEvent.press(screen.getByRole('button', { name: /Flag it for this week/ }));
+
+    expect(mockToggleFlag).toHaveBeenCalledWith('dishes');
+    expect(mockReorder).not.toHaveBeenCalled();
+  });
+
+  it('promises the drop only when yours is the last flag on it', () => {
+    mockAnyFlags = new Set(['dishes']);
+    mockMyFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+
+    expect(screen.getByText(/drops back in with the rest of the day/)).toBeOnTheScreen();
+  });
+
+  it('says the row stays up when the housemate has flagged it too', () => {
+    /*
+     * The lift belongs to the household: either flag is enough to raise the
+     * row, and it comes down only when the last one does. Promising it "drops
+     * back in with the rest of the day" here is simply false — you tap, and
+     * nothing moves.
+     */
+    mockAnyFlags = new Set(['dishes']);
+    mockMyFlags = new Set(['dishes']);
+    mockTheirFlags = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
+
+    expect(screen.getByText(/stays at the top/)).toBeOnTheScreen();
+    expect(screen.queryByText(/drops back in with the rest of the day/)).toBeNull();
+  });
+
   it('leaves the position alone when the flag comes off', () => {
     // Where it sits is a decision you have since made; lifting the flag is not
     // a request to undo it.
-    mockFlags = new Set(['dishes']);
+    mockAnyFlags = new Set(['dishes']);
+    mockMyFlags = new Set(['dishes']);
     mockEntries = [entry('dishes', 3), entry('bins', 1)];
     renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
 
@@ -1312,9 +1432,10 @@ describe('flagged work leads the whole day', () => {
    * happens to belong to — a flagged task buried under eleven chores because
    * it is a task is not "the top".
    *
-   * Every fixture below flags the row that the ordinary rules would put
-   * *last*, so a screen that had lost the hoist produces the opposite sequence
-   * rather than the same one.
+   * The two order assertions below flag the row that the ordinary rules would
+   * put *last*, so a screen that had lost the hoist produces the opposite
+   * sequence rather than the same one. The rest are about headings and
+   * draggability, where there is no order to invert.
    */
   const rowOrder = () =>
     screen
@@ -1322,7 +1443,8 @@ describe('flagged work leads the whole day', () => {
       .map((row) => (row.props.testID as string).replace(/^(drag|done)-row:v1:/, ''));
 
   it('lifts a flagged one-off above the chores', () => {
-    mockFlags = new Set(['taxes']);
+    mockAnyFlags = new Set(['taxes']);
+    mockMyFlags = new Set(['taxes']);
     mockMyGroupOrder = 'chores';
     mockRecurring = new Set(['dishes']);
     mockEntries = [entry('dishes', 1), entry('taxes', 2)];
@@ -1334,7 +1456,8 @@ describe('flagged work leads the whole day', () => {
   });
 
   it('lifts a flagged chore above the tasks when tasks lead', () => {
-    mockFlags = new Set(['dishes']);
+    mockAnyFlags = new Set(['dishes']);
+    mockMyFlags = new Set(['dishes']);
     mockMyGroupOrder = 'oneOff';
     mockRecurring = new Set(['dishes']);
     mockEntries = [entry('dishes', 2), entry('taxes', 1)];
@@ -1344,7 +1467,8 @@ describe('flagged work leads the whole day', () => {
   });
 
   it('heads the flagged group so the lift is explained', () => {
-    mockFlags = new Set(['taxes']);
+    mockAnyFlags = new Set(['taxes']);
+    mockMyFlags = new Set(['taxes']);
     mockRecurring = new Set(['dishes']);
     mockEntries = [entry('dishes', 1), entry('taxes', 2)];
     renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
@@ -1355,7 +1479,8 @@ describe('flagged work leads the whole day', () => {
   it('draws no headings at all when everything is flagged', () => {
     // One group needs no label: there is nothing to tell it apart from, and a
     // lone "Flagged" heading over the whole day is furniture.
-    mockFlags = new Set(['dishes', 'taxes']);
+    mockAnyFlags = new Set(['dishes', 'taxes']);
+    mockMyFlags = new Set(['dishes', 'taxes']);
     mockRecurring = new Set(['dishes']);
     mockEntries = [entry('dishes', 1), entry('taxes', 2)];
     renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
@@ -1370,7 +1495,8 @@ describe('flagged work leads the whole day', () => {
      * list, so they reorder like any other group. Asserted through the
      * accessibility path, since a drag gesture is not reachable here.
      */
-    mockFlags = new Set(['dishes', 'taxes']);
+    mockAnyFlags = new Set(['dishes', 'taxes']);
+    mockMyFlags = new Set(['dishes', 'taxes']);
     mockRecurring = new Set(['dishes']);
     mockEntries = [entry('dishes', 1), entry('taxes', 2)];
     renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);

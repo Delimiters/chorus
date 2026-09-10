@@ -491,6 +491,23 @@ export function PlanScreen({
     groupsFor(section).filter((g) => g.data.active.length + g.data.sunk.length > 0).length;
 
   /**
+   * Whether both *kinds* have unflagged work, which is what the order control
+   * decides between.
+   *
+   * Deliberately not `filledGroups(section) > 1`, which counts the flagged
+   * group too. A day of one flagged chore and three plain ones has two groups
+   * and only one kind: the control would render, and tapping it would swap two
+   * entries of which one is empty — no visible change, and a label that has
+   * flipped. That is the toggle-that-looks-broken this file argues against
+   * elsewhere, and the flagged group actively manufactures the case by
+   * emptying a kind.
+   */
+  const bothKinds = (section: ReturnType<typeof sectionsFor>): boolean => {
+    const kinds = groupsFor(section).filter((g) => g.key !== 'flagged');
+    return kinds.every((g) => g.data.active.length + g.data.sunk.length > 0);
+  };
+
+  /**
    * The control for the order, or nothing when your day shows no split.
    *
    * It rides on *your* day's section header and nowhere else. An earlier
@@ -502,19 +519,35 @@ export function PlanScreen({
    * The label says what tapping does, not what is currently true: a toggle
    * labelled with its own state is the oldest ambiguity in interface design.
    *
-   * Offered whenever the day is grouped at all, including when the only two
-   * groups are Flagged and one kind — the preference still decides what
-   * follows the flagged work.
+   * Offered only when both kinds have unflagged work in them. With one kind,
+   * there is nothing for the preference to decide and a tap changes nothing
+   * visible.
    */
-  const orderAction =
-    filledGroups(mySections) > 1
-      ? {
-          label: groupOrder === 'chores' ? '⇅ Tasks first' : '⇅ Chores first',
-          accessibilityLabel:
-            groupOrder === 'chores' ? 'Show one-time tasks first' : 'Show chores first',
-          onPress: () => setGroupOrder.mutate(groupOrder === 'chores' ? 'oneOff' : 'chores'),
-        }
-      : undefined;
+  /**
+   * Whose flag is on the row the sheet is open for.
+   *
+   * `mine` decides what the button does — you can only lift your own. `theirsToo`
+   * decides what it *achieves*, because the lift is the household's: the row
+   * stays at the top while anyone's flag is live.
+   */
+  const flagState = (() => {
+    const choreId = removing?.item.choreId;
+    if (choreId === undefined) return { mine: false, theirsToo: false };
+    const setBy = flagsByChore.get(choreId) ?? [];
+    return {
+      mine: myFlags.has(choreId),
+      theirsToo: setBy.some((id) => id !== userId),
+    };
+  })();
+
+  const orderAction = bothKinds(mySections)
+    ? {
+        label: groupOrder === 'chores' ? '⇅ Tasks first' : '⇅ Chores first',
+        accessibilityLabel:
+          groupOrder === 'chores' ? 'Show one-time tasks first' : 'Show chores first',
+        onPress: () => setGroupOrder.mutate(groupOrder === 'chores' ? 'oneOff' : 'chores'),
+      }
+    : undefined;
 
   const renderDay = (
     section: ReturnType<typeof sectionsFor>,
@@ -533,9 +566,9 @@ export function PlanScreen({
                 <SubHeader
                   title={group.title}
                   count={group.data.active.length}
-                  // Flagged work is drawn in the danger ink its "!!" already
-                  // uses, so the heading and the rows under it agree.
-                  {...(group.key === 'flagged' ? { ink: 'rust' } : {})}
+                  // The exact colour the "!!" is drawn in, so the heading and
+                  // the rows under it are the same red rather than two.
+                  {...(group.key === 'flagged' ? { dot: colors.danger } : {})}
                 />
               ) : null}
               {renderPlanSection(group.data, ownerId)}
@@ -971,7 +1004,27 @@ export function PlanScreen({
         subtitle="On today's plan"
       >
         <View style={{ gap: 2 }}>
+          <SheetAction
+            label="Take off today"
+            hint="It goes back to the list with its date and lateness unchanged. Nothing is skipped or completed."
+            onPress={() => {
+              if (removing !== null) {
+                remove.mutate({
+                  occurrenceKey: removing.item.occurrenceKey,
+                  ownerId: removing.ownerId,
+                });
+              }
+              setRemoving(null);
+            }}
+          />
           {/*
+            Below "Take off today", not above it.
+            
+            This sheet's own reasoning is that on the plan the question is
+            almost always *not today*, so that is the reflex tap. Putting the
+            rarer action first means the muscle memory that used to clear a row
+            flags it instead.
+
             Flagging from here moves the row to the top of its list, rather
             than sorting flagged work above everything and holding it there.
             
@@ -989,38 +1042,46 @@ export function PlanScreen({
             Unflagging leaves the position alone. Where it sits is now a
             decision you have made, and undoing the flag is not a request to
             undo that too.
+
+            A flag belongs to the person who set it, but the *lift* belongs to
+            the household: either of you flagging is enough to raise the row,
+            and it comes down only when the last flag does. So the copy has to
+            say which of the four states you are in, rather than promise a
+            movement that a housemate's flag will quietly prevent.
           */}
           <SheetAction
-            label={
-              removing !== null && myFlags.has(removing.item.choreId)
-                ? 'Unflag it'
-                : 'Flag it for this week'
-            }
+            label={flagState.mine ? 'Unflag it' : 'Flag it for this week'}
             hint={
-              removing !== null && myFlags.has(removing.item.choreId)
-                ? 'It drops back in with the rest of the day, where its position puts it.'
-                : 'Marks it "!!" until the week is out and lifts it to the top of the day. Both of you can see it.'
+              flagState.mine
+                ? flagState.theirsToo
+                  ? `Yours comes off. ${theirName} has flagged it too, so it stays at the top.`
+                  : 'It drops back in with the rest of the day, where its position puts it.'
+                : flagState.theirsToo
+                  ? `${theirName} has already flagged this, so it is at the top either way. This adds yours.`
+                  : 'Marks it "!!" until the week is out and lifts it to the top of the day. Both of you can see it.'
             }
             onPress={() => {
               if (removing !== null) {
-                const wasFlagged = myFlags.has(removing.item.choreId);
                 toggleFlag.mutate(removing.item.choreId);
 
-                if (!wasFlagged) {
-                  /*
-                   * The hoist already puts it above the two kinds; this decides
-                   * where it lands *among the flagged*, which is first — "if
-                   * you add it to one from the plan it should jump to the top".
-                   *
-                   * Above everything stored for that day, not just above the
-                   * draggable part: finished rows keep their positions while
-                   * they sit below the list, so "the smallest of what is
-                   * showing" can tie with something already done.
-                   *
-                   * It is also what survives the flag being lifted: the row
-                   * drops back among the rest wherever this put it, rather than
-                   * springing back to where it was a week ago.
-                   */
+                /*
+                 * Only when this flag is what lifts the row.
+                 *
+                 * A row your housemate has already flagged is already at the
+                 * top, so adding yours moves nothing — and writing a position
+                 * anyway walked it one notch lower on every flag/unflag cycle,
+                 * silently, with nothing on screen to explain it.
+                 *
+                 * Above everything stored for that day, not just above the
+                 * draggable part: finished rows keep their positions while
+                 * they sit below the list, so "the smallest of what is
+                 * showing" can tie with something already done.
+                 *
+                 * It is also what survives the flag being lifted: the row
+                 * drops back among the rest wherever this put it, rather than
+                 * springing back to where it was a week ago.
+                 */
+                if (!flagState.mine && !flagState.theirsToo) {
                   const day = removing.ownerId === myOwnerId ? mySections : theirSections;
                   const stored = day.all.map((p) => p.position);
                   if (stored.length > 0) {
@@ -1036,19 +1097,6 @@ export function PlanScreen({
             }}
           />
 
-          <SheetAction
-            label="Take off today"
-            hint="It goes back to the list with its date and lateness unchanged. Nothing is skipped or completed."
-            onPress={() => {
-              if (removing !== null) {
-                remove.mutate({
-                  occurrenceKey: removing.item.occurrenceKey,
-                  ownerId: removing.ownerId,
-                });
-              }
-              setRemoving(null);
-            }}
-          />
           <SheetAction
             label="Edit the chore"
             onPress={() => {
