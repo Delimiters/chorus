@@ -5,7 +5,12 @@
  * readable messages happens once, here, rather than in every component.
  */
 
-import type { InkName } from '@/design/inks';
+import {
+  listMembersWith,
+  setPlanGroupOrderWith,
+  type Member,
+  type PlanGroupOrder,
+} from './members';
 import { describeError, supabase } from '../supabase';
 
 export interface Household {
@@ -15,16 +20,25 @@ export interface Household {
   readonly weekStartsOn: number;
 }
 
-export interface Member {
-  readonly userId: string;
-  readonly displayName: string;
-  readonly accent: InkName;
-  readonly role: 'owner' | 'admin' | 'member';
-  readonly sortOrder: number;
-}
-
 function fail(error: { code?: string | undefined; message: string }): never {
   throw new Error(describeError(error));
+}
+
+/**
+ * Rethrows whatever `members.ts` threw, in this file's vocabulary.
+ *
+ * The cast that used to be here — `error as { code?: string; message: string }`
+ * — checks nothing, and `describeError` reads `.message` unconditionally: a
+ * thrown string would have died inside the error handler and replaced the real
+ * failure with "Cannot read properties of undefined". Not reachable through
+ * supabase-js, which returns fetch failures in `error` rather than throwing,
+ * but the cast was doing no work and this does.
+ */
+function rethrow(error: unknown): never {
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    fail(error as { code?: string | undefined; message: string });
+  }
+  throw error instanceof Error ? error : new Error(String(error));
 }
 
 /** Every household the signed-in user belongs to. */
@@ -81,31 +95,22 @@ export async function createHousehold(input: {
   return data as string;
 }
 
-/**
- * Members of a household, with their profiles.
- *
- * Profiles are readable only for people sharing a household, so this join is
- * itself an RLS check — a member of another household gets an empty list rather
- * than an error.
- */
+/** The app's client; the query itself lives in `members.ts`. See the note there. */
 export async function listMembers(householdId: string): Promise<Member[]> {
-  const { data, error } = await supabase
-    .from('household_members')
-    .select('user_id, role, sort_order, accent, profiles!inner(display_name)')
-    .eq('household_id', householdId)
-    .order('sort_order');
-  if (error) fail(error);
+  try {
+    return await listMembersWith(supabase, householdId);
+  } catch (error) {
+    rethrow(error);
+  }
+}
 
-  return (data ?? []).map((row) => {
-    const profile = row.profiles as unknown as { display_name: string };
-    return {
-      userId: row.user_id,
-      displayName: profile.display_name,
-      accent: row.accent as InkName,
-      role: row.role,
-      sortOrder: row.sort_order,
-    };
-  });
+/** The app's client; the write itself lives in `members.ts`. */
+export async function setPlanGroupOrder(order: PlanGroupOrder, userId: string): Promise<void> {
+  try {
+    await setPlanGroupOrderWith(supabase, order, userId);
+  } catch (error) {
+    rethrow(error);
+  }
 }
 
 /**
@@ -140,3 +145,6 @@ export async function updateHousehold(
     throw new Error('That change was not allowed. Try signing out and back in.');
   }
 }
+
+/** Re-exported so callers have one import for the household data layer. */
+export type { Member, PlanGroupOrder } from './members';

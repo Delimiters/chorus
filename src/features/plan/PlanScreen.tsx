@@ -16,7 +16,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -35,7 +35,7 @@ import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import { useMembers } from '@/data/hooks/useHousehold';
+import { useMembers, useSetPlanGroupOrder, type PlanGroupOrder } from '@/data/hooks/useHousehold';
 import { useToggleCompletion } from '@/data/hooks/useOccurrences';
 import {
   useMyPlanEntries,
@@ -110,6 +110,7 @@ export function PlanScreen({
   const router = useRouter();
   const userId = useUserId();
   const members = useMembers();
+  const setGroupOrder = useSetPlanGroupOrder();
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
   const remove = useRemoveFromPlan(today as never);
@@ -400,6 +401,18 @@ export function PlanScreen({
    */
   const myOwnerId = userId ?? undefined;
 
+  /**
+   * Which group leads the day — yours, read off your own membership row.
+   *
+   * `useMembers` already fetches every profile in the house, so this costs no
+   * extra request. Defaults to chores while the query is in flight, which is
+   * the order the app shipped with: a screen that reorders itself a moment
+   * after opening would be worse than one that is briefly wrong for the
+   * minority who chose the other way.
+   */
+  const groupOrder: PlanGroupOrder =
+    (members.data ?? []).find((m) => m.userId === userId)?.planGroupOrder ?? 'chores';
+
   /*
    * Recurring housework and one-off tasks, kept apart.
    *
@@ -425,30 +438,72 @@ export function PlanScreen({
     },
   });
 
+  /** True when a day has work of both kinds, so the split is visible at all. */
+  const showsBoth = (section: ReturnType<typeof sectionsFor>): boolean => {
+    const { recurring, oneOff } = splitByKind(section);
+    return (
+      recurring.active.length + recurring.sunk.length > 0 &&
+      oneOff.active.length + oneOff.sunk.length > 0
+    );
+  };
+
+  /**
+   * The control for the order, or nothing when your day shows no split.
+   *
+   * It rides on *your* day's section header and nowhere else. An earlier
+   * version fell through to the housemate's section when your own day held one
+   * kind of work — which put a button that changes *your* preference inside a
+   * block headed "Emily's day", contradicting the one thing the copy elsewhere
+   * is careful to say. Settings carries the same control for that case.
+   *
+   * The label says what tapping does, not what is currently true: a toggle
+   * labelled with its own state is the oldest ambiguity in interface design.
+   */
+  const orderAction = showsBoth(mySections)
+    ? {
+        label: groupOrder === 'chores' ? '⇅ Tasks first' : '⇅ Chores first',
+        accessibilityLabel:
+          groupOrder === 'chores' ? 'Show one-time tasks first' : 'Show chores first',
+        onPress: () => setGroupOrder.mutate(groupOrder === 'chores' ? 'oneOff' : 'chores'),
+      }
+    : undefined;
+
   const renderDay = (
     section: ReturnType<typeof sectionsFor>,
     ownerId: string | undefined,
   ): React.ReactNode => {
     const { recurring, oneOff } = splitByKind(section);
-    const both =
-      recurring.active.length + recurring.sunk.length > 0 &&
-      oneOff.active.length + oneOff.sunk.length > 0;
+    const both = showsBoth(section);
+
+    /*
+     * Whose work leads the day, and it is a preference rather than a decision.
+     *
+     * Jake wants the chores first and Emily wants the tasks first — *"I think
+     * we just need to make it something you can flip if you want."* It is
+     * stored on the profile rather than the device, so it follows the account
+     * and survives the reinstall this app goes through every seven days.
+     */
+    const groups =
+      groupOrder === 'chores'
+        ? ([
+            { key: 'chores', title: 'Chores', data: recurring },
+            { key: 'oneOff', title: 'One-time tasks', data: oneOff },
+          ] as const)
+        : ([
+            { key: 'oneOff', title: 'One-time tasks', data: oneOff },
+            { key: 'chores', title: 'Chores', data: recurring },
+          ] as const);
 
     return (
       <>
-        {recurring.active.length + recurring.sunk.length === 0 ? null : (
-          <>
-            {/* Only labelled when there is something to tell it apart from. */}
-            {both ? <SubHeader title="Chores" count={recurring.active.length} /> : null}
-            {renderPlanSection(recurring, ownerId)}
-          </>
-        )}
-
-        {oneOff.active.length + oneOff.sunk.length === 0 ? null : (
-          <>
-            {both ? <SubHeader title="One-time tasks" count={oneOff.active.length} /> : null}
-            {renderPlanSection(oneOff, ownerId)}
-          </>
+        {groups.map((group) =>
+          group.data.active.length + group.data.sunk.length === 0 ? null : (
+            <Fragment key={group.key}>
+              {/* Only labelled when there is something to tell it apart from. */}
+              {both ? <SubHeader title={group.title} count={group.data.active.length} /> : null}
+              {renderPlanSection(group.data, ownerId)}
+            </Fragment>
+          ),
         )}
       </>
     );
@@ -745,7 +800,26 @@ export function PlanScreen({
             <SectionHeader
               title={progress.finished ? 'Done today' : 'Doing today'}
               count={progress.finished ? progress.done : progress.total - progress.done}
+              action={orderAction}
             />
+
+            {/*
+              A failed flip has to say so.
+              
+              The optimistic update rolls back, so without this the control
+              moves and then moves back with nothing to explain it — which is
+              precisely the silent no-op the write guard was added to turn into
+              an error. Catching it in the data layer and then rendering
+              nothing would leave the user exactly where they started.
+            */}
+            {/* `== null`, not `=== null`: TanStack gives `null`, but a
+                narrower check reaches into `.message` on anything else and
+                turns a missing error into a crash. */}
+            {setGroupOrder.error == null ? null : (
+              <Txt variant="small" tone="danger" style={{ paddingHorizontal: space.sm }}>
+                {(setGroupOrder.error as Error).message}
+              </Txt>
+            )}
             {renderDay(mySections, myOwnerId)}
 
             <View

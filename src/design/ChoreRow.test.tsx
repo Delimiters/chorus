@@ -20,7 +20,8 @@ import { StyleSheet } from 'react-native';
 
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ThemeProvider } from '@/design/theme';
-import { ChoreRow } from './ChoreRow';
+import { MIN_TARGET } from '@/design/tokens';
+import { ChoreRow, SectionHeader } from './ChoreRow';
 
 const ITEM = {
   occurrenceKey: 'v1:sheets',
@@ -149,5 +150,55 @@ describe('the chevron', () => {
 
     expect(style.width).toBeGreaterThanOrEqual(44);
     expect(style.height).toBeGreaterThanOrEqual(44);
+  });
+});
+
+describe('a section header carrying a control', () => {
+  it('gives it a real 44pt box rather than a small one wearing hitSlop', () => {
+    /*
+     * The fourth under-sized control this project has shipped, and the first
+     * where the sidestep was deliberate: the earlier version set `height: 20`
+     * with `hitSlop` 12 and a comment claiming that bought the target back.
+     * It does not — the rows drawn after the header win the overlap, so the
+     * reachable band was about 34pt and a low tap opened a chore.
+     *
+     * `minHeight` rather than the hitSlop sum, because that is what
+     * `tapTargets.test.ts` reads and what a reader checking this later will
+     * look for.
+     */
+    render(
+      <ThemeProvider>
+        <SectionHeader
+          title="Doing today"
+          count={3}
+          action={{
+            label: '⇅ Tasks first',
+            accessibilityLabel: 'Show one-time tasks first',
+            onPress: jest.fn(),
+          }}
+        />
+      </ThemeProvider>,
+    );
+
+    const button = screen.getByRole('button', { name: 'Show one-time tasks first' });
+    const style = StyleSheet.flatten(
+      typeof button.props.style === 'function'
+        ? button.props.style({ pressed: false })
+        : button.props.style,
+    ) as { minHeight?: number };
+
+    expect(style.minHeight).toBeGreaterThanOrEqual(MIN_TARGET);
+  });
+
+  it('leaves a header without a control alone', () => {
+    // Every other caller — Today, Routines, "Coming up", "Done" — passes no
+    // action, and none of them should grow by 17pt because the plan needed one.
+    render(
+      <ThemeProvider>
+        <SectionHeader title="Coming up" count={2} />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });

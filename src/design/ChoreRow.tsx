@@ -765,13 +765,32 @@ export function FloatingRow({
 }
 
 /** An uppercase section rule, with an optional count on the right. */
-export function SectionHeader({ title, count }: { title: string; count?: number }) {
+export function SectionHeader({
+  title,
+  count,
+  action,
+}: {
+  title: string;
+  count?: number;
+  /**
+   * A control for the section as a whole — on the plan, which group leads it.
+   *
+   * Here rather than on a `SubHeader`, which is where it started. A group
+   * heading is the wrong home for a preference about the *pair* of groups:
+   * the control ends up on whichever group is second, so flipping the order
+   * moves it by the height of the group that changed places, and on a day of
+   * one chore and five tasks that is four rows down the screen. A section
+   * header does not move.
+   */
+  action?: { label: string; accessibilityLabel: string; onPress: () => void } | undefined;
+}) {
   return (
     <View
       style={{
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'baseline',
+        alignItems: 'center',
+        gap: space.sm,
         paddingHorizontal: space.sm,
         paddingTop: space.md,
         paddingBottom: 2,
@@ -780,6 +799,36 @@ export function SectionHeader({ title, count }: { title: string; count?: number 
       <Txt variant="label" tone="faint" accessibilityRole="header">
         {title}
       </Txt>
+
+      {action === undefined ? null : (
+        <Pressable
+          onPress={action.onPress}
+          accessibilityRole="button"
+          accessibilityLabel={action.accessibilityLabel}
+          /*
+            A real 44pt box, not 20pt of text wearing `hitSlop`.
+            
+            The first version did the latter and claimed the slop bought the
+            target back. It did not: `hitSlop` is honoured, but the rows below
+            are enumerated after this one and win the overlap, so the reachable
+            band was about 34pt and a low tap opened a chore instead. The
+            enforcing test reads `minHeight` for exactly this reason — routing
+            around it is how the promise gets made and then not kept.
+          */
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.5 : 1,
+            minHeight: MIN_TARGET,
+            justifyContent: 'center',
+            paddingHorizontal: space.xs,
+            marginLeft: 'auto',
+          })}
+        >
+          <Txt variant="small" tone="muted">
+            {action.label}
+          </Txt>
+        </Pressable>
+      )}
+
       {count !== undefined ? (
         <Txt variant="label" tone="faint">
           {count}
@@ -790,12 +839,20 @@ export function SectionHeader({ title, count }: { title: string; count?: number 
 }
 
 /**
- * A second-level heading, for a category nested inside an ownership section.
+ * A second-level heading, for a group nested inside an ownership section.
  *
  * Indented and quieter than `SectionHeader`, so the two levels read as a
- * hierarchy rather than as two competing lists. Carries the category's ink as
- * a dot, which is the cheapest way to make a group recognisable without
- * colouring the text and fighting contrast in one theme or the other.
+ * hierarchy rather than as two competing lists. Carries an ink as a dot, which
+ * is the cheapest way to make a group recognisable without colouring the text
+ * and fighting contrast in one theme or the other.
+ *
+ * ── Why it is bigger than the section header above it ─────────────────────
+ *
+ * It is 15pt sentence case; `SectionHeader` is 11pt uppercase and letterspaced.
+ * The hierarchy is carried by case, indentation and the dot rather than by
+ * size, which is why the child can be numerically larger without reading as
+ * the parent. It was 13pt and faint, and Jake could not read it: *"maybe make
+ * the header text on those slightly bigger? It's pretty small."*
  */
 export function SubHeader({
   title,
@@ -823,8 +880,9 @@ export function SubHeader({
         accessibilityElementsHidden
         importantForAccessibility="no"
         style={{
-          width: 7,
-          height: 7,
+          // Grown with the text beside it; at 7 it read as a speck next to 15pt.
+          width: 8,
+          height: 8,
           borderRadius: 4,
           backgroundColor: ink == null ? colors.textFaint : inkColor(ink, isDark),
         }}
@@ -835,14 +893,15 @@ export function SubHeader({
         "Chores", with nothing saying what had been counted.
       */}
       <Txt
-        variant="small"
-        tone="faint"
+        variant="bodyStrong"
+        tone="muted"
         accessibilityRole="header"
         accessibilityLabel={count === undefined ? title : `${title}, ${count}`}
         style={{ flex: 1 }}
       >
         {title}
       </Txt>
+
       {count === undefined ? null : (
         <View accessibilityElementsHidden importantForAccessibility="no">
           <Txt variant="small" tone="faint">

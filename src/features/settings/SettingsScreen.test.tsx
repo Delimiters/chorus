@@ -18,9 +18,25 @@ import { SettingsScreen } from './SettingsScreen';
 const mockUpdate = jest.fn();
 let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York' };
 
+let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
+const mockSetGroupOrder = jest.fn();
+let mockGroupOrderError: Error | null = null;
+
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: mockHousehold, isLoading: false, error: null }),
   useUpdateHousehold: () => ({ mutate: mockUpdate }),
+  useMembers: () => ({
+    /*
+     * The housemate first, and always the opposite. With 'me' at index 0 the
+     * assertions below passed against `members.data[0]`, which is the mis-read
+     * they are supposed to catch.
+     */
+    data: [
+      { userId: 'user-them', displayName: 'Sam', accent: 'pink', planGroupOrder: 'oneOff' },
+      { userId: 'me', displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
+    ],
+  }),
+  useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder, error: mockGroupOrderError }),
 }));
 
 let mockAvailable = true;
@@ -80,6 +96,53 @@ beforeEach(() => {
   mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York' };
   useReminderStore.setState({ policy: DEFAULT_POLICY });
   mockAvailable = true;
+  mockMyGroupOrder = 'chores';
+  mockSetGroupOrder.mockClear();
+  mockGroupOrderError = null;
+});
+
+describe('which group leads your plan', () => {
+  /*
+   * A duplicate of the control on the plan itself, deliberately: "↑ First" on a
+   * section heading is easy to miss, and Settings is where a standing
+   * preference is looked for. Both read the same profile row, so they cannot
+   * disagree.
+   */
+  it('shows your current order, not your housemate’s', async () => {
+    mockMyGroupOrder = 'chores';
+    await renderScreen();
+
+    expect(screen.getByRole('tab', { name: 'Chores', selected: true })).toBeOnTheScreen();
+    expect(screen.getByRole('tab', { name: 'One-time tasks', selected: false })).toBeOnTheScreen();
+  });
+
+  it('reflects the other choice when that is yours', async () => {
+    mockMyGroupOrder = 'oneOff';
+    await renderScreen();
+
+    expect(screen.getByRole('tab', { name: 'One-time tasks', selected: true })).toBeOnTheScreen();
+  });
+
+  it('saves the change against your profile', async () => {
+    await renderScreen();
+
+    await fireEvent.press(screen.getByRole('tab', { name: 'One-time tasks' }));
+
+    expect(mockSetGroupOrder).toHaveBeenCalledWith('oneOff');
+  });
+
+  it('says so when the change does not stick', async () => {
+    // Otherwise the segmented control springs back with nothing to explain it.
+    mockGroupOrderError = new Error('Your profile could not be found.');
+    await renderScreen();
+
+    expect(screen.getByText('Your profile could not be found.')).toBeOnTheScreen();
+  });
+
+  it('says whose preference it is, since every other display setting is per phone', async () => {
+    await renderScreen();
+    expect(screen.getByText(/your housemate keeps their own order/i)).toBeOnTheScreen();
+  });
 });
 
 describe('household settings', () => {

@@ -53,13 +53,36 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
 
 jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => [] }));
 
+let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
+/**
+ * Which of the two comes back first from `useMembers`.
+ *
+ * With two members and an index-based mis-read, whichever person you put first
+ * is the one you stop protecting: pinning the housemate at index 0 catches
+ * `data[0]` standing in for *you*, and stops catching it standing in for
+ * *them*. Under the previous fixture six tests caught the first and none the
+ * second; flipping it simply reversed that. So the order is a variable, and
+ * the ordering tests run both ways.
+ */
+let mockHousemateFirst = true;
+const mockSetGroupOrder = jest.fn();
+let mockGroupOrderError: Error | null = null;
+
 jest.mock('@/data/hooks/useHousehold', () => ({
   useMembers: () => ({
-    data: [
-      { userId: ME, displayName: 'Jake', accent: 'blue' },
-      { userId: THEM, displayName: 'Sam', accent: 'pink' },
-    ],
+    // The housemate is permanently set to the opposite preference, so reading
+    // the wrong row orders the day backwards rather than passing by luck.
+    data: mockHousemateFirst
+      ? [
+          { userId: THEM, displayName: 'Sam', accent: 'pink', planGroupOrder: 'oneOff' },
+          { userId: ME, displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
+        ]
+      : [
+          { userId: ME, displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
+          { userId: THEM, displayName: 'Sam', accent: 'pink', planGroupOrder: 'oneOff' },
+        ],
   }),
+  useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder, error: mockGroupOrderError }),
 }));
 
 const mockTapped = jest.fn();
@@ -184,6 +207,10 @@ beforeEach(() => {
   mockTheirEntries = [];
   mockSubtasks = new Map();
   mockRecurring = new Set(['dishes', 'trash', 'mail', 'bins', 'mopping', 'litter', 'gutters']);
+  mockMyGroupOrder = 'chores';
+  mockSetGroupOrder.mockClear();
+  mockGroupOrderError = null;
+  mockHousemateFirst = true;
   mockToggleSubtask.mockClear();
   mockPlanUnknown = false;
   mockTapped.mockClear();
@@ -1032,5 +1059,166 @@ describe('splitting the day by kind of work', () => {
 
     // Chores first, then one-time tasks.
     expect(rows).toEqual(['dishes', 'taxes']);
+  });
+});
+
+describe('which kind of work leads the day', () => {
+  /*
+   * Jake and Emily want opposite answers — *"Emily wants one time tasks first
+   * and I want chores first so I think we just need to make it something you
+   * can flip if you want."* — so this is a preference on the profile rather
+   * than a decision made once in the layout.
+   *
+   * Every fixture here puts the *one-off* at the earlier plan position, so
+   * position-order and group-order disagree. With them agreeing, a screen that
+   * had lost the grouping entirely would still produce the expected sequence.
+   */
+  const rowOrder = () =>
+    screen
+      .getAllByTestId(/^(drag|done)-row:/)
+      .map((row) => (row.props.testID as string).replace(/^(drag|done)-row:v1:/, ''));
+
+  const renderMixedDay = () => {
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('taxes', 1), entry('dishes', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('taxes', 'File the taxes')]);
+  };
+
+  it('leads with chores when that is what you chose', () => {
+    mockMyGroupOrder = 'chores';
+    renderMixedDay();
+
+    expect(rowOrder()).toEqual(['dishes', 'taxes']);
+  });
+
+  it('leads with one-time tasks when that is what you chose', () => {
+    mockMyGroupOrder = 'oneOff';
+    renderMixedDay();
+
+    expect(rowOrder()).toEqual(['taxes', 'dishes']);
+  });
+
+  it.each([
+    ['housemate first', true],
+    ['you first', false],
+  ])('reads your own preference whichever row comes back first (%s)', (_name, housemateFirst) => {
+    /*
+     * The member list has no guaranteed order, and the housemate is always set
+     * to the opposite preference — so any index-based read orders the day
+     * backwards in one of these two runs. One fixture only ever protects
+     * against the mis-read that picks the *other* person.
+     */
+    mockHousemateFirst = housemateFirst;
+    mockMyGroupOrder = 'chores';
+    renderMixedDay();
+
+    expect(rowOrder()).toEqual(['dishes', 'taxes']);
+  });
+
+  it("offers the flip on the day's own heading, labelled with what it will do", () => {
+    /*
+     * On the section header rather than a group heading. It started on the
+     * second group's `SubHeader`, which moved it by the height of whichever
+     * group changed places — four rows down a day of one chore and five tasks
+     * — and left it too short to hit, because a heading row cannot afford a
+     * 44pt box and `hitSlop` loses the overlap to the rows drawn after it.
+     */
+    mockMyGroupOrder = 'chores';
+    renderMixedDay();
+
+    expect(screen.getByRole('button', { name: 'Show one-time tasks first' })).toBeOnTheScreen();
+    // The label names the action, never the current state.
+    expect(screen.queryByRole('button', { name: 'Show chores first' })).toBeNull();
+  });
+
+  it('names the other group once the order is flipped', () => {
+    mockMyGroupOrder = 'oneOff';
+    renderMixedDay();
+
+    expect(screen.getByRole('button', { name: 'Show chores first' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Show one-time tasks first' })).toBeNull();
+  });
+
+  it('saves the flip against your profile', () => {
+    mockMyGroupOrder = 'chores';
+    renderMixedDay();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Show one-time tasks first' }));
+
+    expect(mockSetGroupOrder).toHaveBeenCalledWith('oneOff');
+  });
+
+  it('says so when the flip does not stick', () => {
+    /*
+     * The write rolls back optimistically, so the control springs back to where
+     * it was. Unexplained, that is a toggle that looks broken — and it is the
+     * exact silent no-op the zero-row guard in `setPlanGroupOrderWith` exists
+     * to turn into an error. Catching it there and rendering nothing would
+     * leave the user precisely where they started.
+     */
+    mockGroupOrderError = new Error('Your profile could not be found.');
+    mockMyGroupOrder = 'chores';
+    renderMixedDay();
+
+    expect(screen.getByText('Your profile could not be found.')).toBeOnTheScreen();
+  });
+
+  it('offers nothing to flip on a day of only one kind', () => {
+    // No headings, so no heading to hang the control on — and nothing to
+    // reorder either.
+    mockRecurring = new Set(['dishes', 'trash']);
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    expect(screen.queryByRole('button', { name: /^Show .* first$/ })).toBeNull();
+  });
+
+  it('does not fall through into the housemate’s section', () => {
+    /*
+     * The fixture that was missing, and the reason it mattered: the version
+     * before this one put the control on *their* day when your own held one
+     * kind of work — a button that changes **your** preference, under a heading
+     * reading "Sam's day", at the one moment the copy elsewhere is careful to
+     * say the two are separate.
+     *
+     * The test above cannot see it: its housemate has an empty day, so "no
+     * control anywhere" and "control moved next door" look identical. This one
+     * gives them a day of both kinds, which is the only shape where the
+     * fall-through has somewhere to land.
+     */
+    mockRecurring = new Set(['dishes', 'trash', 'mail']);
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    mockTheirCount = 2;
+    mockTheirTotal = 2;
+    mockTheirEntries = [entry('mail', 1), entry('gutters', 2)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('trash', 'Trash'),
+      item('mail', 'Post', 'due', { kind: 'fixed', userId: THEM }),
+      item('gutters', 'Gutters', 'due', { kind: 'fixed', userId: THEM }),
+    ]);
+
+    // Their day genuinely splits, so there is a heading to fall through onto.
+    expect(screen.getByRole('header', { name: /^One-time tasks/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Show .* first$/ })).toBeNull();
+  });
+
+  it('shows exactly one flip, not one per day', () => {
+    // The preference is about how you read the screen, so it applies to both
+    // days and is stated once.
+    mockMyGroupOrder = 'chores';
+    mockTheirCount = 2;
+    mockTheirTotal = 2;
+    mockTheirEntries = [entry('mail', 1), entry('gutters', 2)];
+    mockRecurring = new Set(['dishes', 'mail']);
+    mockEntries = [entry('taxes', 1), entry('dishes', 2)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('taxes', 'File the taxes'),
+      item('mail', 'Post', 'due', { kind: 'fixed', userId: THEM }),
+      item('gutters', 'Gutters', 'due', { kind: 'fixed', userId: THEM }),
+    ]);
+
+    expect(screen.getAllByRole('button', { name: /^Show .* first$/ })).toHaveLength(1);
   });
 });
