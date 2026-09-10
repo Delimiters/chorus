@@ -120,7 +120,7 @@ jest.mock('@/data/hooks/useChores', () => ({
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC' } }),
   useMembers: () => ({ data: mockMembers }),
-  useSetPlanGroupOrder: () => ({ mutate: jest.fn() }),
+  useSetPlanGroupOrder: () => ({ mutate: jest.fn(), error: null }),
 }));
 jest.mock('@/stores/sessionStore', () => ({
   useUserId: () => mockMe,

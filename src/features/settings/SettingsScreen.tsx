@@ -207,6 +207,13 @@ export function SettingsScreen() {
               onChange={(order) => setPlanGroupOrder.mutate(order)}
               label="Which group leads your plan"
             />
+            {/* The write rolls back on failure, so the control springs back to
+                where it was. Unexplained, that reads as a broken toggle. */}
+            {setPlanGroupOrder.error == null ? null : (
+              <Txt variant="small" tone="danger">
+                {(setPlanGroupOrder.error as Error).message}
+              </Txt>
+            )}
           </FieldGroup>
         </Stack>
 

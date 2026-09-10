@@ -20,6 +20,7 @@ let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York' };
 
 let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
 const mockSetGroupOrder = jest.fn();
+let mockGroupOrderError: Error | null = null;
 
 jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: mockHousehold, isLoading: false, error: null }),
@@ -35,7 +36,7 @@ jest.mock('@/data/hooks/useHousehold', () => ({
       { userId: 'me', displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
     ],
   }),
-  useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder }),
+  useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder, error: mockGroupOrderError }),
 }));
 
 let mockAvailable = true;
@@ -97,6 +98,7 @@ beforeEach(() => {
   mockAvailable = true;
   mockMyGroupOrder = 'chores';
   mockSetGroupOrder.mockClear();
+  mockGroupOrderError = null;
 });
 
 describe('which group leads your plan', () => {
@@ -127,6 +129,14 @@ describe('which group leads your plan', () => {
     await fireEvent.press(screen.getByRole('tab', { name: 'One-time tasks' }));
 
     expect(mockSetGroupOrder).toHaveBeenCalledWith('oneOff');
+  });
+
+  it('says so when the change does not stick', async () => {
+    // Otherwise the segmented control springs back with nothing to explain it.
+    mockGroupOrderError = new Error('Your profile could not be found.');
+    await renderScreen();
+
+    expect(screen.getByText('Your profile could not be found.')).toBeOnTheScreen();
   });
 
   it('says whose preference it is, since every other display setting is per phone', async () => {

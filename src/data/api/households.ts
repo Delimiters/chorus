@@ -24,6 +24,23 @@ function fail(error: { code?: string | undefined; message: string }): never {
   throw new Error(describeError(error));
 }
 
+/**
+ * Rethrows whatever `members.ts` threw, in this file's vocabulary.
+ *
+ * The cast that used to be here — `error as { code?: string; message: string }`
+ * — checks nothing, and `describeError` reads `.message` unconditionally: a
+ * thrown string would have died inside the error handler and replaced the real
+ * failure with "Cannot read properties of undefined". Not reachable through
+ * supabase-js, which returns fetch failures in `error` rather than throwing,
+ * but the cast was doing no work and this does.
+ */
+function rethrow(error: unknown): never {
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    fail(error as { code?: string | undefined; message: string });
+  }
+  throw error instanceof Error ? error : new Error(String(error));
+}
+
 /** Every household the signed-in user belongs to. */
 export async function listMyHouseholds(): Promise<Household[]> {
   const { data, error } = await supabase
@@ -83,7 +100,7 @@ export async function listMembers(householdId: string): Promise<Member[]> {
   try {
     return await listMembersWith(supabase, householdId);
   } catch (error) {
-    fail(error as { code?: string | undefined; message: string });
+    rethrow(error);
   }
 }
 
@@ -92,7 +109,7 @@ export async function setPlanGroupOrder(order: PlanGroupOrder, userId: string): 
   try {
     await setPlanGroupOrderWith(supabase, order, userId);
   } catch (error) {
-    fail(error as { code?: string | undefined; message: string });
+    rethrow(error);
   }
 }
 

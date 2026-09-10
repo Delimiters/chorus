@@ -802,6 +802,24 @@ export function PlanScreen({
               count={progress.finished ? progress.done : progress.total - progress.done}
               action={orderAction}
             />
+
+            {/*
+              A failed flip has to say so.
+              
+              The optimistic update rolls back, so without this the control
+              moves and then moves back with nothing to explain it — which is
+              precisely the silent no-op the write guard was added to turn into
+              an error. Catching it in the data layer and then rendering
+              nothing would leave the user exactly where they started.
+            */}
+            {/* `== null`, not `=== null`: TanStack gives `null`, but a
+                narrower check reaches into `.message` on anything else and
+                turns a missing error into a crash. */}
+            {setGroupOrder.error == null ? null : (
+              <Txt variant="small" tone="danger" style={{ paddingHorizontal: space.sm }}>
+                {(setGroupOrder.error as Error).message}
+              </Txt>
+            )}
             {renderDay(mySections, myOwnerId)}
 
             <View

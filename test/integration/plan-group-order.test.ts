@@ -22,7 +22,7 @@
  */
 
 import { listMembersWith, setPlanGroupOrderWith } from '../../src/data/api/members';
-import { createUser, deleteUsers, uniqueEmail, uniqueInviteCode } from './clients';
+import { adminClient, createUser, deleteUsers, uniqueEmail, uniqueInviteCode } from './clients';
 
 jest.setTimeout(60_000);
 
@@ -49,6 +49,40 @@ describe('a person’s plan group order', () => {
 
     const redeemed = await joiner.client.rpc('redeem_invite', { invite_code: code });
     if (redeemed.error) throw new Error(redeemed.error.message);
+
+    /*
+     * `sort_order` is set to the *reverse* of user-id order, deliberately.
+     *
+     * Otherwise `.order('sort_order')` and `.order('user_id')` agree about half
+     * the time — depending on which uuid `gen_random_uuid` happened to produce
+     * — and a test that catches the wrong sort column only on a coin flip is
+     * worse than one that admits it does not. Setting them in opposition makes
+     * any user-id-based ordering fail every run.
+     *
+     * Through `admin` because this is setup, never an assertion.
+     */
+    const [firstById, secondById] = [owner.userId, joiner.userId].sort();
+    const admin = adminClient();
+    await admin
+      .from('household_members')
+      .update({ sort_order: 20 })
+      .eq('household_id', householdId)
+      .eq('user_id', firstById as string);
+    await admin
+      .from('household_members')
+      .update({ sort_order: 10 })
+      .eq('household_id', householdId)
+      .eq('user_id', secondById as string);
+
+    /*
+     * A second household for the owner alone, so the member list has something
+     * it must *not* return. Without it, dropping the `household_id` filter is
+     * invisible: RLS confines you to your own households, so with only one
+     * there is no difference to see. It becomes a real leak the day
+     * multi-household ships.
+     */
+    const other = await owner.client.rpc('create_household', { household_name: 'Elsewhere' });
+    if (other.error) throw new Error(other.error.message);
   });
 
   afterAll(async () => {
@@ -61,6 +95,31 @@ describe('a person’s plan group order', () => {
   it('defaults to chores, which is the order the app already shipped', async () => {
     const members = await membersFor(owner.client);
     expect(members.find((m) => m.userId === owner.userId)?.planGroupOrder).toBe('chores');
+  });
+
+  it('maps the whole row, not only the column this feature added', async () => {
+    /*
+     * `members.ts` has no unit test — the app tests mock the hook — so this
+     * file is the only thing looking at it. A review measured the gap:
+     * deleting the household filter, changing the sort column and hard-coding
+     * `displayName` all at once left this suite green, because every
+     * assertion here was about one field.
+     *
+     * The household filter is the one with teeth. RLS confines you to your own
+     * households today, so losing it is inert; the day multi-household ships
+     * it becomes a cross-household leak.
+     */
+    const members = await membersFor(owner.client);
+
+    // Two, not three: the owner is also in "Elsewhere", which this household's
+    // member list must not reach into.
+    expect(members).toHaveLength(2);
+    expect(members.map((m) => m.displayName).sort()).toEqual(['Joiner', 'Owner']);
+    expect(members.map((m) => m.userId).sort()).toEqual([owner.userId, joiner.userId].sort());
+
+    // Ascending `sort_order`, which was set against user-id order in setup —
+    // so this fails on any other sort column rather than half the time.
+    expect(members.map((m) => m.sortOrder)).toEqual([10, 20]);
   });
 
   it('survives the round trip through the two functions the app uses', async () => {
