@@ -93,7 +93,26 @@ export function DragList<T>({
   onReorder,
   onDragStateChange,
 }: Props<T>) {
-  const [dragging, setDragging] = useState<string | null>(null);
+  const [dragging, setDraggingState] = useState<string | null>(null);
+  /**
+   * The same value, for the responder to read.
+   *
+   * `onMoveShouldSetPanResponder` runs while a touch is in flight, and the
+   * handler it runs is the one captured when the gesture began — at which
+   * point `dragging` was still `null`, because the hold had not yet fired. So
+   * the row lifted, the finger moved, and the responder declined every time:
+   * picked up, and immovable.
+   *
+   * This is the stale-closure trap the comment below already warns about, in
+   * the one place that ignored it.
+   */
+  const draggingRef = useRef<string | null>(null);
+
+  /** Writes both, so the ref can never drift from the state it mirrors. */
+  const setDragging = (key: string | null) => {
+    draggingRef.current = key;
+    setDraggingState(key);
+  };
   /** Where the held row would land right now. Drives the gap, not the drop. */
   const [target, setTarget] = useState<number | null>(null);
 
@@ -280,7 +299,25 @@ export function DragList<T>({
           // The hold is what separates a drag from a tap, so the responder is
           // only claimed once the timer below has fired.
           onStartShouldSetPanResponder: () => false,
-          onMoveShouldSetPanResponder: () => dragging === key,
+          /*
+           * Capture, not bubble.
+           *
+           * The row's body is a `Pressable`, so by the time the finger moves a
+           * descendant is already the responder. The bubbling question is
+           * asked of it first and it keeps the gesture, so the lifted row
+           * never received a single move: picked up, and immovable.
+           *
+           * The capture phase runs top-down and lets this view take the
+           * gesture out from under the `Pressable`, which is exactly the
+           * relationship here — the hold has already decided this is a drag
+           * rather than a tap.
+           */
+          onMoveShouldSetPanResponderCapture: () => draggingRef.current === key,
+          onMoveShouldSetPanResponder: () => draggingRef.current === key,
+
+          // Once it is a drag, it stays one until the finger lifts. Letting the
+          // scroll view reclaim it mid-gesture is how the row snapped back.
+          onPanResponderTerminationRequest: () => false,
 
           onPanResponderMove: (_event, gesture) => {
             const current = order.current;
