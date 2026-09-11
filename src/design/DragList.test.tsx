@@ -518,3 +518,110 @@ describe('the handlers reaching the view at all', () => {
     expect(typeof row.props.onResponderRelease).toBe('function');
   });
 });
+
+describe('a drag that outlives the renders it causes', () => {
+  /*
+   * The test that was missing, and the reason three rounds of "fixes" missed
+   * the bug. Every other drag test here mocks `PanResponder.create`, so none
+   * of them has a `gestureState` at all — and `gestureState` is where the
+   * defect lived.
+   *
+   * `PanResponder.create` allocates its own `gestureState` and accumulates
+   * `dy` inside it. The responder was built in the render loop, so each
+   * re-render produced a fresh one starting again at zero — and this gesture
+   * re-renders *itself*, because `onPanResponderMove` calls `setTarget` the
+   * moment the row crosses a neighbour's midpoint.
+   *
+   * So the drag is driven here through the row's real handlers, re-read from
+   * the node every frame exactly as React resolves them, across the renders
+   * the drag provokes.
+   */
+  const FRAME = 10;
+
+  /**
+   * A touch event shaped enough for `PanResponder` to accumulate from.
+   *
+   * The timestamp has to advance every frame: `PanResponder` records the last
+   * one it accounted for and skips any move at or before it, so frames sharing
+   * a timestamp are silently dropped and `dy` never grows.
+   */
+  const moveTo = (pageY: number, stamp: number) => ({
+    nativeEvent: { changedTouches: [], identifier: '0', pageY, pageX: 100, touches: [] },
+    touchHistory: {
+      indexOfSingleActiveTouch: 0,
+      mostRecentTimeStamp: stamp,
+      numberActiveTouches: 1,
+      touchBank: [
+        {
+          touchActive: true,
+          startPageX: 100,
+          startPageY: 400,
+          startTimeStamp: 0,
+          currentPageX: 100,
+          currentPageY: pageY,
+          currentTimeStamp: stamp,
+          previousPageX: 100,
+          previousPageY: pageY - FRAME,
+          previousTimeStamp: stamp - 1,
+        },
+      ],
+    },
+  });
+
+  it('keeps accumulating the finger’s travel across a re-render', () => {
+    const onReorder = jest.fn();
+    render(
+      <DragList
+        items={ITEMS}
+        keyOf={(i) => i.key}
+        labelOf={(i) => i.title}
+        renderItem={(i) => <Text>{i.title}</Text>}
+        onReorder={onReorder}
+      />,
+    );
+
+    for (const item of ITEMS) {
+      act(() => {
+        screen
+          .getByTestId(`drag-row:${item.key}`)
+          .props.onLayout({ nativeEvent: { layout: { height: 60 } } });
+      });
+    }
+
+    act(() => {
+      screen.getByTestId('drag-row:a').props.onTouchStart({
+        nativeEvent: { pageX: 100, pageY: 400 },
+      });
+      jest.advanceTimersByTime(300);
+    });
+
+    /*
+     * The real sequence: ask, grant, then move. `PanResponder` initialises its
+     * `gestureState` on the grant, so moves delivered without one accumulate
+     * nothing.
+     */
+    act(() => {
+      const row = screen.getByTestId('drag-row:a');
+      expect(row.props.onMoveShouldSetResponder?.(moveTo(400, 1))).toBe(true);
+      row.props.onResponderGrant?.(moveTo(400, 2));
+    });
+
+    // Ten frames of travel, the handlers re-read each time — which is where a
+    // per-render responder silently starts again from zero.
+    for (let frame = 1; frame <= 10; frame += 1) {
+      const row = screen.getByTestId('drag-row:a');
+      act(() => {
+        row.props.onResponderMove?.(moveTo(400 + frame * FRAME, 10 + frame));
+      });
+    }
+
+    const row = screen.getByTestId('drag-row:a');
+    act(() => {
+      row.props.onResponderRelease?.(moveTo(500, 100));
+    });
+
+    // 100pt of travel over 60pt rows: the row has passed its neighbour, so the
+    // drop has to report a new order rather than the one it started in.
+    expect(onReorder).toHaveBeenCalledWith(['b', 'a', 'c'], 'a');
+  });
+});
