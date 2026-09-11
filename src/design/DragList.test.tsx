@@ -304,6 +304,61 @@ describe('a whole drag, driven through the responder', () => {
 
     expect(onReorder).toHaveBeenCalledWith(['b', 'c', 'a'], 'a');
   });
+  /*
+   * Every other test in this file reaches for `configFor`, which is the config
+   * from the *latest* render — a view of the world the gesture system does not
+   * have. It attaches the handlers present when the touch began, and the touch
+   * begins ~220ms before the hold turns it into a drag.
+   *
+   * So the row lifted, the finger moved, and the responder declined every
+   * single move. Jake, twice: *"I can no longer drag to reorder"* — and it was
+   * not the sections, it was this. The file's own header warns that anything
+   * read mid-drag has to be a ref; the responder question was reading state.
+   */
+  it('says yes to a move using the config captured before the hold fired', () => {
+    renderList();
+    setHeights(60);
+
+    touch('a', 'onTouchStart');
+    // Captured now, exactly as the responder system captures it: the hold has
+    // not fired, so this closure saw `dragging === null`.
+    const atTouchTime = configFor(0);
+
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(atTouchTime.onMoveShouldSetPanResponder?.({} as never, {} as never)).toBe(true);
+  });
+
+  it('moves and drops the row through that same config', () => {
+    // The whole gesture driven through the pre-hold handlers, which is the
+    // only version of it that matches what happens on a phone.
+    renderList();
+    setHeights(60);
+
+    touch('a', 'onTouchStart');
+    const atTouchTime = configFor(0);
+
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    /*
+     * Gated on the responder's own answer, which is the part that was broken.
+     * Calling the move handlers unconditionally passes on the shipped code
+     * too — `onPanResponderMove` never asks whose row it is, so it moves
+     * happily for a gesture it was never granted.
+     */
+    act(() => {
+      if (atTouchTime.onMoveShouldSetPanResponder?.({} as never, {} as never) === true) {
+        atTouchTime.onPanResponderMove?.({} as never, { dy: 90 } as never);
+        atTouchTime.onPanResponderRelease?.({} as never, { dy: 90 } as never);
+      }
+    });
+
+    expect(onReorder).toHaveBeenCalledWith(['b', 'a', 'c'], 'a');
+  });
 });
 
 describe('a drag that cannot be finished by the finger that started it', () => {
@@ -432,5 +487,141 @@ describe('a second finger', () => {
     });
 
     expect(styleOf('a').zIndex).toBe(0);
+  });
+});
+
+describe('the handlers reaching the view at all', () => {
+  /*
+   * Every drag test in this file mocks `PanResponder.create` to return
+   * `{ panHandlers: {} }`, so none of them touches the one line that connects
+   * the responder to the row. Delete `{...responder.panHandlers}` and the
+   * whole suite stays green while nothing on a phone can be dragged.
+   *
+   * This block deliberately does not mock it.
+   */
+  it('spreads the pan handlers onto the row', () => {
+    render(
+      <DragList
+        items={ITEMS}
+        keyOf={(i) => i.key}
+        labelOf={(i) => i.title}
+        renderItem={(i) => <Text>{i.title}</Text>}
+        onReorder={jest.fn()}
+      />,
+    );
+
+    const row = screen.getByTestId('drag-row:a');
+
+    // What a real PanResponder puts on a view. Their presence is the wiring.
+    expect(typeof row.props.onMoveShouldSetResponder).toBe('function');
+    expect(typeof row.props.onResponderMove).toBe('function');
+    expect(typeof row.props.onResponderRelease).toBe('function');
+  });
+});
+
+describe('a drag that outlives the renders it causes', () => {
+  /*
+   * The test that was missing, and the reason three rounds of "fixes" missed
+   * the bug. Every other drag test here mocks `PanResponder.create`, so none
+   * of them has a `gestureState` at all — and `gestureState` is where the
+   * defect lived.
+   *
+   * `PanResponder.create` allocates its own `gestureState` and accumulates
+   * `dy` inside it. The responder was built in the render loop, so each
+   * re-render produced a fresh one starting again at zero — and this gesture
+   * re-renders *itself*, because `onPanResponderMove` calls `setTarget` the
+   * moment the row crosses a neighbour's midpoint.
+   *
+   * So the drag is driven here through the row's real handlers, re-read from
+   * the node every frame exactly as React resolves them, across the renders
+   * the drag provokes.
+   */
+  const FRAME = 10;
+
+  /**
+   * A touch event shaped enough for `PanResponder` to accumulate from.
+   *
+   * The timestamp has to advance every frame: `PanResponder` records the last
+   * one it accounted for and skips any move at or before it, so frames sharing
+   * a timestamp are silently dropped and `dy` never grows.
+   */
+  const moveTo = (pageY: number, stamp: number) => ({
+    nativeEvent: { changedTouches: [], identifier: '0', pageY, pageX: 100, touches: [] },
+    touchHistory: {
+      indexOfSingleActiveTouch: 0,
+      mostRecentTimeStamp: stamp,
+      numberActiveTouches: 1,
+      touchBank: [
+        {
+          touchActive: true,
+          startPageX: 100,
+          startPageY: 400,
+          startTimeStamp: 0,
+          currentPageX: 100,
+          currentPageY: pageY,
+          currentTimeStamp: stamp,
+          previousPageX: 100,
+          previousPageY: pageY - FRAME,
+          previousTimeStamp: stamp - 1,
+        },
+      ],
+    },
+  });
+
+  it('keeps accumulating the finger’s travel across a re-render', () => {
+    const onReorder = jest.fn();
+    render(
+      <DragList
+        items={ITEMS}
+        keyOf={(i) => i.key}
+        labelOf={(i) => i.title}
+        renderItem={(i) => <Text>{i.title}</Text>}
+        onReorder={onReorder}
+      />,
+    );
+
+    for (const item of ITEMS) {
+      act(() => {
+        screen
+          .getByTestId(`drag-row:${item.key}`)
+          .props.onLayout({ nativeEvent: { layout: { height: 60 } } });
+      });
+    }
+
+    act(() => {
+      screen.getByTestId('drag-row:a').props.onTouchStart({
+        nativeEvent: { pageX: 100, pageY: 400 },
+      });
+      jest.advanceTimersByTime(300);
+    });
+
+    /*
+     * The real sequence: ask, grant, then move. `PanResponder` initialises its
+     * `gestureState` on the grant, so moves delivered without one accumulate
+     * nothing.
+     */
+    act(() => {
+      const row = screen.getByTestId('drag-row:a');
+      expect(row.props.onMoveShouldSetResponder?.(moveTo(400, 1))).toBe(true);
+      row.props.onResponderGrant?.(moveTo(400, 2));
+    });
+
+    // Ten frames of travel, the handlers re-read each time — which is where a
+    // per-render responder silently starts again from zero.
+    for (let frame = 1; frame <= 10; frame += 1) {
+      const row = screen.getByTestId('drag-row:a');
+      act(() => {
+        row.props.onResponderMove?.(moveTo(400 + frame * FRAME, 10 + frame));
+      });
+    }
+
+    const row = screen.getByTestId('drag-row:a');
+    act(() => {
+      row.props.onResponderRelease?.(moveTo(500, 100));
+    });
+
+    // 100pt of travel over 60pt rows: the row has passed its neighbour, so the
+    // drop has to report a new order rather than the one it started in.
+    expect(onReorder).toHaveBeenCalledWith(['b', 'a', 'c'], 'a');
   });
 });

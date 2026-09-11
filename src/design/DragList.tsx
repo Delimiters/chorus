@@ -93,9 +93,60 @@ export function DragList<T>({
   onReorder,
   onDragStateChange,
 }: Props<T>) {
-  const [dragging, setDragging] = useState<string | null>(null);
+  const [dragging, setDraggingState] = useState<string | null>(null);
+  /**
+   * The same value, for the kept responder to read.
+   *
+   * Not because the handler is captured at touch time — it is not; React
+   * resolves it from the view's current props at every event. It is because
+   * the responder itself is now created once and reused, so its closure never
+   * sees a later render's `dragging`.
+   */
+  const draggingRef = useRef<string | null>(null);
+
+  /*
+   * Props the responder needs, in refs.
+   *
+   * The responder below is built once per row and then kept, so its closure is
+   * the *first* render's. Anything it reads from props has to come through a
+   * ref or it is frozen at mount — `onReorder` in particular is an inline
+   * arrow on the plan that closes over the day's rows and their owner.
+   */
+  const keyOfRef = useRef(keyOf);
+  keyOfRef.current = keyOf;
+  const onReorderRef = useRef(onReorder);
+  onReorderRef.current = onReorder;
+
+  /** Writes both, so the ref can never drift from the state it mirrors. */
+  const setDragging = (key: string | null) => {
+    draggingRef.current = key;
+    setDraggingState(key);
+  };
   /** Where the held row would land right now. Drives the gap, not the drop. */
   const [target, setTarget] = useState<number | null>(null);
+
+  /**
+   * One `PanResponder` per row, kept for the life of the list.
+   *
+   * It used to be built inside the render loop, and that is what stopped rows
+   * being dragged. `PanResponder.create` allocates its own `gestureState`, and
+   * `dy` is accumulated *in that object* — so a fresh one starts again at
+   * zero. The responder system resolves the handler from the view's current
+   * props at every touch, so the moment React committed a new render the
+   * moves were routed to a new responder that thought the finger had not
+   * moved.
+   *
+   * And this drag re-renders itself: `onPanResponderMove` calls `setTarget` as
+   * soon as the row crosses a neighbour's midpoint. So the row tracked the
+   * finger for about half a row, snapped back to nothing, and on release
+   * reported a `dy` too small to have changed its index — lifted, barely
+   * moving, and impossible to reorder. Measured frame by frame: 10, 10, 20,
+   * 30, 40, 50, 60, **10**, 10, 20, and `onReorder` never called.
+   *
+   * `ReorderableList` — the sibling that has always worked on a phone — holds
+   * its responder in a ref for exactly this reason. This one had diverged.
+   */
+  const responders = useRef<Map<string, ReturnType<typeof PanResponder.create>>>(new Map());
 
   const offset = useRef(new Animated.Value(0)).current;
 
@@ -260,6 +311,100 @@ export function DragList<T>({
     setTarget(null);
     setDragging(null);
   };
+  /* Stable identity for the kept responder; the body only touches refs and
+     state setters, both of which are stable themselves. */
+  const stopDraggingRef = useRef(stopDragging);
+  stopDraggingRef.current = stopDragging;
+
+  /** The responder for a row, created on first sight and then kept. */
+  const responderFor = (key: string): ReturnType<typeof PanResponder.create> => {
+    const existing = responders.current.get(key);
+    if (existing !== undefined) return existing;
+
+    const created = PanResponder.create({
+      // The hold is what separates a drag from a tap, so the responder is
+      // only claimed once the timer below has fired.
+      onStartShouldSetPanResponder: () => false,
+      /*
+       * A ref, because this config is built once and then kept — see the note
+       * on `responders` above. Reading `dragging` here would freeze it at the
+       * value it had when the row first rendered, which is `null` forever.
+       *
+       * No capture-phase twin. One was added on the theory that the row's
+       * `Pressable` owns the gesture by the time the finger moves and would
+       * refuse to give it up; that is backwards. When the current responder is
+       * a descendant, React dispatches from the common ancestor *upward* and
+       * skips the responder's own subtree, so this view is the one being
+       * asked. `ReorderableList` has always shipped with only this handler.
+       */
+      onMoveShouldSetPanResponder: () => draggingRef.current === key,
+
+      /*
+       * Once it is a drag, no other React view can take it — the only
+       * candidates are sibling rows, whose predicate is false anyway.
+       *
+       * It does *not* stop the scroll view: a native reclaim arrives as a
+       * touch cancel, which terminates unconditionally without consulting
+       * this. Kept because `ReorderableList` does the same.
+       */
+      onPanResponderTerminationRequest: () => false,
+
+      onPanResponderMove: (_event, gesture) => {
+        const current = order.current;
+        const from = current.findIndex((i) => keyOfRef.current(i) === key);
+        const measured = current.map((i) => heights.current.get(keyOfRef.current(i)) ?? 0);
+
+        /*
+         * Held inside the list.
+         *
+         * Unclamped, a row dragged well past either end followed the finger
+         * out into the page and then teleported all the way back on
+         * release — the further you overshot, the bigger the jump. Now it
+         * stops at the ends, which is also the honest signal that there is
+         * nowhere further to go.
+         */
+        const dy = clampToList(measured, from, gesture.dy);
+
+        offset.setValue(dy);
+        const to = targetIndex(measured, from, dy);
+
+        // Only when it changes: a setState per pixel would re-render the
+        // whole list on every frame of the gesture.
+        if (to !== targetRef.current) {
+          targetRef.current = to;
+          setTarget(to);
+        }
+      },
+
+      onPanResponderRelease: (_event, gesture) => {
+        const current = order.current;
+        const from = current.findIndex((i) => keyOfRef.current(i) === key);
+        const measured = current.map((i) => heights.current.get(keyOfRef.current(i)) ?? 0);
+        const to = targetIndex(measured, from, clampToList(measured, from, gesture.dy));
+
+        if (to !== from) {
+          /*
+           * Order out first, then everything resets in the same tick.
+           *
+           * The optimistic write in `useReorderPlan` now lands before the
+           * next paint, so by the time these offsets are zero the rows are
+           * already in their new places. Holding a local copy to bridge the
+           * gap was tried and was worse — see the note at the top.
+           */
+          onReorderRef.current(reorder(current, from, to).map(keyOf), key);
+          for (const value of gaps.current.values()) value.setValue(0);
+          applied.current.clear();
+        }
+
+        stopDraggingRef.current();
+      },
+
+      onPanResponderTerminate: () => stopDraggingRef.current(),
+    });
+
+    responders.current.set(key, created);
+    return created;
+  };
 
   const move = (key: string, delta: number) => {
     const current = order.current;
@@ -276,64 +421,7 @@ export function DragList<T>({
         const key = keyOf(item);
         const isDragging = dragging === key;
 
-        const responder = PanResponder.create({
-          // The hold is what separates a drag from a tap, so the responder is
-          // only claimed once the timer below has fired.
-          onStartShouldSetPanResponder: () => false,
-          onMoveShouldSetPanResponder: () => dragging === key,
-
-          onPanResponderMove: (_event, gesture) => {
-            const current = order.current;
-            const from = current.findIndex((i) => keyOf(i) === key);
-            const measured = current.map((i) => heights.current.get(keyOf(i)) ?? 0);
-
-            /*
-             * Held inside the list.
-             *
-             * Unclamped, a row dragged well past either end followed the finger
-             * out into the page and then teleported all the way back on
-             * release — the further you overshot, the bigger the jump. Now it
-             * stops at the ends, which is also the honest signal that there is
-             * nowhere further to go.
-             */
-            const dy = clampToList(measured, from, gesture.dy);
-
-            offset.setValue(dy);
-            const to = targetIndex(measured, from, dy);
-
-            // Only when it changes: a setState per pixel would re-render the
-            // whole list on every frame of the gesture.
-            if (to !== targetRef.current) {
-              targetRef.current = to;
-              setTarget(to);
-            }
-          },
-
-          onPanResponderRelease: (_event, gesture) => {
-            const current = order.current;
-            const from = current.findIndex((i) => keyOf(i) === key);
-            const measured = current.map((i) => heights.current.get(keyOf(i)) ?? 0);
-            const to = targetIndex(measured, from, clampToList(measured, from, gesture.dy));
-
-            if (to !== from) {
-              /*
-               * Order out first, then everything resets in the same tick.
-               *
-               * The optimistic write in `useReorderPlan` now lands before the
-               * next paint, so by the time these offsets are zero the rows are
-               * already in their new places. Holding a local copy to bridge the
-               * gap was tried and was worse — see the note at the top.
-               */
-              onReorder(reorder(current, from, to).map(keyOf), key);
-              for (const value of gaps.current.values()) value.setValue(0);
-              applied.current.clear();
-            }
-
-            stopDragging();
-          },
-
-          onPanResponderTerminate: stopDragging,
-        });
+        const responder = responderFor(key);
 
         return (
           <Animated.View
