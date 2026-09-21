@@ -35,12 +35,7 @@ import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import {
-  useHousehold,
-  useMembers,
-  useSetPlanGroupOrder,
-  type PlanGroupOrder,
-} from '@/data/hooks/useHousehold';
+import { useMembers, useSetPlanGroupOrder, type PlanGroupOrder } from '@/data/hooks/useHousehold';
 import { useFlagsByChore, useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
 import { useToggleCompletion } from '@/data/hooks/useOccurrences';
 import {
@@ -127,12 +122,13 @@ export function PlanScreen({
    * a flag your housemate set is still a flag. `useMyFlags` is what the sheet
    * toggles, because you can only lift your own.
    */
-  const household = useHousehold();
-  const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /* No `weekStartsOn` here any more, and therefore no `useHousehold()`: flags
+     stopped having a week, and the query was being kept alive — a live
+     subscription and a re-render source — purely to feed a dead argument. */
   const flagsByChore = useFlagsByChore();
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
   const myFlags = useMyFlags();
-  const toggleFlag = useToggleFlag(today as never, weekStartsOn);
+  const toggleFlag = useToggleFlag(today as never);
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
   const remove = useRemoveFromPlan(today as never);

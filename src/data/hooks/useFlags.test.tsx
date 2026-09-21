@@ -83,7 +83,7 @@ describe('toggling a flag writes what it says it writes', () => {
   it('raises one on an unflagged chore', async () => {
     const { client, wrapper } = harness();
     seed(client, []);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
@@ -95,10 +95,10 @@ describe('toggling a flag writes what it says it writes', () => {
     expect(mockLowered).toHaveLength(0);
   });
 
-  it('lowers one raised this week', async () => {
+  it('lowers one that is there', async () => {
     const { client, wrapper } = harness();
     seed(client, [{ choreId: 'dishes', userId: ME, flaggedOn: civilDate('2026-08-25') }]);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
@@ -116,7 +116,7 @@ describe('toggling a flag writes what it says it writes', () => {
      */
     const { client, wrapper } = harness();
     seed(client, [{ choreId: 'dishes', userId: ME, flaggedOn: civilDate('2026-01-04') }]);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
@@ -129,7 +129,7 @@ describe('toggling a flag writes what it says it writes', () => {
     // Their flag is visible but not mine to clear, so tapping raises my own.
     const { client, wrapper } = harness();
     seed(client, [{ choreId: 'dishes', userId: 'user-them', flaggedOn: TODAY }]);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
@@ -146,7 +146,7 @@ describe('toggling a flag writes what it says it writes', () => {
      */
     const { client, wrapper } = harness();
     seed(client, []);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 

@@ -11,7 +11,7 @@ import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/reac
 import { useMemo } from 'react';
 
 import { liveFlagsByChore, liveFlagsFor, toggleFlag } from '@/core/chore/flag';
-import type { CivilDate, Weekday } from '@/core/civil/types';
+import type { CivilDate } from '@/core/civil/types';
 import { listFlags, lowerFlag, raiseFlag, type ChoreFlagRow } from '../api/flags';
 import { qk } from '../queryKeys';
 import { useActiveHouseholdId, useUserId } from '@/stores/sessionStore';
@@ -65,7 +65,7 @@ export function useFlagsByChore(): ReadonlyMap<string, readonly string[]> {
  * reads any state at all, which is the property that makes it correct rather
  * than merely fixed.
  */
-export function useToggleFlag(on: CivilDate, weekStartsOn: Weekday) {
+export function useToggleFlag(on: CivilDate) {
   const householdId = useActiveHouseholdId();
   const userId = useUserId();
   const queryClient = useQueryClient();

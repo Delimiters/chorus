@@ -920,7 +920,7 @@ describe('flagging something', () => {
     // which is what the sheet's copy promises and what RLS was built for.
     mockFlagsByChore = new Map([['dishes', [THEM]]]);
     renderScreen();
-    expect(screen.getByLabelText(/Dishes.*Flagged./)).toBeOnTheScreen();
+    expect(screen.getByLabelText(/Dishes.*Flagged\./)).toBeOnTheScreen();
   });
 
   it('says nothing about a chore that is not flagged', () => {

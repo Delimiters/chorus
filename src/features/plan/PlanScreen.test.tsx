@@ -1363,7 +1363,7 @@ describe('flagging from the plan', () => {
     renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
 
     fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
-    fireEvent.press(screen.getByRole('button', { name: /Flag it/ }));
+    fireEvent.press(screen.getByRole('button', { name: /^Flag it$/ }));
 
     expect(mockToggleFlag).toHaveBeenCalledWith('dishes');
     expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 0, ME);
@@ -1381,7 +1381,7 @@ describe('flagging from the plan', () => {
     renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
 
     fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
-    fireEvent.press(screen.getByRole('button', { name: /Flag it/ }));
+    fireEvent.press(screen.getByRole('button', { name: /^Flag it$/ }));
 
     expect(mockToggleFlag).toHaveBeenCalledWith('dishes');
     expect(mockReorder).not.toHaveBeenCalled();
@@ -1401,7 +1401,7 @@ describe('flagging from the plan', () => {
     renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
 
     fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
-    fireEvent.press(screen.getByRole('button', { name: /Flag it/ }));
+    fireEvent.press(screen.getByRole('button', { name: /^Flag it$/ }));
 
     expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 0, ME);
   });
@@ -1461,7 +1461,7 @@ describe('flagging from the plan', () => {
     ]);
 
     fireEvent.press(screen.getByRole('button', { name: /^Bins, .*Open options\.$/ }));
-    fireEvent.press(screen.getByRole('button', { name: /Flag it/ }));
+    fireEvent.press(screen.getByRole('button', { name: /^Flag it$/ }));
 
     // Their day's smallest is 4, so 3 — not something derived from your day,
     // whose smallest is 1.

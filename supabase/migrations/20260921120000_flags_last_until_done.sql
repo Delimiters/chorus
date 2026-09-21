@@ -43,10 +43,21 @@ begin
    * lists it.
    */
   /*
-   * `household_id` is belt-and-braces: `chore_id` is a primary key and a chore
-   * belongs to exactly one household, so the chore filter already scopes this.
-   * Kept because a mismatched pair would be corruption worth not spreading,
-   * and noted because a pgTAP test cannot exercise it.
+   * Both predicates are load-bearing. An earlier version of this comment said
+   * `household_id` was belt-and-braces on the reasoning that a chore belongs to
+   * exactly one household — true of the data, and irrelevant, because nothing
+   * made the *inserted row* agree with it.
+   *
+   * `completions_insert` checked only that you belong to the household you
+   * named and that you are the completer. It never checked that the chore was
+   * yours. So a member of one household could insert a completion carrying
+   * their own `household_id` and a `chore_id` from somewhere else, and this
+   * trigger — running as definer — would delete a stranger's flags. Measured,
+   * not theorised: with the `household_id` predicate removed, exactly that
+   * left the victim's flag count at zero.
+   *
+   * The policy is fixed below, which is the real repair. This predicate stays
+   * as the second lock, and the comment stays as the reason not to remove it.
    */
   delete from public.chore_flags
   where chore_id = new.chore_id
@@ -81,3 +92,27 @@ comment on table public.chore_flags is
 
 comment on column public.chore_flags.flagged_on is
   'The civil date it was raised. A record of when, not an expiry — nothing reads it to decide whether the flag is live.';
+
+/*
+ * A completion has to be for a chore you can actually see.
+ *
+ * `completions_insert` shipped with `is_household_member(household_id)` and
+ * `completed_by = auth.uid()` and nothing about `chore_id`, so the two columns
+ * were never required to agree. That was inert while nothing read the pair as
+ * a boundary; the trigger above is the first thing that does, which is how it
+ * surfaced.
+ *
+ * `chore_is_visible` is the guard `completions_select` has always used. It
+ * checks the chore's *own* household, and refuses a chore somebody has marked
+ * private to themselves — so this also closes recording a completion against a
+ * housemate's private chore, which was possible for the same reason.
+ */
+drop policy completions_insert on public.chore_completions;
+
+create policy completions_insert on public.chore_completions
+  for insert to authenticated
+  with check (
+    private.is_household_member(household_id)
+    and private.chore_is_visible(chore_id)
+    and completed_by = (select auth.uid())
+  );

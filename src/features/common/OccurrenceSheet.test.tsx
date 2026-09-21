@@ -59,7 +59,7 @@ jest.mock('@/data/hooks/useSubtasks', () => ({
   useToggleSubtask: () => ({ mutate: jest.fn() }),
 }));
 
-function renderSheet(target: AgendaItem | null = item()) {
+function renderSheet(target: AgendaItem | null = item(), flagged = false) {
   const handlers = {
     onClose: jest.fn(),
     onToggleComplete: jest.fn(),
@@ -67,12 +67,19 @@ function renderSheet(target: AgendaItem | null = item()) {
     onReschedule: jest.fn(),
     onClearException: jest.fn(),
     onEditChore: jest.fn(),
+    onToggleFlag: jest.fn(),
   };
   return {
     ...handlers,
     rendered: render(
       <ThemeProvider>
-        <OccurrenceSheet item={target} today={TODAY} weekStartsOn={0} {...handlers} />
+        <OccurrenceSheet
+          item={target}
+          today={TODAY}
+          weekStartsOn={0}
+          flagged={flagged}
+          {...handlers}
+        />
       </ThemeProvider>,
     ),
   };
@@ -243,5 +250,39 @@ describe('when nothing is open', () => {
     const h = renderSheet(null);
     await h.rendered;
     expect(screen.queryByRole('button', { name: /Skip it/ })).toBeNull();
+  });
+});
+
+describe('flagging from the sheet', () => {
+  /*
+   * The copy here was the one string in the change that nothing pinned:
+   * reverting it to "Flag it for this week" left all 684 tests green, because
+   * the plan's assertions matched `/Flag it/` — a prefix of the old wording —
+   * and this file never mentioned flagging at all.
+   */
+  it('offers to flag, without promising a week', async () => {
+    const h = renderSheet();
+    await h.rendered;
+
+    expect(screen.getByRole('button', { name: /^Flag it$/ })).toBeOnTheScreen();
+    expect(screen.getByText(/until it is done or you unflag it/)).toBeOnTheScreen();
+  });
+
+  it('offers to unflag one that is already flagged', async () => {
+    const h = renderSheet(item(), true);
+    await h.rendered;
+
+    expect(screen.getByRole('button', { name: 'Unflag it' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Flag it$/ })).toBeNull();
+  });
+
+  it('reports the chore, and closes', async () => {
+    const h = renderSheet();
+    await h.rendered;
+
+    fireEvent.press(screen.getByRole('button', { name: /^Flag it$/ }));
+
+    expect(h.onToggleFlag).toHaveBeenCalledWith('dishes');
+    expect(h.onClose).toHaveBeenCalled();
   });
 });

@@ -13,7 +13,8 @@ const flag = (choreId: string, flaggedOn: string, userId = ME): ChoreFlag => ({
   flaggedOn: d(flaggedOn),
 });
 
-// 2026-08-27 is a Thursday. Monday of its week is 2026-08-24, Sunday 2026-08-23.
+// An ordinary day. Nothing here computes a week any more; the date is only
+// something for the fixtures to carry.
 const THURSDAY = d('2026-08-27');
 
 describe('a flag has no expiry', () => {
@@ -49,7 +50,7 @@ describe('whose flags', () => {
 
   it('returns only mine', () => {
     /*
-     * `plants` is mine and months old; `trash` is this week and theirs. Ownership
+     * `plants` is mine and months old; `trash` is theirs. Ownership
      * is the only thing that decides, so both have to be in the fixture — one
      * of each would pass against a filter that tested the wrong field.
      */

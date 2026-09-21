@@ -15,7 +15,7 @@ create extension if not exists pgtap with schema extensions;
 -- other household.
 
 begin;
-select plan(6);
+select plan(8);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -98,17 +98,57 @@ select is(
   'a flag on a different chore is untouched'
 );
 
--- Not a test of the household predicate, which cannot fail: `chore_id` is a
--- primary key and a chore belongs to exactly one household, so filtering by
--- chore already scopes the delete. Removing `household_id` from the trigger
--- leaves this suite green, and it is worth saying so rather than implying a
--- guard that is not being exercised. What this does check is that a chore
--- sharing a *title* with the completed one is not swept up.
 select is(
   (select count(*)::int from public.chore_flags
    where household_id = 'fccc0000-0000-0000-0000-00000000000b'),
   1,
   'a same-titled chore elsewhere keeps its flag'
+);
+
+-- ═══ The cross-household attack ════════════════════════════════════════════
+--
+-- The trigger runs as definer, so the pair it is handed *is* a security
+-- boundary. `completions_insert` used to check only that you belong to the
+-- household you named — not that the chore was yours — so a member of one
+-- house could name their own `household_id` beside a stranger's `chore_id`
+-- and have the trigger delete that stranger's flags.
+--
+-- An earlier version of this file asserted the opposite: that the household
+-- predicate could not be exercised. It can, and this is how.
+create or replace function pg_temp.become(uid text) returns void
+language plpgsql as $$
+begin
+  execute format('set local role authenticated');
+  execute format(
+    'set local request.jwt.claims = %L',
+    json_build_object('sub', uid, 'role', 'authenticated')::text
+  );
+end;
+$$;
+
+select pg_temp.become('fccc1111-1111-1111-1111-111111111111');
+
+-- Ali's own household, Cy's chore. Refused by the policy now; before the fix
+-- this insert succeeded and took Cy's flag with it.
+select throws_ok(
+  $$ insert into public.chore_completions
+       (household_id, chore_id, occurrence_key, due_on, completed_on, completed_by)
+     values
+       ('fccc0000-0000-0000-0000-00000000000a', 'fccc9999-9999-9999-9999-999999999993',
+        'v1:attack:2026-09-21', '2026-09-21', '2026-09-21',
+        'fccc1111-1111-1111-1111-111111111111') $$,
+  '42501',
+  null,
+  'a completion naming somebody else''s chore is refused'
+);
+
+reset role;
+
+select is(
+  (select count(*)::int from public.chore_flags
+   where household_id = 'fccc0000-0000-0000-0000-00000000000b'),
+  1,
+  'and the other household''s flag is still standing'
 );
 
 -- ═══ Skipping is not doing ═════════════════════════════════════════════════

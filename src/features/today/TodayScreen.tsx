@@ -165,7 +165,7 @@ export function TodayScreen() {
   const myFlags = useMyFlags();
   const flagsByChore = useFlagsByChore();
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
-  const toggleFlag = useToggleFlag(today, weekStartsOn);
+  const toggleFlag = useToggleFlag(today);
   const toggle = useToggleCompletion();
   const [refreshing, setRefreshing] = useState(false);
 
