@@ -129,9 +129,9 @@ export function PlanScreen({
    */
   const household = useHousehold();
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
-  const flagsByChore = useFlagsByChore(today as never, weekStartsOn);
+  const flagsByChore = useFlagsByChore();
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
-  const myFlags = useMyFlags(today as never, weekStartsOn);
+  const myFlags = useMyFlags();
   const toggleFlag = useToggleFlag(today as never, weekStartsOn);
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
@@ -1050,7 +1050,7 @@ export function PlanScreen({
             movement that a housemate's flag will quietly prevent.
           */}
           <SheetAction
-            label={flagState.mine ? 'Unflag it' : 'Flag it for this week'}
+            label={flagState.mine ? 'Unflag it' : 'Flag it'}
             hint={
               flagState.mine
                 ? flagState.theirsToo
@@ -1058,7 +1058,7 @@ export function PlanScreen({
                   : 'It drops back in with the rest of the day, where its position puts it.'
                 : flagState.theirsToo
                   ? `${theirName} has already flagged this, so it is at the top either way. This adds yours.`
-                  : 'Marks it "!!" until the week is out and lifts it to the top of the day. Both of you can see it.'
+                  : 'Marks it "!!" and lifts it to the top of the day. It stays until it is done or you unflag it. Both of you can see it.'
             }
             onPress={() => {
               if (removing !== null) {

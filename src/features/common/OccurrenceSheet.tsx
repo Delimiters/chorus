@@ -143,11 +143,11 @@ export function OccurrenceSheet({
         <View style={{ gap: 2 }}>
           {onToggleFlag === undefined ? null : (
             <SheetAction
-              label={flagged ? 'Unflag it' : 'Flag it for this week'}
+              label={flagged ? 'Unflag it' : 'Flag it'}
               hint={
                 flagged
                   ? 'It will stop standing out.'
-                  : 'Pins it to the top until the week is out. Both of you can see it.'
+                  : 'Pins it to the top until it is done or you unflag it. Both of you can see it.'
               }
               onPress={() => {
                 onToggleFlag(item.choreId);

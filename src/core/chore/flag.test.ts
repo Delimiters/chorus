@@ -1,13 +1,6 @@
 import { civilDate } from '../civil/date';
 import type { CivilDate } from '../civil/types';
-import {
-  flaggedFirst,
-  isFlagLive,
-  liveFlagsByChore,
-  liveFlagsFor,
-  toggleFlag,
-  type ChoreFlag,
-} from './flag';
+import { flaggedFirst, liveFlagsByChore, liveFlagsFor, toggleFlag, type ChoreFlag } from './flag';
 
 const d = (s: string): CivilDate => civilDate(s);
 
@@ -23,35 +16,27 @@ const flag = (choreId: string, flaggedOn: string, userId = ME): ChoreFlag => ({
 // 2026-08-27 is a Thursday. Monday of its week is 2026-08-24, Sunday 2026-08-23.
 const THURSDAY = d('2026-08-27');
 
-describe('a flag is live only for its own week', () => {
-  it('counts a flag raised earlier the same week', () => {
-    expect(isFlagLive(flag('c', '2026-08-25'), THURSDAY, 1)).toBe(true);
+describe('a flag has no expiry', () => {
+  /*
+   * There used to be five tests here about week boundaries. A flag now lasts
+   * until it is lifted or the chore is completed, and the completion is
+   * cleared by a database trigger — so "is it live" has no calendar component
+   * left and nothing in this module can answer it wrongly.
+   *
+   * What remains is the guarantee that age is not consulted: a flag from
+   * months ago counts exactly as much as one raised this morning.
+   */
+  it('counts a flag from long ago the same as one from today', () => {
+    const old = flag('gutters', '2026-01-04');
+    const fresh = flag('dishes', '2026-08-12');
+
+    expect(liveFlagsFor([old, fresh], ME)).toEqual(new Set(['gutters', 'dishes']));
   });
 
-  it('lets last week go', () => {
-    expect(isFlagLive(flag('c', '2026-08-20'), THURSDAY, 1)).toBe(false);
-  });
-
-  it('is decided by the week boundary, not by how many days ago', () => {
-    /*
-     * The distinguishing case, and the reason this is not `daysBetween <= 7`.
-     * Sunday 2026-08-23 is four days before Thursday either way — but with a
-     * Monday week start it belongs to the *previous* week and is dead, and
-     * with a Sunday start it is this week and is live. An age-based
-     * implementation returns true for both and passes a test that only ever
-     * asks one of them.
-     */
-    const sunday = flag('c', '2026-08-23');
-    expect(isFlagLive(sunday, THURSDAY, 1)).toBe(false);
-    expect(isFlagLive(sunday, THURSDAY, 0)).toBe(true);
-  });
-
-  it('counts the day it was raised', () => {
-    expect(isFlagLive(flag('c', '2026-08-27'), THURSDAY, 1)).toBe(true);
-  });
-
-  it('does not count a flag from the future week', () => {
-    expect(isFlagLive(flag('c', '2026-09-02'), THURSDAY, 1)).toBe(false);
+  it('counts a flag dated in the future, rather than hiding it', () => {
+    // Nothing compares the date to anything, so a clock skew on one phone
+    // cannot make a flag invisible to the other.
+    expect(liveFlagsFor([flag('bins', '2027-01-01')], ME)).toEqual(new Set(['bins']));
   });
 });
 
@@ -62,24 +47,23 @@ describe('whose flags', () => {
     flag('plants', '2026-08-10', ME),
   ];
 
-  it('returns only mine, and only this week', () => {
-    // Three flags, three different reasons to be included or not — so a
-    // fixture where every flag qualifies cannot pass this.
-    expect([...liveFlagsFor(flags, ME, THURSDAY, 1)]).toEqual(['dishes']);
+  it('returns only mine', () => {
+    /*
+     * `plants` is mine and months old; `trash` is this week and theirs. Ownership
+     * is the only thing that decides, so both have to be in the fixture — one
+     * of each would pass against a filter that tested the wrong field.
+     */
+    expect([...liveFlagsFor(flags, ME)].sort()).toEqual(['dishes', 'plants']);
   });
 
   it('returns everyone for the shared view', () => {
-    const byChore = liveFlagsByChore(flags, THURSDAY, 1);
-    expect([...byChore.keys()].sort()).toEqual(['dishes', 'trash']);
+    const byChore = liveFlagsByChore(flags);
+    expect([...byChore.keys()].sort()).toEqual(['dishes', 'plants', 'trash']);
     expect(byChore.get('trash')).toEqual([THEM]);
   });
 
   it('gathers both people on one chore', () => {
-    const both = liveFlagsByChore(
-      [flag('car', '2026-08-25', ME), flag('car', '2026-08-26', THEM)],
-      THURSDAY,
-      1,
-    );
+    const both = liveFlagsByChore([flag('car', '2026-08-25', ME), flag('car', '2026-08-26', THEM)]);
     expect(both.get('car')?.length).toBe(2);
   });
 });
@@ -112,16 +96,20 @@ describe('flagged first', () => {
 
 describe('toggling', () => {
   it('raises a flag on something unflagged', () => {
-    expect(toggleFlag(undefined, THURSDAY, 1)).toBe(THURSDAY);
+    expect(toggleFlag(undefined, THURSDAY)).toBe(THURSDAY);
   });
 
-  it('clears one raised this week', () => {
-    expect(toggleFlag(flag('c', '2026-08-25'), THURSDAY, 1)).toBeNull();
+  it('clears one that is there', () => {
+    expect(toggleFlag(flag('c', '2026-08-25'), THURSDAY)).toBeNull();
   });
 
-  it('re-raises a stale one rather than clearing something invisible', () => {
-    // The row exists but is not live, so the person sees an unflagged chore.
-    // Clearing it would make their first tap appear to do nothing.
-    expect(toggleFlag(flag('c', '2026-07-01'), THURSDAY, 1)).toBe(THURSDAY);
+  it('clears an old one rather than re-raising it', () => {
+    /*
+     * The reverse of what this did before. A flag used to go invisible at the
+     * end of its week while its row stayed, so tapping had to re-raise it or
+     * the first tap appeared to do nothing. Now every row is visible, so a tap
+     * on a flagged chore means what it looks like it means.
+     */
+    expect(toggleFlag(flag('c', '2026-01-04'), THURSDAY)).toBeNull();
   });
 });

@@ -1,66 +1,56 @@
 /**
- * "This one, this week."
+ * "This one, until it is done."
  *
- * A flag is raised on a date and is live only while that date falls inside the
- * week you are currently looking at. Nothing clears it: next Monday arrives and
- * last week's flags are simply no longer this week's.
+ * A flag lives until somebody lifts it or the chore is completed. There is no
+ * expiry to compute: a row that exists is a live flag, and the database
+ * deletes it the moment a completion lands — see
+ * supabase/migrations/20260921120000_flags_last_until_done.sql.
  *
- * That is the whole mechanism, and it is deliberate. The alternative — a
- * boolean plus a job that empties it every Monday — needs a scheduler, a
- * decision about what "Monday" means for a household that starts its week on
- * Sunday, and a second place where that decision lives. Expiry by comparison
- * has none of those: it is a pure function of two dates and a setting the
- * household already has.
+ * ── It used to expire by the week, and that was argued for ────────────────
  *
- * The trade is that a flag from March is still a row in the database. It costs
- * a few bytes and cannot affect anything, and re-flagging is an upsert rather
- * than a resurrection.
+ * A flag was live only while `flaggedOn` fell inside the week being viewed,
+ * which needed no scheduler and no decision about what "Monday" means for a
+ * household that starts its week on Sunday. All true, and beside the point:
+ * Jake — *"I don't like this whole 'flag it for the week' thing. It should
+ * stay flagged until you either unflag it or it gets done."* A week is an
+ * arbitrary boundary, and the worry that made you flag something does not end
+ * at one.
+ *
+ * What it costs is a rule the client cannot enforce alone, which is why the
+ * clearing is a trigger rather than three call sites that each have to
+ * remember. See docs/DECISIONS.md.
  */
 
-import { startOfWeek } from '../civil/date';
-import type { CivilDate, Weekday } from '../civil/types';
+import type { CivilDate } from '../civil/types';
 
 /** A flag as the engine needs it. The database row carries more. */
 export interface ChoreFlag {
   readonly choreId: string;
   readonly userId: string;
+  /** When it was raised. A record, not an expiry — nothing here reads it. */
   readonly flaggedOn: CivilDate;
 }
 
 /**
- * Is this flag live on the day being viewed?
+ * The chore ids one person has flagged.
  *
- * Compared by week rather than by age: a flag raised on Sunday is live for one
- * day if the week starts on Monday, and for seven if it starts on Sunday. "Is
- * it still this week" is the question people actually mean, and "is it less
- * than seven days old" only coincides with it by accident.
- */
-export function isFlagLive(flag: ChoreFlag, on: CivilDate, weekStartsOn: Weekday): boolean {
-  return startOfWeek(flag.flaggedOn, weekStartsOn) === startOfWeek(on, weekStartsOn);
-}
-
-/**
- * The chore ids one person has flagged for the week containing `on`.
+ * No date and no week: a row that is still here is a live flag. There is no
+ * `isFlagLive` any more, because there is nothing left for it to decide.
  *
  * A set rather than a list: every caller is asking "is this one flagged", and
  * handing back an array invites a linear scan inside a render loop.
  */
-export function liveFlagsFor(
-  flags: readonly ChoreFlag[],
-  userId: string,
-  on: CivilDate,
-  weekStartsOn: Weekday,
-): ReadonlySet<string> {
+export function liveFlagsFor(flags: readonly ChoreFlag[], userId: string): ReadonlySet<string> {
   const live = new Set<string>();
   for (const flag of flags) {
     if (flag.userId !== userId) continue;
-    if (isFlagLive(flag, on, weekStartsOn)) live.add(flag.choreId);
+    live.add(flag.choreId);
   }
   return live;
 }
 
 /**
- * Everyone's live flags, by chore.
+ * Everyone's flags, by chore.
  *
  * Seeing that your housemate is worried about the car inspection is most of
  * the point — it is how "this is on my mind" gets said without a conversation.
@@ -68,12 +58,9 @@ export function liveFlagsFor(
  */
 export function liveFlagsByChore(
   flags: readonly ChoreFlag[],
-  on: CivilDate,
-  weekStartsOn: Weekday,
 ): ReadonlyMap<string, readonly string[]> {
   const byChore = new Map<string, string[]>();
   for (const flag of flags) {
-    if (!isFlagLive(flag, on, weekStartsOn)) continue;
     const existing = byChore.get(flag.choreId);
     if (existing === undefined) byChore.set(flag.choreId, [flag.userId]);
     else existing.push(flag.userId);
@@ -108,16 +95,14 @@ export function flaggedFirst<T extends { readonly choreId: string }>(
 /**
  * What the flag should become when tapped.
  *
- * Returns the date to store, or null to remove it. A flag raised in a previous
- * week is *not* live, so tapping it raises it again for this week rather than
- * clearing something the person cannot see — the alternative makes the first
- * tap on a stale flag appear to do nothing at all.
+ * Returns the date to store, or null to remove it.
+ *
+ * There is no stale-flag case left to handle. It used to matter: a flag from a
+ * previous week was invisible but still a row, so tapping had to re-raise it
+ * rather than delete something the person could not see. Now every row on a
+ * chore is a flag you can see, so the tap simply means the opposite of
+ * whatever is there.
  */
-export function toggleFlag(
-  existing: ChoreFlag | undefined,
-  on: CivilDate,
-  weekStartsOn: Weekday,
-): CivilDate | null {
-  if (existing === undefined) return on;
-  return isFlagLive(existing, on, weekStartsOn) ? null : on;
+export function toggleFlag(existing: ChoreFlag | undefined, on: CivilDate): CivilDate | null {
+  return existing === undefined ? on : null;
 }

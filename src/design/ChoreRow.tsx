@@ -228,13 +228,17 @@ interface ChoreRowProps {
    */
   completedByLabel?: string | null;
   /**
-   * Somebody has marked this for attention this week.
+   * Somebody has marked this for attention.
    *
    * Deliberately not a fourth priority level. Emily's notes carry ‼️ and
    * sometimes four of them — that is not a scale being picked from, it is
-   * shouting louder about *this week*, which a permanent household-wide field
+   * shouting about *this one, now*, which a standing household-wide field
    * cannot say. Twenty-eight of ninety-nine chores are marked `crucial`, which
    * is what happens when you try.
+   *
+   * It lasts until it is lifted or the chore is done. It used to lapse at the
+   * end of the week, which meant the shout stopped without the thing being
+   * dealt with.
    */
   flagged?: boolean;
   onToggleFlag?: () => void;
@@ -374,7 +378,7 @@ export function ChoreRow({
           onPress={onOpen}
           accessibilityRole="button"
           accessibilityLabel={`${item.choreTitle}, ${turnLabel ?? 'anyone can do it'}.${
-            flagged ? ' Flagged for this week.' : ''
+            flagged ? ' Flagged.' : ''
           } Open options.`}
           style={{ flex: 1, gap: 4 }}
         >

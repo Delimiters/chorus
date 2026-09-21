@@ -162,8 +162,8 @@ export function TodayScreen() {
    * so `useFlagsByChore` had no call site at all while the pgTAP suite spent
    * five of nine assertions proving the visibility it enabled.
    */
-  const myFlags = useMyFlags(today, weekStartsOn);
-  const flagsByChore = useFlagsByChore(today, weekStartsOn);
+  const myFlags = useMyFlags();
+  const flagsByChore = useFlagsByChore();
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
   const toggleFlag = useToggleFlag(today, weekStartsOn);
   const toggle = useToggleCompletion();

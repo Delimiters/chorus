@@ -74,10 +74,7 @@ export function PlanView() {
       [today, weekStartsOn],
     ),
   );
-  const myFlags = useMyFlags(
-    today,
-    (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6,
-  );
+  const myFlags = useMyFlags();
 
   /**
    * Everything the plan could name, including what is already done today.

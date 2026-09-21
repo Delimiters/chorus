@@ -840,12 +840,16 @@ describe('seeing what the other person did', () => {
   });
 });
 
-describe('flagging something for this week', () => {
+describe('flagging something', () => {
   /*
    * Emily writes ‼️ in her notes, sometimes four of them. That is not a scale
-   * being picked from — it is shouting louder, about this week. `priority` is
+   * being picked from — it is shouting about this one, now. `priority` is
    * permanent, shared and three-valued, and 28 of 99 chores are `crucial`,
    * which is what happens when you use it to say something temporary.
+   *
+   * A flag lasts until it is lifted or the chore is completed. It used to
+   * lapse at the end of the week, which meant the shout stopped whether or not
+   * the thing had been dealt with.
    */
   const rowOrder = () =>
     screen
@@ -916,12 +920,12 @@ describe('flagging something for this week', () => {
     // which is what the sheet's copy promises and what RLS was built for.
     mockFlagsByChore = new Map([['dishes', [THEM]]]);
     renderScreen();
-    expect(screen.getByLabelText(/Dishes.*Flagged for this week/)).toBeOnTheScreen();
+    expect(screen.getByLabelText(/Dishes.*Flagged./)).toBeOnTheScreen();
   });
 
   it('says nothing about a chore that is not flagged', () => {
     renderScreen();
-    expect(screen.queryByLabelText(/Flagged for this week/)).toBeNull();
+    expect(screen.queryByLabelText(/Flagged./)).toBeNull();
   });
 });
 
