@@ -89,29 +89,28 @@ describe('a flag and the work it points at', () => {
     return (data ?? []).length;
   };
 
-  it('survives a day passing, which is what "this week" used to end', async () => {
-    /*
-     * Dated in January. Under the old rule this was not live at all; the whole
-     * point of the change is that age no longer decides.
-     */
-    const raised = await owner.client.from('chore_flags').insert({
+  /*
+   * There was a test here asserting that a January-dated flag survives. It
+   * could not fail: the old expiry was client-side — the original migration
+   * said a lapsed flag was *inert* rather than deleted — so reading the row
+   * straight back from the table passed on `main` too.
+   *
+   * Age not being consulted is a question for `liveFlagsFor`, and
+   * `src/core/chore/flag.test.ts` asks it there, including for a flag dated in
+   * the future. What belongs in this file is the part only a real database can
+   * answer: whether a tick through RLS reaches the trigger.
+   */
+  it('is cleared when the housemate ticks it off', async () => {
+    // Both people flag it, so the delete has to reach past the completer's own
+    // row. Raised here rather than leaning on a previous test's leftovers.
+    const mine = await owner.client.from('chore_flags').insert({
       household_id: householdId,
       chore_id: choreId,
       user_id: owner.userId,
       flagged_on: '2026-01-04',
     });
-    expect(raised.error).toBeNull();
+    expect(mine.error).toBeNull();
 
-    const { data } = await owner.client
-      .from('chore_flags')
-      .select('id')
-      .eq('chore_id', choreId)
-      .eq('user_id', owner.userId);
-    expect(data).toHaveLength(1);
-  });
-
-  it('is cleared when the housemate ticks it off', async () => {
-    // The joiner flags it too, so there are two flags from two people.
     const theirs = await joiner.client.from('chore_flags').insert({
       household_id: householdId,
       chore_id: choreId,
