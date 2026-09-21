@@ -11,7 +11,7 @@ import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/reac
 import { useMemo } from 'react';
 
 import { liveFlagsByChore, liveFlagsFor, toggleFlag } from '@/core/chore/flag';
-import type { CivilDate, Weekday } from '@/core/civil/types';
+import type { CivilDate } from '@/core/civil/types';
 import { listFlags, lowerFlag, raiseFlag, type ChoreFlagRow } from '../api/flags';
 import { qk } from '../queryKeys';
 import { useActiveHouseholdId, useUserId } from '@/stores/sessionStore';
@@ -27,23 +27,26 @@ export function useFlags(): readonly ChoreFlagRow[] {
   return query.data ?? EMPTY;
 }
 
-/** The chores you have flagged for the week containing `on`. */
-export function useMyFlags(on: CivilDate, weekStartsOn: Weekday): ReadonlySet<string> {
+/**
+ * The chores you have flagged.
+ *
+ * No day and no week start any more: a flag lasts until it is lifted or the
+ * chore is completed, and the completion is cleared by a database trigger. A
+ * row that is here is live.
+ */
+export function useMyFlags(): ReadonlySet<string> {
   const flags = useFlags();
   const userId = useUserId();
   return useMemo(
-    () => (userId === null ? new Set<string>() : liveFlagsFor(flags, userId, on, weekStartsOn)),
-    [flags, userId, on, weekStartsOn],
+    () => (userId === null ? new Set<string>() : liveFlagsFor(flags, userId)),
+    [flags, userId],
   );
 }
 
-/** Everyone's live flags, by chore — so a row can show that *somebody* cares. */
-export function useFlagsByChore(
-  on: CivilDate,
-  weekStartsOn: Weekday,
-): ReadonlyMap<string, readonly string[]> {
+/** Everyone's flags, by chore — so a row can show that *somebody* cares. */
+export function useFlagsByChore(): ReadonlyMap<string, readonly string[]> {
   const flags = useFlags();
-  return useMemo(() => liveFlagsByChore(flags, on, weekStartsOn), [flags, on, weekStartsOn]);
+  return useMemo(() => liveFlagsByChore(flags), [flags]);
 }
 
 /**
@@ -62,7 +65,7 @@ export function useFlagsByChore(
  * reads any state at all, which is the property that makes it correct rather
  * than merely fixed.
  */
-export function useToggleFlag(on: CivilDate, weekStartsOn: Weekday) {
+export function useToggleFlag(on: CivilDate) {
   const householdId = useActiveHouseholdId();
   const userId = useUserId();
   const queryClient = useQueryClient();
@@ -107,7 +110,6 @@ export function useToggleFlag(on: CivilDate, weekStartsOn: Weekday) {
     return toggleFlag(
       existing === undefined ? undefined : { choreId, userId, flaggedOn: existing.flaggedOn },
       on,
-      weekStartsOn,
     );
   };
 

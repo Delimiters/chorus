@@ -36,6 +36,68 @@ still has it. Nobody has asked for it back.
 
 ---
 
+## 2026-09-21 — A flag lasts until the job is done, not until Sunday
+
+**Was:** a flag was live only while the date it was raised on fell inside the
+week you were looking at. Nothing cleared it; Monday arrived and last week's
+flags simply stopped being this week's. That was argued for at length and the
+argument was good: no scheduler, no decision about what "Monday" means for a
+household that starts its week on Sunday, expiry as a pure function of two
+dates and a setting already on the household.
+
+**Now:** a flag lives until somebody lifts it or the chore is completed. A
+trigger on `chore_completions` deletes every flag on that chore.
+
+**Why:** Jake — *"I don't like this whole 'flag it for the week' thing. It
+should stay flagged until you either unflag it or it gets done."* The old rule
+answered a question nobody was asking. A week is an arbitrary boundary, and the
+worry that made you flag something does not end at one: the flag went quiet
+while the job was still undone, which is the opposite of what it is for.
+
+**It also closed a hole it did not open.** `completions_insert` checked that
+you belonged to the household you named and that you were the completer, and
+nothing about the chore — so the two columns were never required to agree. That
+was inert while nothing read the pair as a boundary. The trigger is the first
+thing that does: a member of one household could insert a completion carrying
+their own `household_id` beside a stranger's `chore_id`, and a `security
+definer` trigger scoped only by chore would have deleted that stranger's flags.
+The policy now carries `chore_is_visible(chore_id)`, which `completions_select`
+has always had. A first draft of this migration asserted in a comment that the
+household predicate in the trigger was redundant and untestable; it was neither,
+and the comment would have invited someone to remove the second lock.
+
+**Why a trigger rather than the app:** a chore can be completed from Today,
+from the plan and from the occurrence sheet. Doing the clearing in the client
+means three call sites that must each remember, and a fourth the day somebody
+adds a screen. It is `security definer` because the person finishing the chore
+is not necessarily the person who flagged it, and `chore_flags_delete` is
+`user_id = auth.uid()` — clearing only your own would leave your housemate's
+"!!" on finished work, which they cannot then reach from any screen that still
+lists it.
+
+**Costs, and they are real:**
+
+- **Unticking does not bring the flag back.** A tick clears it, and a tick you
+  immediately undo has still cleared it. Restoring it would mean keeping the
+  row and marking *why* it was cleared, which is a second state to reason
+  about for a case that costs one tap to fix.
+- **Skipping deliberately does not clear it.** "Not this time" is not "dealt
+  with", and a flagged chore you have just skipped is arguably more worth
+  seeing.
+- **Any occurrence clears it, not the one you meant.** Flags are keyed on the
+  chore, with no occurrence key, so ticking off yesterday's missed washing-up
+  clears a flag raised this morning about today's. Per-occurrence flags would
+  need a schema change, and "it gets done" is what was asked for — but on a
+  daily chore this is the cost most likely to be noticed.
+- `isFlagLive` is gone, and `liveFlagsFor` / `liveFlagsByChore` / `toggleFlag`
+  no longer take a date or a week start. Five core tests about week boundaries
+  were deleted rather than rewritten — there is no expiry left for them to be
+  about.
+- `flagged_on` stays, as a record of when rather than an expiry. Nothing reads
+  it to decide anything.
+
+---
+
 ## 2026-09-10 — Flagged work leads the whole plan, and cross-section dragging stays gone
 
 **Was:** the plan grouped into Chores and One-time tasks, each its own drag

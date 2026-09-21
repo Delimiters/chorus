@@ -1,10 +1,16 @@
 /**
- * "This one, this week."
+ * "This one, until it is done."
  *
- * A per-person marker with a date on it, live only while that date falls in the
- * week being viewed. Nothing ever clears a flag — see `core/chore/flag.ts` for
- * why expiry beats a scheduled sweep, and the migration for why the write side
- * is owner-only where completions are not.
+ * A per-person marker on a chore. Every row is live: there is no expiry to
+ * compute, and the rows do not accumulate, because completing the chore
+ * deletes them — a trigger, in
+ * supabase/migrations/20260921120000_flags_last_until_done.sql, since a chore
+ * can be completed from three screens and the clearing has to hold for all of
+ * them.
+ *
+ * Raising and lowering are owner-only: you can see your housemate's flag and
+ * cannot lift it. Completion is the exception, and it is the trigger rather
+ * than a policy that does it — which is why the trigger is `security definer`.
  */
 
 import { civilDate } from '@/core/civil/date';
@@ -27,13 +33,11 @@ function fail(error: { message: string }): never {
 /**
  * Every flag in the household, both people's.
  *
- * Not filtered to the current week here: the week boundary depends on
- * `weekStartsOn`, which is a household setting that can change, and baking it
- * into the query would mean the cache held rows selected under the old answer.
- * The engine decides what is live; this just fetches.
- *
- * Stale rows are cheap — one per person per chore, ever — so the whole table
- * is smaller than a single day's completions.
+ * Unfiltered, and there is nothing left to filter by: a row that exists is a
+ * live flag. It used to need saying that the week was deliberately not applied
+ * here — the boundary depended on a household setting that can change, so
+ * baking it into the query would have cached rows chosen under the old answer.
+ * That whole problem is gone.
  */
 export async function listFlags(householdId: string): Promise<readonly ChoreFlagRow[]> {
   const { data, error } = await supabase

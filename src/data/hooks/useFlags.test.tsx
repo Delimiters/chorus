@@ -83,7 +83,7 @@ describe('toggling a flag writes what it says it writes', () => {
   it('raises one on an unflagged chore', async () => {
     const { client, wrapper } = harness();
     seed(client, []);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
@@ -95,10 +95,10 @@ describe('toggling a flag writes what it says it writes', () => {
     expect(mockLowered).toHaveLength(0);
   });
 
-  it('lowers one raised this week', async () => {
+  it('lowers one that is there', async () => {
     const { client, wrapper } = harness();
     seed(client, [{ choreId: 'dishes', userId: ME, flaggedOn: civilDate('2026-08-25') }]);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
@@ -107,25 +107,29 @@ describe('toggling a flag writes what it says it writes', () => {
     expect(mockRaised).toHaveLength(0);
   });
 
-  it('re-raises a stale flag rather than deleting something invisible', async () => {
-    // The row exists but is from a past week, so the person sees an unflagged
-    // chore. Clearing it would make their first tap appear to do nothing.
+  it('clears an old flag rather than re-raising it', async () => {
+    /*
+     * The reverse of what this did before. A flag used to go invisible at the
+     * end of its week while its row stayed, so tapping had to re-raise it or
+     * the first tap appeared to do nothing. Flags no longer lapse, so an old
+     * row is a flag the person can see, and tapping it means lower it.
+     */
     const { client, wrapper } = harness();
-    seed(client, [{ choreId: 'dishes', userId: ME, flaggedOn: civilDate('2026-07-01') }]);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    seed(client, [{ choreId: 'dishes', userId: ME, flaggedOn: civilDate('2026-01-04') }]);
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
-    await waitFor(() => expect(mockRaised).toHaveLength(1));
-    expect(mockRaised[0]?.flaggedOn).toBe(TODAY);
-    expect(mockLowered).toHaveLength(0);
+    await waitFor(() => expect(mockLowered).toHaveLength(1));
+    expect(mockLowered[0]).toEqual({ choreId: 'dishes', userId: ME });
+    expect(mockRaised).toHaveLength(0);
   });
 
   it('ignores a flag belonging to the other person', async () => {
     // Their flag is visible but not mine to clear, so tapping raises my own.
     const { client, wrapper } = harness();
     seed(client, [{ choreId: 'dishes', userId: 'user-them', flaggedOn: TODAY }]);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
@@ -142,7 +146,7 @@ describe('toggling a flag writes what it says it writes', () => {
      */
     const { client, wrapper } = harness();
     seed(client, []);
-    const { result } = renderHook(() => useToggleFlag(TODAY, 1), { wrapper });
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
