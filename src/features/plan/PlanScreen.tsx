@@ -90,6 +90,25 @@ interface PlanScreenProps {
    */
   readonly proposal?: { items: readonly AgendaItem[]; reason: string } | null;
   readonly onAcceptProposal?: (items: readonly AgendaItem[]) => void;
+  /**
+   * How many outstanding chores are due today or already late.
+   *
+   * A count rather than the items, because the screen only needs to say how
+   * big the commitment is and whether to offer it at all. Zero hides the
+   * button: an "Add everything due" that adds nothing is the dead-button shape
+   * this area keeps producing.
+   */
+  readonly dueOrLateCount?: number;
+  readonly onAddAllDue?: () => void;
+  /**
+   * Whether the household has asked for plans to fill themselves.
+   *
+   * Only the housemate's empty day reads it, and only to avoid promising
+   * something that will not happen. Passed rather than read from the hook here
+   * because the value already sits one layer up, where the effect that acts on
+   * it lives.
+   */
+  readonly autoPlan?: boolean;
   readonly onAdd: () => void;
   /** Which chores recur — the screen's own `chores` prop has no schedules. */
   readonly recurringChoreIds: ReadonlySet<string>;
@@ -107,6 +126,9 @@ export function PlanScreen({
   recurringChoreIds,
   proposal = null,
   onAcceptProposal,
+  dueOrLateCount = 0,
+  onAddAllDue,
+  autoPlan = false,
 }: PlanScreenProps) {
   const { colors } = useTheme();
   const router = useRouter();
@@ -706,6 +728,32 @@ export function PlanScreen({
     );
   };
 
+  /*
+   * "Everything you already owe", in one tap.
+   *
+   * Defined once and rendered in both the empty and the started states, so the
+   * control cannot drift between them. The first version lived only in the
+   * empty branch — which meant that the moment Emily assigned Jake one thing
+   * the button vanished and the rest of what he owed had to be added by hand,
+   * the opposite of the point. It also made the already-planned filter behind
+   * the count unreachable, since a non-empty plan hid the only thing reading
+   * it.
+   *
+   * The count is in the label because the reason the plan no longer fills
+   * itself is that it got too big: being told it is seven before you tap is
+   * the difference between choosing a full day and being handed one. Hidden at
+   * zero — a button that adds nothing is the dead-button shape this screen
+   * keeps producing.
+   */
+  const addAllDue =
+    dueOrLateCount === 0 || onAddAllDue === undefined ? null : (
+      <Button
+        label={`Add everything due or late (${dueOrLateCount})`}
+        variant="ghost"
+        onPress={onAddAllDue}
+      />
+    );
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <ScrollView
@@ -874,6 +922,8 @@ export function PlanScreen({
                 <Button label="Pick my own" variant="ghost" onPress={onAdd} />
               </View>
             )}
+
+            {addAllDue}
           </View>
         ) : (
           <>
@@ -919,6 +969,7 @@ export function PlanScreen({
                 onPress={onAdd}
               />
             </View>
+            {addAllDue}
           </>
         )}
 
@@ -948,8 +999,21 @@ export function PlanScreen({
               count={theirSections.all.length - theirSections.done}
             />
             {theirSections.all.length === 0 ? (
+              /*
+                Two sentences, because only one of them is true at a time.
+                
+                "Their day fills up when they open the app" was unconditional,
+                and became false for every household the moment auto-fill
+                became opt-in and defaulted off — on the branch that renders
+                *normally*, since an unplanned housemate day is the usual
+                morning state. Telling Jake that Emily's day will fill itself
+                when nothing will ever put anything on it is the worst version
+                of this: he would wait rather than act.
+              */
               <Txt variant="small" tone="muted">
-                {`${theirName} hasn't planned anything today. Their day fills up when they open the app — or you can put something on it.`}
+                {autoPlan
+                  ? `${theirName} hasn't planned anything today. Their day fills up when they open the app — or you can put something on it.`
+                  : `${theirName} hasn't planned anything today. You can put something on their day.`}
               </Txt>
             ) : (
               renderDay(theirSections, housemate.userId)

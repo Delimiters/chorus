@@ -18,6 +18,67 @@ Newest first.
 
 ---
 
+## 2026-09-22 — The plan starts empty, and auto-fill is an opt-in household setting
+
+**Was:** everything due or late was added to each person's plan automatically
+every morning — one-off tasks included, per the 2026-09-07 reversal above,
+which measured the cost at 38 extra rows and a day going from about 25 items
+to about 50. Argued for, twice, and written down here: "the litter box is not
+a decision."
+
+**Now:** `households.auto_plan`, `not null default false`. Nothing is added
+unless the household turns it on — **except flagged work, which still lands by
+itself**. A new ghost button — "Add everything due or late (N)" — does the rest
+in one tap, and appears in both the empty and the started states.
+
+**Why flags are carved out**, asked for immediately after the switch: *"if
+things are flagged they should still automatically populate onto the plan but
+nothing else should."* It is not an exception to the rule below, it is the
+clearest instance of it. Every other row auto-fill produced came from a
+schedule nobody looked at that morning; a flag is a person deciding by hand,
+and flags are shared, so it is also how Emily tells Jake something needs doing
+without a conversation. Making him add it again would be asking him to agree
+twice. Narrowed by the same due-or-late rule, because a flag lasts until the
+work is done and a chore flagged now but due in three weeks would otherwise sit
+on every day in between.
+
+**Flags could not use the existing once-a-day marker**, and finding that out is
+most of the work in this change. `autoPlannedOn` is set the first time the
+effect runs — including when it had nothing to add — and it exists so that
+"Take off today" sticks. Under it, a chore flagged at two in the afternoon
+would not have reached the plan until the next morning, which is exactly the
+case the carve-out is for: a flag usually goes up *because* something has just
+come up. So flagged occurrences are now recorded individually
+(`autoPlannedFlags`), each added at most once a day. That keeps removal sticky
+without making the flag wait for tomorrow.
+
+**Why:** Emily's complaint, twice, was that there was too much on the plan.
+Jake: *"I guess we should go back to having the plan page just start empty and
+you have to add everything manually ... whatever Emily wants me to do today she
+can assign me and there will be no confusion as to whether something is getting
+done today or not. **If I added it to the plan I'm doing it.**"*
+
+That last sentence is the actual reversal. The old rule was defended on the
+grounds that routine work should not need deciding — which is true about the
+*work* and false about the *plan*. A plan row was being used as evidence of
+intention, and auto-fill put rows there that carried none, so the plan stopped
+meaning anything. The count in the button label exists for the same reason:
+the failure mode being fixed is volume, so the control says how much before you
+commit to it.
+
+**Why the household and not the person**, when every neighbouring preference is
+per person: this one changes what a row *means* rather than how it looks. Split
+answers would make the same row read as "I am doing this" on one phone and "the
+app put this here" on the other, and the shared contract would be worth nothing.
+
+**What it costs:** the two people who wanted it filled now have to turn it back
+on, and the bulk-add button is offered only while the plan is still empty —
+once you have chosen anything, the picker is the way to add more. If reaching
+for "everything else I owe" mid-morning turns out to matter, that is a second
+placement, not a rethink.
+
+---
+
 ## 2026-09-09 — Upcoming lost its "What's on <date>" header
 
 **Was:** the screen opened with a display-sized title, the date beneath it, and
@@ -477,6 +538,11 @@ three weeks old. The finish moment was a deliberate feature — Jake asked for i
 specifically — and it has been quietly switched off by a change about something
 else. The age cap would restore it. **Not decided.**
 
+**Superseded 2026-09-22.** Auto-planning is now off unless the household turns
+it on, so nothing described here happens by default. What survives is the
+*rule* — `autoPlannable` still means "due or late, one-off work included" — and
+it is what both the setting and the "Add everything due or late" button use.
+
 ---
 
 ## 2026-09-04 — A housemate's empty day is explained, not hidden
@@ -492,8 +558,13 @@ push it? I don't see Emily's plan."*
 
 **The thing worth knowing:** the auto-plan runs on *your device* when *you* open
 the app. A housemate who has not opened Chorus has no plan at all — which is not
-a decision they made. That is why the empty state shows a forecast of what will
-fill their day, computed with the same `autoPlannable` that will fill it.
+a decision they made. That is why the empty state showed a forecast of what
+would fill their day, computed with the same `autoPlannable` that would fill it.
+
+**Superseded twice since.** The forecast was removed in #105, and as of
+2026-09-22 auto-filling is off unless the household turns it on — so by default
+there is nothing to forecast, and the housemate's empty day now says only that
+you can put something on it.
 
 **Still open:** moving auto-planning server-side would make everyone's day exist
 every morning regardless of who opens the app. Raised with Jake, not decided.
@@ -515,6 +586,11 @@ handful of real things.
 
 Still excluded, and both load-bearing: work `showFrom` has pulled forward, which
 is early rather than late; and work already completed or skipped today.
+
+**Superseded 2026-09-22.** Auto-planning is now off unless the household turns
+it on, so nothing described here happens by default. What survives is the
+*rule* — `autoPlannable` still means "due or late, one-off work included" — and
+it is what both the setting and the "Add everything due or late" button use.
 
 ---
 

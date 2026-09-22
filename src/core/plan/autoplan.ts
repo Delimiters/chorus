@@ -1,9 +1,12 @@
 /**
  * What a person's day gets filled with, before they have chosen anything.
  *
- * Anything due or late goes onto the plan by itself — it is the baseline the
- * day starts from, and choosing it every morning was the friction the plan
- * exists to remove.
+ * This decides *what would be added* if something is doing the adding. As of
+ * 2026-09-22 that is no longer automatic: the household opts in, and with the
+ * setting off only flagged work goes on by itself. The rule did not change —
+ * anything due or late, whoever's turn it is — but the sentence that used to
+ * sit here ("it is the baseline the day starts from") described a behaviour
+ * that is now off by default.
  *
  * **One-off work is included, and that is a reversal.** This added only
  * recurring chores, on the argument that a one-off is a decision and the
@@ -19,15 +22,19 @@
  *
  * ── Why this is here rather than inline in the effect that uses it ─────────
  *
- * It has two callers, and they must agree. The auto-plan itself runs on *your*
- * device for *your* day; the plan screen also shows a housemate's day, and when
- * they have not opened the app there is nothing to show — so it offers what
- * their day will be filled with when they do. Jake, on being shown an empty
- * sheet: *"is it going to show me the stuff that will automatically be on her
- * list regardless of if she's logged in?"*
+ * It has two callers, and they must agree: the auto-fill effect, and the "Add
+ * everything due or late" button that does the same job on request. If the
+ * button offered a different set from the one the setting adds, the two would
+ * be describing different days and the button's count would be a lie.
  *
- * Two copies of that rule would drift, and the drift would be invisible: the
- * preview would quietly stop matching what actually lands.
+ * ── It used to be a housemate forecast, and that is gone ──────────────────
+ *
+ * The second caller was once the plan screen previewing a housemate's day —
+ * what would land when they opened the app. Jake: *"is it going to show me the
+ * stuff that will automatically be on her list regardless of if she's logged
+ * in?"* That forecast was removed in #105, and as of 2026-09-22 auto-filling
+ * is off unless the household turns it on, so by default there is nothing left
+ * to forecast. This header went on describing it regardless.
  *
  * The clock stays outside: `on` is passed in because this module never reads
  * one. Nothing about the chore's *schedule* is consulted any more — see the

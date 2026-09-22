@@ -86,9 +86,12 @@ describe('what a day fills itself with', () => {
 
   it('answers for a person who is not the one asking', () => {
     /*
-     * The whole reason this is shared. The plan screen previews a housemate's
-     * day with the same rule that will fill it when they open the app — two
-     * copies of it would drift, and the drift would be invisible.
+     * `userId` is a parameter rather than an ambient "me", so the rule can be
+     * asked about anybody. Nothing asks about a housemate any more — the
+     * forecast that did was removed in #105 — but this filter is the boundary
+     * that keeps your housemate's turn off your own plan, and it is worth
+     * pinning against the id it is handed rather than the one the caller
+     * happens to be.
      */
     const day = [
       item('shared'),

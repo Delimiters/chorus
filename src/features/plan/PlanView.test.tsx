@@ -43,6 +43,9 @@ let mockEntriesLoading = false;
 let mockAllEntries: typeof mockEntries | null = null;
 let mockMembers: { userId: string; displayName: string; accent: string }[] = [];
 let mockAutoPlannedOn: string | null = null;
+/** Flagged occurrences already auto-added today, as the store would persist them. */
+let mockAutoPlannedFlags: { on: string; keys: string[] } | null = null;
+const mockMarkFlagsAutoPlanned = jest.fn();
 let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
 
 let mockHorizon: AgendaItem[] = [];
@@ -98,10 +101,15 @@ jest.mock('@/data/hooks/usePlan', () => ({
 }));
 
 jest.mock('@/stores/routineStore', () => ({
-  useRoutinePreference: () => ({ autoPlannedOn: mockAutoPlannedOn, todayMode: 'plan' }),
+  useRoutinePreference: () => ({
+    autoPlannedOn: mockAutoPlannedOn,
+    autoPlannedFlags: mockAutoPlannedFlags,
+    todayMode: 'plan',
+  }),
   useRoutineStore: (selector: (s: unknown) => unknown) =>
     selector({
       markAutoPlanned: mockMarkAutoPlanned,
+      markFlagsAutoPlanned: mockMarkFlagsAutoPlanned,
       planOnCreate: mockPlanOnCreate,
       clearPlanOnCreate: mockClearPlanOnCreate,
       queuePlanOnCreate: jest.fn(),
@@ -167,8 +175,27 @@ const mockScheduleToday = jest.fn();
 jest.mock('@/data/hooks/useChores', () => ({
   useScheduleToday: () => ({ mutate: mockScheduleToday }),
 }));
+/*
+ * Auto-fill is a household setting and it is off by default, so every test
+ * that wants the plan to fill itself has to say so. A `let` rather than a
+ * constant for exactly that reason — and the default here is `false`, matching
+ * the column, so a test that forgets gets the shipped behaviour rather than a
+ * convenient one.
+ */
+let mockAutoPlan = false;
+/*
+ * The household query's own loading state, which this harness could not
+ * express at all — `useHousehold` always handed back a resolved object, so the
+ * guard that waits for it had no test that could fail. A review found the gate
+ * could be inverted to run while the household was still in flight with all
+ * 1412 tests green.
+ */
+let mockHouseholdLoading = false;
 jest.mock('@/data/hooks/useHousehold', () => ({
-  useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC' } }),
+  useHousehold: () =>
+    mockHouseholdLoading
+      ? { data: undefined }
+      : { data: { weekStartsOn: 1, timeZone: 'UTC', autoPlan: mockAutoPlan } },
   useMembers: () => ({ data: mockMembers }),
   useSetPlanGroupOrder: () => ({ mutate: jest.fn(), error: null }),
 }));
@@ -244,6 +271,8 @@ beforeEach(() => {
   mockProposeDay.mockClear();
   mockMyFlags = new Set();
   mockTheirFlags = new Set();
+  mockAutoPlan = false;
+  mockHouseholdLoading = false;
   mockView = { mine: [], theirs: [], done: [], skipped: [], upcoming: [], floating: [] };
   mockChores = [];
   mockEntries = [];
@@ -252,12 +281,18 @@ beforeEach(() => {
   mockIsLoading = false;
   mockEntriesLoading = false;
   mockAutoPlannedOn = null;
+  mockAutoPlannedFlags = null;
+  mockMarkFlagsAutoPlanned.mockClear();
   mockPlanOnCreate = [];
   mockHorizon = [];
   mockScheduleToday.mockClear();
 });
 
 describe('recurring chores that are due today or late', () => {
+  beforeEach(() => {
+    mockAutoPlan = true;
+  });
+
   it('go on the plan by themselves', async () => {
     mockView.mine = [item('litter')];
     mockChores = [recurring('litter')];
@@ -621,6 +656,10 @@ describe('work already on the plan', () => {
 });
 
 describe('the day is only marked auto-planned once the write lands', () => {
+  beforeEach(() => {
+    mockAutoPlan = true;
+  });
+
   /*
    * `useAddToPlan` is optimistic: `onMutate` puts the new rows in the cache
    * before the request is sent. `entries` is a dependency of the auto-plan
@@ -762,6 +801,10 @@ describe('a chore created with "put it on today" ticked', () => {
 });
 
 describe('two people sharing one household', () => {
+  beforeEach(() => {
+    mockAutoPlan = true;
+  });
+
   const THEM = 'user-them';
 
   beforeEach(() => {
@@ -835,5 +878,426 @@ describe('what the morning proposal counts as urgent', () => {
 
     const options = mockProposeDay.mock.calls.at(-1)?.[1] as { flagged: ReadonlySet<string> };
     expect([...options.flagged].sort()).toEqual(['dishes', 'gutters']);
+  });
+});
+
+describe('the plan starts empty unless the household asked otherwise', () => {
+  /*
+   * Emily, twice: too much on the plan. Jake: *"I guess we should go back to
+   * having the plan page just start empty and you have to add everything
+   * manually ... If I added it to the plan I'm doing it."*
+   *
+   * The fixture is deliberately the exact one that fills the plan in the
+   * describe above — `litter` due today, plus something long overdue. If the
+   * setting were ignored these would be added, so the assertion cannot pass by
+   * having nothing to add, which is the vacuous shape this repo keeps hitting.
+   */
+  const dueAndLate = () => {
+    mockView.mine = [
+      item('litter'),
+      item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
+    ];
+    mockChores = [recurring('litter'), recurring('gutters')];
+  };
+
+  it('adds nothing when the setting is off', async () => {
+    mockAutoPlan = false;
+    dueAndLate();
+    renderView();
+
+    /*
+     * Waits for the screen to settle rather than asserting immediately, so a
+     * late effect cannot sneak the rows in after the assertion has passed.
+     *
+     * Settles on the proposal, not on "Nothing planned yet." — with the plan
+     * empty and work outstanding, the morning offer is what renders, and that
+     * is the shape this change is meant to produce: asked, not filled.
+     */
+    await screen.findByText('Start the day');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('adds them when it is on', async () => {
+    mockAutoPlan = true;
+    dueAndLate();
+    renderView();
+
+    await waitFor(() => expect(addedKeys().sort()).toEqual(['v1:gutters', 'v1:litter']));
+  });
+
+  it('offers them behind a button instead, counting what it would add', async () => {
+    mockAutoPlan = false;
+    dueAndLate();
+    /*
+     * A third chore that is outstanding but *not* yet owed, so the count can
+     * tell "due or late" apart from "everything on the list". Without it both
+     * rules produce 2 and the label agrees with a button that would dump next
+     * week onto today.
+     */
+    mockView.mine = [
+      ...mockView.mine,
+      item('filters', { status: 'due', dueOn: civilDate('2026-09-09') }),
+    ];
+    mockChores = [...mockChores, recurring('filters')];
+    renderView();
+
+    // The count is in the label because the reason the plan no longer fills
+    // itself is that it got too big — being told it is two before you tap is
+    // the point of the control.
+    const button = await screen.findByText('Add everything due or late (2)');
+    fireEvent.press(button);
+
+    await waitFor(() => expect(addedKeys().sort()).toEqual(['v1:gutters', 'v1:litter']));
+  });
+
+  it('hides the button when there is nothing due or late', async () => {
+    /*
+     * A button that adds nothing is the dead-button shape this screen keeps
+     * producing — offered, counted, and then doing nothing at all.
+     *
+     * `filters` is pulled forward by `showFrom` rather than absent, so the
+     * plan is non-empty in the way that matters: there is outstanding work on
+     * screen, it is simply not owed yet.
+     */
+    mockAutoPlan = false;
+    mockView.mine = [item('filters', { status: 'due', dueOn: civilDate('2026-09-09') })];
+    mockChores = [recurring('filters')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(screen.queryByText(/Add everything due or late/)).toBeNull();
+  });
+});
+
+describe('what the bulk-add button counts', () => {
+  /*
+   * Three properties the first version of these tests could not see, each
+   * found by mutating the source and watching the suite stay green:
+   *
+   *  - every fixture used the default `assignee: { kind: 'anyone' }`, so
+   *    widening the button from `view.mine` to the whole household changed
+   *    nothing;
+   *  - `mockEntries` was `[]` everywhere, so dropping the already-planned
+   *    filter changed nothing;
+   *  - `useHousehold` always resolved, so the wait-for-the-household guard
+   *    could be inverted and nothing noticed.
+   */
+  it('leaves out work that is your housemate’s turn', async () => {
+    mockAutoPlan = false;
+    /*
+     * `litter` is shared, so it sits in *both* sections — that is how "anyone"
+     * work is projected, and it is what makes reading `theirs` as well as
+     * `mine` produce a duplicate rather than merely extra work. Without it the
+     * `belongsTo` filter alone neutralises the mistake and the assertion
+     * cannot tell the two implementations apart.
+     *
+     * `gutters` is Emily's turn: adding it to Jake's day would reassign her
+     * work with nothing on screen saying so.
+     */
+    mockView.mine = [item('litter')];
+    mockView.theirs = [
+      item('litter'),
+      item('gutters', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
+    ];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    const button = await screen.findByText('Add everything due or late (1)');
+    fireEvent.press(button);
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:litter']));
+  });
+
+  it('does not count what is already on your plan', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter'), item('bins')];
+    mockChores = [recurring('litter'), recurring('bins')];
+    mockEntries = [
+      { occurrenceKey: 'v1:bins', choreId: 'bins', plannedFor: mockToday, position: 0 },
+    ];
+    renderView();
+
+    // One, not two: the bins are already spoken for. The plan is non-empty
+    // here, so this also pins that the button is reachable in that state.
+    await screen.findByText('Add everything due or late (1)');
+  });
+
+  it('offers nothing while the household setting is still loading', async () => {
+    /*
+     * The guard reads `household.data == null` rather than `?.autoPlan`, on
+     * the grounds that treating "not read yet" as "off" would be right only by
+     * luck. This is the test that makes that a guarantee rather than a comment:
+     * with the household in flight, auto-fill must not run.
+     */
+    mockHouseholdLoading = true;
+    mockAutoPlan = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe('the bulk-add button waits for the plan', () => {
+  /*
+   * `entries` is empty until the plan query lands, so "what is already
+   * planned" reads as nothing and the count would include work that is
+   * already on today's plan — on a screen that, in that same window, is also
+   * rendering the empty state. The number would be wrong in the one direction
+   * that matters: too big.
+   *
+   * Pressing it could not have created duplicate rows, since the upsert
+   * ignores conflicts. But the whole reason the count is in the label is to
+   * say how large the commitment is before you accept it.
+   */
+  it('offers nothing while the plan query is still in flight', async () => {
+    mockAutoPlan = false;
+    mockEntriesLoading = true;
+    mockView.mine = [item('litter'), item('bins')];
+    mockChores = [recurring('litter'), recurring('bins')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(screen.queryByText(/Add everything due or late/)).toBeNull();
+  });
+});
+
+describe('flagged work lands by itself even when nothing else does', () => {
+  /*
+   * Jake: *"okay so if things are flagged they should still automatically
+   * populate onto the plan but nothing else should."*
+   *
+   * Not an exception to "if I added it to the plan I'm doing it" — the
+   * clearest case of it. Every other row auto-fill produced came from a
+   * schedule nobody looked at this morning. A flag is a person deciding by
+   * hand, and flags are shared, so it is also how Emily says it to Jake.
+   */
+  beforeEach(() => {
+    mockAutoPlan = false;
+  });
+
+  it('adds the flagged one and leaves the rest alone', async () => {
+    /*
+     * Both chores are due today and identical in every other way, so the only
+     * thing that can separate them is the flag. A fixture with just the
+     * flagged chore would pass against "add everything", which is the rule
+     * this is meant to rule out.
+     */
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('litter'), item('gutters')];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+
+  it('counts your housemate’s flag too', async () => {
+    // Flags are shared: Emily flagging something is her telling Jake it needs
+    // doing, and it would be a strange kind of shared if it reached only her
+    // plan.
+    mockTheirFlags = new Set(['gutters']);
+    mockView.mine = [item('litter'), item('gutters')];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+
+  it('does not drag a flagged chore forward before it is owed', async () => {
+    /*
+     * A flag lasts until the work is done, so a chore flagged now and due in
+     * three weeks would otherwise sit on every single day between here and
+     * there — the wall of rows this whole change exists to remove. Flagging
+     * pins it to the top of the plan on the day it is actually owed.
+     */
+    mockMyFlags = new Set(['filters']);
+    mockView.mine = [item('filters', { status: 'due', dueOn: civilDate('2026-09-09') })];
+    mockChores = [recurring('filters')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('adds a flagged chore that is late, not only one due today', async () => {
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [
+      item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
+    ];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+});
+
+describe('a flag raised after the morning fill has already run', () => {
+  /*
+   * The case the whole carve-out is for, and the one a day-level marker gets
+   * wrong. `autoPlannedOn` is set the first time the effect runs — including
+   * when it had nothing to add — and it used to short-circuit everything after
+   * it. So a chore flagged at two in the afternoon, which is when flags
+   * actually get raised, would not have reached the plan until tomorrow.
+   */
+  beforeEach(() => {
+    mockAutoPlan = false;
+    // The day has already been through the fill.
+    mockAutoPlannedOn = mockToday;
+  });
+
+  it('still lands on the plan', async () => {
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('litter'), item('gutters')];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+
+  it('records the occurrence so taking it off sticks', async () => {
+    /*
+     * The other half. A flag lives until the work is done, so without a record
+     * of what has already been auto-added, removing a flagged chore would hand
+     * it straight back on the next render — a fight that would last all day.
+     */
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    // The record is written from `onSuccess`, the same place the day marker is
+    // — a failed insert must not leave the occurrence looking handled.
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    const options = mockAdd.mock.calls[0]?.[1] as { onSuccess: () => void };
+    options.onSuccess();
+
+    expect(mockMarkFlagsAutoPlanned).toHaveBeenCalledWith(mockToday, ['v1:gutters']);
+  });
+
+  it('does not add one it has already added today', async () => {
+    mockMyFlags = new Set(['gutters']);
+    mockAutoPlannedFlags = { on: mockToday, keys: ['v1:gutters'] };
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('ignores a record left over from yesterday', async () => {
+    // The key carries its own date, so a stale record can never match — but
+    // the day is compared anyway rather than relying on that.
+    mockMyFlags = new Set(['gutters']);
+    mockAutoPlannedFlags = { on: '2026-08-31', keys: ['v1:gutters'] };
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+});
+
+describe('the setting reaches the screen, not just the effect', () => {
+  /*
+   * `PlanScreen.test.tsx` pins the ternary that chooses the housemate's
+   * empty-day sentence, but nothing pinned that the real value ever arrives:
+   * hardcoding the prop to either constant left the whole suite green. That is
+   * the `FormScroll` story from AGENTS.md — a correct component, a correct
+   * screen, and a wire between them nobody checked.
+   *
+   * The sentence matters because with filling off it is a promise nothing can
+   * keep: Jake would be told Emily's day fills itself when nothing will ever
+   * put anything on it.
+   */
+  beforeEach(() => {
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+  });
+
+  it('does not promise a day that will never fill itself', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText(/You can put something on their day/);
+    expect(screen.queryByText(/fills up when they open the app/)).toBeNull();
+  });
+
+  it('still promises it when the household has turned filling on', async () => {
+    mockAutoPlan = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText(/fills up when they open the app/);
+  });
+});
+
+describe('flagging something already on your plan', () => {
+  /*
+   * `dueToday` excludes whatever is already planned, so this case wrote no
+   * record at all: nothing to add, nothing remembered, and the first time you
+   * took the chore off, the flagged path handed it straight back. The second
+   * removal stuck, because the bounce-back finally wrote the record — "the
+   * button did nothing, then worked", which is the worst kind.
+   */
+  it('records it as handled even though there is nothing to add', async () => {
+    mockAutoPlan = false;
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    mockEntries = [
+      { occurrenceKey: 'v1:gutters', choreId: 'gutters', plannedFor: mockToday, position: 0 },
+    ];
+    renderView();
+
+    await waitFor(() =>
+      expect(mockMarkFlagsAutoPlanned).toHaveBeenCalledWith(mockToday, ['v1:gutters']),
+    );
+    // Nothing was added — it was already there. The record is the whole point.
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('does not write the record again once it is there', async () => {
+    // `autoPlannedFlags` is a dependency of the effect, so re-recording a key
+    // that is already recorded would re-run it forever.
+    mockAutoPlan = false;
+    mockMyFlags = new Set(['gutters']);
+    mockAutoPlannedFlags = { on: mockToday, keys: ['v1:gutters'] };
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    mockEntries = [
+      { occurrenceKey: 'v1:gutters', choreId: 'gutters', plannedFor: mockToday, position: 0 },
+    ];
+    renderView();
+
+    await screen.findByText(/Doing today|Done today/);
+    expect(mockMarkFlagsAutoPlanned).not.toHaveBeenCalled();
+  });
+
+  it('records flagged work the whole-day fill carried, so removing it sticks', async () => {
+    /*
+     * With the setting on, the bulk fill adds the flagged chore as part of
+     * everything else. If only the flagged branch's own list were recorded,
+     * removing it afterwards would leave the flagged path free to re-add it —
+     * and the two mechanisms would fight over the row for the rest of the day.
+     */
+    mockAutoPlan = true;
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('litter'), item('gutters')];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    const options = mockAdd.mock.calls[0]?.[1] as { onSuccess: () => void };
+    options.onSuccess();
+
+    expect(mockMarkFlagsAutoPlanned).toHaveBeenCalledWith(mockToday, ['v1:gutters']);
   });
 });

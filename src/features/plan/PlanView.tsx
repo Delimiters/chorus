@@ -339,22 +339,66 @@ export function PlanView() {
     };
   }, [entries, today, view.mine, floatingSlots, chores, householdFlags]);
 
+  /**
+   * Everything due or late that is not on your plan yet.
+   *
+   * The manual counterpart to the setting above, and computed from the same
+   * `autoPlannable` rule on purpose: if the button offered a different set from
+   * the one auto-fill would add, the two would be describing different days and
+   * the label would be a lie.
+   *
+   * Jake asked for this alongside turning the filling off — *"maybe there can
+   * be a button that says like 'Add all due/overdue'"*. Off by default means
+   * the wall is gone; this is how you get it back deliberately on a morning
+   * when you do want everything.
+   */
+  const dueOrLate = useMemo(() => {
+    /*
+     * Empty while the plan is still loading, not "everything".
+     *
+     * `entries` is `EMPTY` until the plan query lands, so `planned` would be
+     * empty and the count would include occurrences already on today's plan —
+     * and in that same window the screen's own `planned` is empty too, so the
+     * empty-plan branch renders and offers the button. The result was an
+     * inflated number on a day that is already full.
+     *
+     * Pressing it could not create duplicate rows — the upsert ignores
+     * conflicts — but the entire justification for putting the count in the
+     * label is that you are told how big the commitment is before you tap.
+     * `usePlanLoading` exists for exactly this: anything that acts on "what is
+     * already planned" has to wait for it.
+     *
+     * The auto-fill effect below has had this guard since #90 — an earlier
+     * version of this sentence said "always", which is wrong by eight PRs: the
+     * effect arrived in #82 and the guard was added to it later, for this same
+     * reason. Sharing the rule but not the gating is where the two diverged.
+     */
+    if (entriesLoading) return [];
+    const planned = new Set(
+      entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
+    );
+    return autoPlannable(view.mine, { userId: userId ?? '', on: today, planned });
+  }, [entries, entriesLoading, today, view.mine, userId]);
+
   /*
-   * Recurring chores that are due today, or late, go on the plan by themselves.
+   * What goes onto the plan without being chosen — which, by default, is only
+   * what one of you has flagged.
    *
-   * Jake asked for this and it is right: the litter box is not a decision. The
-   * argument for "proposed, not pre-filled" was about the *backlog* — fifty
-   * one-off things you have to choose between — and today's recurring
-   * housework is not that. It is the baseline the day starts from.
+   * This used to be "recurring chores that are due or late", then everything
+   * due or late once one-off work was folded in, and now nothing at all unless
+   * the household opts in — because filling it was what made the plan too big
+   * to read. Flagged work is the exception, and it is the one thing here that
+   * somebody actually decided.
    *
-   * One-off work is still chosen, which is where the proposal earns its keep.
-   *
-   * Exactly once per day, so removing something sticks. Without the marker the
-   * next render would put it straight back and "Take off today" would be a
-   * button that does nothing.
+   * Two markers, two clocks. `autoPlannedOn` stops the whole-day fill running
+   * twice, so removing something sticks. `autoPlannedFlags` does the same job
+   * per occurrence, because a flag raised at two in the afternoon has to land
+   * today and a day-level marker would hold it until tomorrow.
    */
   const autoPlannedOn = useRoutinePreference().autoPlannedOn;
+  const autoPlannedFlags = useRoutinePreference().autoPlannedFlags;
   const markAutoPlanned = useRoutineStore((s) => s.markAutoPlanned);
+  const markFlagsAutoPlanned = useRoutineStore((s) => s.markFlagsAutoPlanned);
 
   /*
    * In flight, and failed-today, both as refs.
@@ -378,7 +422,16 @@ export function PlanView() {
     // Waits for the *plan* too, not only the chores. They are separate queries
     // with no ordering between them, and acting while `entries` is still empty
     // means every already-planned chore looks unplanned and gets re-added.
-    if (isLoading || entriesLoading || autoPlannedOn === today) return;
+    /*
+     * Waits for the household, because what gets added depends on its setting.
+     *
+     * `== null` covers both "still loading" and "no household row". Optional
+     * chaining would collapse those into `false` and happen to be right, since
+     * the default is off — but only by luck. Waiting costs one render and means
+     * the branch is never taken on data nobody has read yet.
+     */
+    if (household.data == null) return;
+    if (isLoading || entriesLoading) return;
     if (inFlight.current || failedFor.current === today) return;
 
     /*
@@ -422,19 +475,110 @@ export function PlanView() {
      * are early, and auto-adding them puts next week on today.
      */
     /*
-     * The rule itself lives in `core/plan/autoplan`, because the plan screen
-     * also previews a housemate's day with it — what will be added when they
-     * open the app. Two copies would drift, and the preview would quietly stop
-     * matching what actually lands.
+     * The rule itself lives in `core/plan/autoplan`, and is now shared with the
+     * "Add everything due or late" button below — the two must agree about what
+     * counts as due, or the button would offer a different day from the one the
+     * setting fills.
+     *
+     * An earlier version of this comment said the screen also previewed a
+     * housemate's day with it. Nothing does; `autoPlannable` has exactly one
+     * other caller and it is in this file.
      */
-    const due = autoPlannable(view.mine, {
+    const dueToday = autoPlannable(view.mine, {
       userId: userId ?? '',
       on: today,
       planned,
     });
 
+    /*
+     * Two fills with different clocks, which is why this is no longer one
+     * early return.
+     *
+     * The whole-day fill runs once, in the morning, and `autoPlannedOn` stops
+     * it running again — otherwise "Take off today" would be a button that
+     * does nothing.
+     *
+     * Flagged work cannot be gated that way. Jake: *"if things are flagged
+     * they should still automatically populate onto the plan but nothing else
+     * should."* A flag is usually raised *because* something has just come up,
+     * so the one at two in the afternoon is the case that matters — and under
+     * a day-level marker it would not have landed until tomorrow.
+     *
+     * So flagged occurrences are remembered individually. Each one is added at
+     * most once a day, which keeps "Take off today" sticky: remove a flagged
+     * chore and it stays removed, even though the flag lives until the work is
+     * done.
+     */
+    // `?.` rather than `!== null`: a preference blob written before this field
+    // existed has no key at all, and `undefined !== null` is true.
+    const alreadyFlagged = new Set(autoPlannedFlags?.on === today ? autoPlannedFlags.keys : []);
+
+    const wantsEverything = household.data.autoPlan;
+    const bulk = wantsEverything && autoPlannedOn !== today ? dueToday : [];
+
+    /*
+     * Not an exception to "if I added it to the plan I'm doing it" — the
+     * clearest case of it. Every other row the fill produced came from a
+     * schedule nobody looked at that morning; a flag is a person deciding by
+     * hand, and flags are shared, so it is also how Emily tells Jake something
+     * needs doing without a conversation.
+     *
+     * Narrowed by the same due-or-late rule rather than taking every flagged
+     * chore: a flag lasts until the work is done, so one raised now on
+     * something due in three weeks would otherwise sit on every day in
+     * between.
+     */
+    const flagged = dueToday.filter(
+      (item) => householdFlags.has(item.choreId) && !alreadyFlagged.has(item.occurrenceKey),
+    );
+
+    /*
+     * Flagging something that is *already* on your plan still counts as
+     * handled, and saying so is what stops "Take off today" being undone once.
+     *
+     * `dueToday` excludes anything already planned, so this case produced no
+     * record at all: nothing was added, nothing was written down, and the
+     * first time you removed the chore the flagged path handed it straight
+     * back. The second removal stuck, because the bounce-back finally wrote
+     * the record — which is the dead-button shape this screen keeps producing,
+     * wearing a slightly different hat.
+     *
+     * Written outside the mutation because no write is involved. Guarded on
+     * being genuinely new so it cannot loop: `autoPlannedFlags` is a
+     * dependency of this effect, and recording a key that is already recorded
+     * would re-run it forever.
+     */
+    const flaggedAlreadyPlanned = view.mine
+      .filter(
+        (item) =>
+          householdFlags.has(item.choreId) &&
+          planned.has(item.occurrenceKey) &&
+          !alreadyFlagged.has(item.occurrenceKey),
+      )
+      .map((item) => item.occurrenceKey);
+
+    if (flaggedAlreadyPlanned.length > 0) markFlagsAutoPlanned(today, flaggedAlreadyPlanned);
+
+    const bulkKeys = new Set(bulk.map((i) => i.occurrenceKey));
+    const due = [...bulk, ...flagged.filter((i) => !bulkKeys.has(i.occurrenceKey))];
+
+    /*
+     * The flagged branch's own list is enough, and this was briefly written the
+     * long way round — filtering `due` — on the theory that the bulk fill might
+     * carry a flagged chore the flagged branch had missed.
+     *
+     * It cannot. `bulk` is either empty or the whole of `dueToday`, and
+     * `flagged` is a subset of `dueToday`, so anything flagged that `bulk`
+     * carries is either in `flagged` already or was recorded earlier today.
+     * Reverting the longer form to this one changed no test, which is how the
+     * claim was found to be empty rather than merely untested.
+     */
+    const flaggedKeys = flagged.map((item) => item.occurrenceKey);
+
     if (due.length === 0) {
-      markAutoPlanned(today);
+      // Only the whole-day fill has a "nothing to do" state worth recording.
+      // The flagged path has no day to mark — it is per occurrence.
+      if (wantsEverything && autoPlannedOn !== today) markAutoPlanned(today);
       return;
     }
 
@@ -444,7 +588,10 @@ export function PlanView() {
     add.mutate(
       due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
       {
-        onSuccess: () => markAutoPlanned(today),
+        onSuccess: () => {
+          if (wantsEverything) markAutoPlanned(today);
+          if (flaggedKeys.length > 0) markFlagsAutoPlanned(today, flaggedKeys);
+        },
         onError: () => {
           failedFor.current = today;
         },
@@ -464,6 +611,10 @@ export function PlanView() {
     add,
     markAutoPlanned,
     userId,
+    household.data,
+    householdFlags,
+    autoPlannedFlags,
+    markFlagsAutoPlanned,
   ]);
 
   /*
@@ -580,6 +731,11 @@ export function PlanView() {
           setPicking(true);
         }}
         proposal={proposal}
+        autoPlan={household.data?.autoPlan ?? false}
+        dueOrLateCount={dueOrLate.length}
+        onAddAllDue={() =>
+          add.mutate(dueOrLate.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
+        }
         onAcceptProposal={(items) =>
           add.mutate(items.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
         }
