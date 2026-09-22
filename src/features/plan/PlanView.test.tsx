@@ -1199,3 +1199,105 @@ describe('a flag raised after the morning fill has already run', () => {
     await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
   });
 });
+
+describe('the setting reaches the screen, not just the effect', () => {
+  /*
+   * `PlanScreen.test.tsx` pins the ternary that chooses the housemate's
+   * empty-day sentence, but nothing pinned that the real value ever arrives:
+   * hardcoding the prop to either constant left the whole suite green. That is
+   * the `FormScroll` story from AGENTS.md — a correct component, a correct
+   * screen, and a wire between them nobody checked.
+   *
+   * The sentence matters because with filling off it is a promise nothing can
+   * keep: Jake would be told Emily's day fills itself when nothing will ever
+   * put anything on it.
+   */
+  beforeEach(() => {
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+  });
+
+  it('does not promise a day that will never fill itself', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText(/You can put something on their day/);
+    expect(screen.queryByText(/fills up when they open the app/)).toBeNull();
+  });
+
+  it('still promises it when the household has turned filling on', async () => {
+    mockAutoPlan = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText(/fills up when they open the app/);
+  });
+});
+
+describe('flagging something already on your plan', () => {
+  /*
+   * `dueToday` excludes whatever is already planned, so this case wrote no
+   * record at all: nothing to add, nothing remembered, and the first time you
+   * took the chore off, the flagged path handed it straight back. The second
+   * removal stuck, because the bounce-back finally wrote the record — "the
+   * button did nothing, then worked", which is the worst kind.
+   */
+  it('records it as handled even though there is nothing to add', async () => {
+    mockAutoPlan = false;
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    mockEntries = [
+      { occurrenceKey: 'v1:gutters', choreId: 'gutters', plannedFor: mockToday, position: 0 },
+    ];
+    renderView();
+
+    await waitFor(() =>
+      expect(mockMarkFlagsAutoPlanned).toHaveBeenCalledWith(mockToday, ['v1:gutters']),
+    );
+    // Nothing was added — it was already there. The record is the whole point.
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('does not write the record again once it is there', async () => {
+    // `autoPlannedFlags` is a dependency of the effect, so re-recording a key
+    // that is already recorded would re-run it forever.
+    mockAutoPlan = false;
+    mockMyFlags = new Set(['gutters']);
+    mockAutoPlannedFlags = { on: mockToday, keys: ['v1:gutters'] };
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    mockEntries = [
+      { occurrenceKey: 'v1:gutters', choreId: 'gutters', plannedFor: mockToday, position: 0 },
+    ];
+    renderView();
+
+    await screen.findByText(/Doing today|Done today/);
+    expect(mockMarkFlagsAutoPlanned).not.toHaveBeenCalled();
+  });
+
+  it('records flagged work the whole-day fill carried, so removing it sticks', async () => {
+    /*
+     * With the setting on, the bulk fill adds the flagged chore as part of
+     * everything else. If only the flagged branch's own list were recorded,
+     * removing it afterwards would leave the flagged path free to re-add it —
+     * and the two mechanisms would fight over the row for the rest of the day.
+     */
+    mockAutoPlan = true;
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('litter'), item('gutters')];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    const options = mockAdd.mock.calls[0]?.[1] as { onSuccess: () => void };
+    options.onSuccess();
+
+    expect(mockMarkFlagsAutoPlanned).toHaveBeenCalledWith(mockToday, ['v1:gutters']);
+  });
+});

@@ -1,9 +1,12 @@
 /**
  * What a person's day gets filled with, before they have chosen anything.
  *
- * Anything due or late goes onto the plan by itself — it is the baseline the
- * day starts from, and choosing it every morning was the friction the plan
- * exists to remove.
+ * This decides *what would be added* if something is doing the adding. As of
+ * 2026-09-22 that is no longer automatic: the household opts in, and with the
+ * setting off only flagged work goes on by itself. The rule did not change —
+ * anything due or late, whoever's turn it is — but the sentence that used to
+ * sit here ("it is the baseline the day starts from") described a behaviour
+ * that is now off by default.
  *
  * **One-off work is included, and that is a reversal.** This added only
  * recurring chores, on the argument that a one-off is a decision and the

@@ -368,8 +368,10 @@ export function PlanView() {
      * `usePlanLoading` exists for exactly this: anything that acts on "what is
      * already planned" has to wait for it.
      *
-     * The auto-fill effect below has always had this guard. Sharing the rule
-     * but not the gating is where the two would have diverged.
+     * The auto-fill effect below has had this guard since #90 — an earlier
+     * version of this sentence said "always", which is wrong by eight PRs: the
+     * effect arrived in #82 and the guard was added to it later, for this same
+     * reason. Sharing the rule but not the gating is where the two diverged.
      */
     if (entriesLoading) return [];
     const planned = new Set(
@@ -379,18 +381,19 @@ export function PlanView() {
   }, [entries, entriesLoading, today, view.mine, userId]);
 
   /*
-   * Recurring chores that are due today, or late, go on the plan by themselves.
+   * What goes onto the plan without being chosen — which, by default, is only
+   * what one of you has flagged.
    *
-   * Jake asked for this and it is right: the litter box is not a decision. The
-   * argument for "proposed, not pre-filled" was about the *backlog* — fifty
-   * one-off things you have to choose between — and today's recurring
-   * housework is not that. It is the baseline the day starts from.
+   * This used to be "recurring chores that are due or late", then everything
+   * due or late once one-off work was folded in, and now nothing at all unless
+   * the household opts in — because filling it was what made the plan too big
+   * to read. Flagged work is the exception, and it is the one thing here that
+   * somebody actually decided.
    *
-   * One-off work is still chosen, which is where the proposal earns its keep.
-   *
-   * Exactly once per day, so removing something sticks. Without the marker the
-   * next render would put it straight back and "Take off today" would be a
-   * button that does nothing.
+   * Two markers, two clocks. `autoPlannedOn` stops the whole-day fill running
+   * twice, so removing something sticks. `autoPlannedFlags` does the same job
+   * per occurrence, because a flag raised at two in the afternoon has to land
+   * today and a day-level marker would hold it until tomorrow.
    */
   const autoPlannedOn = useRoutinePreference().autoPlannedOn;
   const autoPlannedFlags = useRoutinePreference().autoPlannedFlags;
@@ -529,18 +532,48 @@ export function PlanView() {
       (item) => householdFlags.has(item.choreId) && !alreadyFlagged.has(item.occurrenceKey),
     );
 
+    /*
+     * Flagging something that is *already* on your plan still counts as
+     * handled, and saying so is what stops "Take off today" being undone once.
+     *
+     * `dueToday` excludes anything already planned, so this case produced no
+     * record at all: nothing was added, nothing was written down, and the
+     * first time you removed the chore the flagged path handed it straight
+     * back. The second removal stuck, because the bounce-back finally wrote
+     * the record — which is the dead-button shape this screen keeps producing,
+     * wearing a slightly different hat.
+     *
+     * Written outside the mutation because no write is involved. Guarded on
+     * being genuinely new so it cannot loop: `autoPlannedFlags` is a
+     * dependency of this effect, and recording a key that is already recorded
+     * would re-run it forever.
+     */
+    const flaggedAlreadyPlanned = view.mine
+      .filter(
+        (item) =>
+          householdFlags.has(item.choreId) &&
+          planned.has(item.occurrenceKey) &&
+          !alreadyFlagged.has(item.occurrenceKey),
+      )
+      .map((item) => item.occurrenceKey);
+
+    if (flaggedAlreadyPlanned.length > 0) markFlagsAutoPlanned(today, flaggedAlreadyPlanned);
+
     const bulkKeys = new Set(bulk.map((i) => i.occurrenceKey));
     const due = [...bulk, ...flagged.filter((i) => !bulkKeys.has(i.occurrenceKey))];
 
     /*
-     * Everything that goes on the plan and is flagged gets recorded, including
-     * what the bulk fill happened to carry. Otherwise removing such a chore
-     * would leave the flagged path free to hand it straight back, and the two
-     * mechanisms would fight over the same row for the rest of the day.
+     * The flagged branch's own list is enough, and this was briefly written the
+     * long way round — filtering `due` — on the theory that the bulk fill might
+     * carry a flagged chore the flagged branch had missed.
+     *
+     * It cannot. `bulk` is either empty or the whole of `dueToday`, and
+     * `flagged` is a subset of `dueToday`, so anything flagged that `bulk`
+     * carries is either in `flagged` already or was recorded earlier today.
+     * Reverting the longer form to this one changed no test, which is how the
+     * claim was found to be empty rather than merely untested.
      */
-    const flaggedKeys = due
-      .filter((item) => householdFlags.has(item.choreId))
-      .map((item) => item.occurrenceKey);
+    const flaggedKeys = flagged.map((item) => item.occurrenceKey);
 
     if (due.length === 0) {
       // Only the whole-day fill has a "nothing to do" state worth recording.

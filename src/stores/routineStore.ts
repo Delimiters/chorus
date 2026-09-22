@@ -39,7 +39,7 @@ export interface RoutinePreference {
   readonly showOthers: boolean;
   readonly todayMode: TodayMode;
   /**
-   * The last day whose due recurring chores were folded into the plan.
+   * The last day the whole-day fill ran. Only that fill — flagged work is tracked per occurrence in `autoPlannedFlags`, and one-off work has counted since the 2026-09-07 reversal.
    *
    * **Persisted**, and that is the whole point. It was in memory only, with a
    * comment claiming a relaunch could only ever re-add things you had not
