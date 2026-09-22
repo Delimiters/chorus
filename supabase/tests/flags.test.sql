@@ -131,11 +131,16 @@ select is((select count(*)::int from deleted), 1, 'Bob can clear Alice''s flag')
 -- and is the only shape where this guard is the thing standing in the way. The
 -- same discovery is recorded on `plan_entries_delete` in 20260907210000.
 --
--- An earlier version of this comment also claimed that `RETURNING` is filtered
--- by the SELECT policy and so could not discriminate — and said that had been
--- measured. It had not, and it is false: as Bob, `delete … returning 1` counts
--- 1 under the real policy and 2 with `chore_is_visible` stripped out, so a
--- `returning 1` CTE would have worked. Counting afterwards as Alice is kept
+-- An earlier version of this comment claimed `RETURNING` is filtered by the
+-- SELECT policy and so could not discriminate, and said that had been
+-- measured. It had not, and the claim is false. The correction that replaced
+-- it then quoted 1 and 2, which is also wrong: those numbers were not taken
+-- against this file as written, where the delete above has already consumed
+-- Alice's visible flag.
+--
+-- Measured here, at this line: a `returning 1` CTE counts **0** under the real
+-- policy and **1** with `chore_is_visible` stripped from the delete policy. So
+-- `RETURNING` does discriminate and the CTE shape would have worked. Counting afterwards as Alice is kept
 -- because it reads as the question being asked — is the row still there — but
 -- it is a preference, not a necessity.
 delete from public.chore_flags;

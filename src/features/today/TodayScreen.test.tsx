@@ -873,7 +873,6 @@ describe('flagging something', () => {
      * first. Flagging the lightbulb has to overturn that or it does nothing.
      */
     mockFlagsByChore = new Map([['lightbulb', [ME]]]);
-    mockFlagsByChore = new Map([['lightbulb', [ME]]]);
     renderScreen();
 
     const rows = rowOrder();
@@ -902,7 +901,6 @@ describe('flagging something', () => {
      * Saying so rather than dressing it up: an assertion that cannot fail is
      * worth keeping only if you know that about it.
      */
-    mockFlagsByChore = new Map([['trash', [ME]]]);
     mockFlagsByChore = new Map([['trash', [ME]]]);
     renderScreen();
 

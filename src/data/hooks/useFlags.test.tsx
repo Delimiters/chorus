@@ -181,9 +181,18 @@ describe('what the cache looks like before the write lands', () => {
    * the "!!" stays on the row until the refetch lands and the tap looks as
    * though it failed.
    *
-   * `lowerFlag` is mocked to never settle here, so the assertion lands while
-   * the mutation is still in flight — which is the only moment the optimistic
-   * value is what the screen is reading.
+   * This asserts the cache *after* the mutation settles, and that is a
+   * deliberate choice rather than a near miss. An earlier version of this
+   * comment said `lowerFlag` was "mocked to never settle" so the assertion
+   * landed mid-flight. It is not — the mock at the top of this file resolves
+   * immediately. What actually holds the optimistic value in place is that
+   * `qk.flags(HOUSE)` has no observer in this harness, so `onSettled`'s
+   * `invalidateQueries` marks it stale without refetching.
+   *
+   * That still pins the thing that matters: `onMutate` is the only writer of
+   * this cache entry in the whole test, so what is in it is exactly what the
+   * optimistic update put there. Reverting the filter to the per-person one
+   * reddens this test, which was the point.
    */
   it('drops every flag on the chore, not just yours', async () => {
     const { client, wrapper } = harness();

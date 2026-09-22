@@ -1,7 +1,7 @@
 /**
  * "This one, until it is done."
  *
- * A per-person marker on a chore. Every row is live: there is no expiry to
+ * A marker on a chore, raised by one person and owned by the house. Every row is live: there is no expiry to
  * compute, and the rows do not accumulate, because completing the chore
  * deletes them — a trigger, in
  * supabase/migrations/20260921120000_flags_last_until_done.sql, since a chore

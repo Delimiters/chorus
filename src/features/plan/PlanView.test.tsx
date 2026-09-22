@@ -126,7 +126,15 @@ const mockProposeDay = jest.fn((...args: unknown[]) => {
   };
   return actual.proposeDay(...args);
 });
+/*
+ * Spread, not replaced. A bare factory would make every other export of this
+ * module `undefined` under test only — `DAY_SIZE` has no importer here today,
+ * so the day one appears the failure would be silent and test-only, which is
+ * the exact shape AGENTS.md records as "it type-checked, because the wrong
+ * type was a subtype of the right one".
+ */
 jest.mock('@/core/plan/propose', () => ({
+  ...jest.requireActual('@/core/plan/propose'),
   proposeDay: (...args: unknown[]) => mockProposeDay(...args),
 }));
 
@@ -229,6 +237,13 @@ beforeEach(() => {
   mockAdd.mockClear();
   mockMarkAutoPlanned.mockClear();
   mockClearPlanOnCreate.mockClear();
+  // Flags were the one group of fixtures this reset had missed, so a test that
+  // set them leaked into every test written after it — and the proposal test
+  // below reads `mockProposeDay.mock.calls.at(-1)`, which would then be
+  // reaching into another test's history.
+  mockProposeDay.mockClear();
+  mockMyFlags = new Set();
+  mockTheirFlags = new Set();
   mockView = { mine: [], theirs: [], done: [], skipped: [], upcoming: [], floating: [] };
   mockChores = [];
   mockEntries = [];

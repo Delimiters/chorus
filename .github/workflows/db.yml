@@ -113,7 +113,15 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: |
           set -o pipefail
-          EXPECTED="$(ls supabase/tests/*.sql | wc -l | tr -d ' ')"
+          # `|| true` is load-bearing, and `2>/dev/null` alone was not enough.
+          # Under Actions' `bash -e` plus `pipefail`, a glob that matches
+          # nothing makes `ls` fail, which fails the pipeline, which kills the
+          # step on the assignment itself — silently, before the branch below
+          # can say what went wrong. Measured: without `|| true` the missing-
+          # directory case exits 1 having printed nothing at all on either
+          # stream. It failed closed, but "the directory moved" is precisely
+          # the case this message exists for.
+          EXPECTED="$(ls -1 supabase/tests/*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
           if [ "$EXPECTED" -eq 0 ]; then
             echo "::error::No .sql test files found in supabase/tests/."
             exit 1
