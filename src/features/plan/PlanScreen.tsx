@@ -27,6 +27,7 @@ import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ChoreRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
+import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { DragList } from '@/design/DragList';
 import { positionBetween } from '@/core/plan/reorder';
 import { Sheet, SheetAction } from '@/design/Sheet';
@@ -125,6 +126,9 @@ export function PlanScreen({
   /* No `weekStartsOn` here any more, and therefore no `useHousehold()`: flags
      stopped having a week, and the query was being kept alive — a live
      subscription and a re-render source — purely to feed a dead argument. */
+  /** Your accent, so the floating button wears your ink like the other tabs. */
+  const myInk = members.data?.find((m) => m.userId === userId)?.accent ?? null;
+
   const flagsByChore = useFlagsByChore();
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
   const toggleFlag = useToggleFlag(today as never);
@@ -646,12 +650,28 @@ export function PlanScreen({
   const renderRow = ({ item }: { item: AgendaItem }, ownerId: string | undefined) => {
     const meta = choreMeta.get(item.choreId);
     const category = categoryById.get(meta?.categoryId ?? '') ?? null;
+
+    /*
+     * Whose job it is, but only when the section heading does not already say.
+     *
+     * The plan is grouped by whose *day* a row is on, so naming the assignee
+     * on every row would repeat the heading forty times. It is worth saying
+     * exactly when the two disagree — a chore assigned to Emily sitting on
+     * Jake's day, which is ordinary in the Flagged group because a flag lifts
+     * work out of the day it was planned under.
+     */
+    const assignee = item.assignee;
+    const assigneeLabel =
+      assignee.kind === 'member' && assignee.memberId !== ownerId
+        ? (nameById.get(assignee.memberId) ?? null)
+        : null;
     return (
       <ChoreRow
         key={item.occurrenceKey}
         item={item}
         ink={null}
         turnLabel={null}
+        assigneeLabel={assigneeLabel}
         scheduleLabel=""
         notes={meta?.notes ?? null}
         /*
@@ -691,7 +711,9 @@ export function PlanScreen({
       <ScrollView
         contentContainerStyle={{
           padding: space.lg,
-          paddingBottom: space.xxxl,
+          // Clearance for the floating button, so the last row of the day is
+          // not sitting underneath it.
+          paddingBottom: ADD_BUTTON_CLEARANCE,
           gap: 2,
         }}
         scrollEnabled={!dragging}
@@ -985,6 +1007,17 @@ export function PlanScreen({
         opens with "Create a new chore" as its first row. The button stays on
         the Chores and Routines sub-tabs, where nothing else competes with it.
       */}
+
+      {/*
+        The same floating + as Chores and Routines, and it lands on the plan.
+        
+        `plan=1` is what the picker's "Create a new chore" row already passes,
+        so the form opens with "Add to today's plan" switched on — Jake: *"just
+        defaultly leave that toggle on and they can turn it off if they were
+        just trying to make a chore outside of the plan."* One code path, one
+        behaviour, and the toggle is still there to say no.
+      */}
+      <AddChoreButton onPress={() => router.push('/chore/new?plan=1')} ink={myInk} />
 
       <Sheet
         visible={removing !== null}

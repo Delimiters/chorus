@@ -165,6 +165,19 @@ interface ChoreRowProps {
   ink: string | null;
   /** "Your turn" / "Sam's turn" / null. Always present when `ink` is. */
   turnLabel: string | null;
+  /**
+   * Whose job this is, when that is not obvious from where the row is drawn.
+   *
+   * The plan is grouped by whose *day* it is, so it passes no `turnLabel` —
+   * everything under "Doing today" is yours to look at. That breaks down in
+   * the Flagged group, where a chore assigned to your housemate can sit on
+   * your day and read as yours. Jake: *"maybe if it's assigned to someone else
+   * have some indication of that in the UI."*
+   *
+   * A name rather than the ink alone, for the reason the category is a name:
+   * a colour is a legend you have to have learnt.
+   */
+  assigneeLabel?: string | null;
   scheduleLabel: string;
   /**
    * The chore's category, or null for "Other".
@@ -262,6 +275,7 @@ export function ChoreRow({
   ink,
   turnLabel,
   scheduleLabel,
+  assigneeLabel = null,
   category = null,
   priority = 'normal',
   icon = null,
@@ -468,7 +482,11 @@ export function ChoreRow({
               holds exactly the same content in both states, and the expanded
               body below drops its duplicates instead.
             */}
-            {compact && (category !== null || overdue || (done && completedByLabel !== null)) ? (
+            {compact &&
+            (category !== null ||
+              overdue ||
+              assigneeLabel !== null ||
+              (done && completedByLabel !== null)) ? (
               <View
                 style={{
                   flexDirection: 'row',
@@ -492,6 +510,18 @@ export function ChoreRow({
                 {compact && category !== null ? (
                   <Txt variant="small" tone="muted">
                     {category.name}
+                  </Txt>
+                ) : null}
+
+                {/*
+                  Whose job it is, when the surrounding section does not say.
+                  In both states, like everything else in this column — the
+                  expand/collapse reflow in DECISIONS (2026-09-09) was caused
+                  by a marker that appeared in one state and not the other.
+                */}
+                {compact && assigneeLabel !== null ? (
+                  <Txt variant="small" tone="muted">
+                    {assigneeLabel}
                   </Txt>
                 ) : null}
 
