@@ -10,7 +10,7 @@
 import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-import { liveFlagsByChore, liveFlagsFor, toggleFlag } from '@/core/chore/flag';
+import { liveFlagsByChore, toggleFlag } from '@/core/chore/flag';
 import type { CivilDate } from '@/core/civil/types';
 import { listFlags, lowerFlag, raiseFlag, type ChoreFlagRow } from '../api/flags';
 import { qk } from '../queryKeys';
@@ -25,22 +25,6 @@ export function useFlags(): readonly ChoreFlagRow[] {
     queryFn: householdId === null ? skipToken : () => listFlags(householdId),
   });
   return query.data ?? EMPTY;
-}
-
-/**
- * The chores you have flagged.
- *
- * No day and no week start any more: a flag lasts until it is lifted or the
- * chore is completed, and the completion is cleared by a database trigger. A
- * row that is here is live.
- */
-export function useMyFlags(): ReadonlySet<string> {
-  const flags = useFlags();
-  const userId = useUserId();
-  return useMemo(
-    () => (userId === null ? new Set<string>() : liveFlagsFor(flags, userId)),
-    [flags, userId],
-  );
 }
 
 /** Everyone's flags, by chore — so a row can show that *somebody* cares. */

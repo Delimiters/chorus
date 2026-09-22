@@ -8,9 +8,11 @@
  * can be completed from three screens and the clearing has to hold for all of
  * them.
  *
- * Raising and lowering are owner-only: you can see your housemate's flag and
- * cannot lift it. Completion is the exception, and it is the trigger rather
- * than a policy that does it — which is why the trigger is `security definer`.
+ * Raising is yours; lowering is anyone's in the house. Jake: *"If I flag
+ * something does it flag it for both of us? Because I want it to."* A flag is
+ * a message to the household, so either of you can answer it — `lowerFlag`
+ * clears every row on the chore, and `chore_flags_delete` permits that.
+ * Completion clears them too, via the trigger, which is why it is definer.
  */
 
 import { civilDate } from '@/core/civil/date';

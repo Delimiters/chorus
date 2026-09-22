@@ -27,6 +27,7 @@ const TODAY = civilDate('2026-08-27'); // a Thursday
 
 const mockRaised: { choreId: string; flaggedOn: string }[] = [];
 const mockLowered: { choreId: string }[] = [];
+let mockLowerFails = false;
 
 /**
  * A server that remembers.
@@ -49,6 +50,7 @@ jest.mock('../api/flags', () => ({
   // Everyone's row on the chore, matching the real one: a flag is shared, so
   // lowering it is not scoped to a person.
   lowerFlag: jest.fn(async (choreId: string) => {
+    if (mockLowerFails) throw new Error('nope');
     mockLowered.push({ choreId });
     mockServerRows = mockServerRows.filter((r) => r.choreId !== choreId);
   }),
@@ -79,6 +81,7 @@ beforeEach(() => {
   mockRaised.length = 0;
   mockLowered.length = 0;
   mockServerRows = [];
+  mockLowerFails = false;
 });
 
 describe('toggling a flag writes what it says it writes', () => {
@@ -167,5 +170,57 @@ describe('toggling a flag writes what it says it writes', () => {
       const cached = client.getQueryData<readonly ChoreFlagRow[]>(qk.flags(HOUSE)) ?? [];
       expect(cached.map((f) => f.choreId)).toEqual(['dishes']);
     });
+  });
+});
+
+describe('what the cache looks like before the write lands', () => {
+  /*
+   * The optimistic update, which had no assertion at all — reverting it to the
+   * per-person filter left all 686 tests green. Its own comment names a
+   * symptom nothing was checking: with the housemate's row left in the cache,
+   * the "!!" stays on the row until the refetch lands and the tap looks as
+   * though it failed.
+   *
+   * `lowerFlag` is mocked to never settle here, so the assertion lands while
+   * the mutation is still in flight — which is the only moment the optimistic
+   * value is what the screen is reading.
+   */
+  it('drops every flag on the chore, not just yours', async () => {
+    const { client, wrapper } = harness();
+    seed(client, [
+      { choreId: 'dishes', userId: ME, flaggedOn: TODAY },
+      { choreId: 'dishes', userId: 'user-them', flaggedOn: TODAY },
+      { choreId: 'bins', userId: 'user-them', flaggedOn: TODAY },
+    ]);
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
+
+    act(() => result.current.mutate('dishes'));
+
+    await waitFor(() =>
+      expect(client.getQueryData<ChoreFlagRow[]>(qk.flags(HOUSE))).toEqual([
+        { choreId: 'bins', userId: 'user-them', flaggedOn: TODAY },
+      ]),
+    );
+  });
+
+  it('puts the housemate’s row back when the write fails', async () => {
+    /*
+     * Rollback restores the snapshot wholesale, so it has to return *both*
+     * rows — not merely the one this user owned. Nothing covered the error
+     * path at all.
+     */
+    const { client, wrapper } = harness();
+    const before: ChoreFlagRow[] = [
+      { choreId: 'dishes', userId: ME, flaggedOn: TODAY },
+      { choreId: 'dishes', userId: 'user-them', flaggedOn: TODAY },
+    ];
+    seed(client, before);
+    mockLowerFails = true;
+
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
+    act(() => result.current.mutate('dishes'));
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(client.getQueryData<ChoreFlagRow[]>(qk.flags(HOUSE))).toEqual(before);
   });
 });

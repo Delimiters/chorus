@@ -40,7 +40,7 @@ interface Props {
   onAddToRoutine?: ((item: AgendaItem) => void) | undefined;
   /** True when this chore is already in the signed-in person's routine. */
   inRoutine?: boolean;
-  /** Whether this chore is flagged for the current week, and how to change it. */
+  /** Whether anyone in the house has flagged this chore, and how to change it. */
   flagged?: boolean;
   onToggleFlag?: (choreId: string) => void;
   /**
@@ -147,7 +147,7 @@ export function OccurrenceSheet({
               hint={
                 flagged
                   ? 'It will stop standing out.'
-                  : 'Pins it to the top until it is done or you unflag it. Both of you can see it.'
+                  : 'Pins it to the top until it is done or either of you unflags it. Both of you can see it.'
               }
               onPress={() => {
                 onToggleFlag(item.choreId);

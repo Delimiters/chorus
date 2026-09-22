@@ -265,7 +265,7 @@ describe('flagging from the sheet', () => {
     await h.rendered;
 
     expect(screen.getByRole('button', { name: /^Flag it$/ })).toBeOnTheScreen();
-    expect(screen.getByText(/until it is done or you unflag it/)).toBeOnTheScreen();
+    expect(screen.getByText(/until it is done or either of you unflags it/)).toBeOnTheScreen();
   });
 
   it('offers to unflag one that is already flagged', async () => {

@@ -81,7 +81,7 @@ export function PlanView() {
    * the boost on Jake's proposal. Shared flags make the mismatch plain.
    */
   const flagsByChore = useFlagsByChore();
-  const myFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
+  const householdFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
 
   /**
    * Everything the plan could name, including what is already done today.
@@ -327,7 +327,7 @@ export function PlanView() {
         missedBefore: item.missedBefore,
         recurring: recurring.get(item.choreId) ?? true,
       })),
-      { flagged: myFlags, leftOver },
+      { flagged: householdFlags, leftOver },
     );
 
     const byKey = new Map(outstanding.map((item) => [item.occurrenceKey, item]));
@@ -337,7 +337,7 @@ export function PlanView() {
         .filter((i): i is AgendaItem => i !== undefined),
       reason,
     };
-  }, [entries, today, view.mine, floatingSlots, chores, myFlags]);
+  }, [entries, today, view.mine, floatingSlots, chores, householdFlags]);
 
   /*
    * Recurring chores that are due today, or late, go on the plan by themselves.

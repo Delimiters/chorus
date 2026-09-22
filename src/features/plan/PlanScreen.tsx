@@ -119,9 +119,9 @@ export function PlanScreen({
    * be flagged but the plan neither showed it nor offered to set one. Jake:
    * *"I don't see a button to add the !! on daily plan."*
    *
-   * `useFlagsByChore` is the whole household's, and decides what a row *shows*:
-   * a flag your housemate set is still a flag. `useMyFlags` is what the sheet
-   * toggles, because you can only lift your own.
+   * `useFlagsByChore` is the whole household's, and it decides both what a row
+   * shows and what the sheet toggles. There is no per-person set any more:
+   * a flag your housemate set is a flag, and you can lift it.
    */
   /* No `weekStartsOn` here any more, and therefore no `useHousehold()`: flags
      stopped having a week, and the query was being kept alive — a live

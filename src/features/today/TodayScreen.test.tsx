@@ -293,11 +293,15 @@ jest.mock('@/data/hooks/useRoutines', () => ({
 
 // Mutable, so a test can flag something. These suites mock the data layer
 // rather than standing up a QueryClient.
-let mockFlags: Set<string> = new Set();
 const mockToggleFlag = jest.fn();
+/*
+ * Keyed by chore, valued by who raised it — so a flag belonging to the
+ * *housemate alone* is expressible. That is the case the sheet used to get
+ * wrong: it read your own flags, so a chore Emily had flagged showed "!!" and
+ * offered "Flag it".
+ */
 let mockFlagsByChore: Map<string, readonly string[]> = new Map();
 jest.mock('@/data/hooks/useFlags', () => ({
-  useMyFlags: () => mockFlags,
   useFlagsByChore: () => mockFlagsByChore,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
 }));
@@ -336,7 +340,6 @@ beforeEach(() => {
    */
   useViewStore.setState({ view: DEFAULT_VIEW });
   mockCategories = [];
-  mockFlags = new Set();
   mockFlagsByChore = new Map();
   mockToggleFlag.mockClear();
   mockChores = ALL_CHORES.map((c) => ({ ...c }));
@@ -869,7 +872,7 @@ describe('flagging something', () => {
      * the gutters are six days late and the lightbulb one, so the gutters come
      * first. Flagging the lightbulb has to overturn that or it does nothing.
      */
-    mockFlags = new Set(['lightbulb']);
+    mockFlagsByChore = new Map([['lightbulb', [ME]]]);
     mockFlagsByChore = new Map([['lightbulb', [ME]]]);
     renderScreen();
 
@@ -899,7 +902,7 @@ describe('flagging something', () => {
      * Saying so rather than dressing it up: an assertion that cannot fail is
      * worth keeping only if you know that about it.
      */
-    mockFlags = new Set(['trash']);
+    mockFlagsByChore = new Map([['trash', [ME]]]);
     mockFlagsByChore = new Map([['trash', [ME]]]);
     renderScreen();
 
@@ -1275,5 +1278,31 @@ describe('a row that is expanded and collapsed again', () => {
 
     fireEvent.press(screen.getByLabelText('Dishes. Hide details.'));
     expect(marker()).toBe(before);
+  });
+});
+
+describe('the sheet on a chore your housemate flagged', () => {
+  /*
+   * This had no assertion at all: reverting the sheet to read your own flags
+   * left all 686 tests green, on the very screen Jake was asking about. The
+   * plan side got a test for the same reversal; Today did not.
+   */
+  it('offers to unflag it, not to flag it again', async () => {
+    mockFlagsByChore = new Map([['dishes', ['user-them']]]);
+    await renderScreen();
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes.*Open options\.$/ }));
+
+    expect(screen.getByRole('button', { name: 'Unflag it' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Flag it$/ })).toBeNull();
+  });
+
+  it('offers to flag one nobody has flagged', async () => {
+    await renderScreen();
+
+    fireEvent.press(screen.getByRole('button', { name: /^Dishes.*Open options\.$/ }));
+
+    expect(screen.getByRole('button', { name: /^Flag it$/ })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Unflag it' })).toBeNull();
   });
 });

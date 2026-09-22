@@ -122,19 +122,22 @@ select is((select count(*)::int from deleted), 1, 'Bob can clear Alice''s flag')
 -- policy, so widening "whose flag" did not widen "which chores" — Bob cannot
 -- reach a flag on a chore Alice has kept private.
 --
--- Two traps here, both measured rather than reasoned about.
+-- The delete has to carry **no WHERE clause**, and that part is measured.
 --
--- `RETURNING` is filtered by the SELECT policy, so a row Bob deleted but
--- cannot see comes back as zero rows whether or not he was stopped. Counted
--- afterwards as *Alice* instead.
+-- A `delete … where chore_id = …` must read the row to find it, so
+-- `chore_flags_select` blocks it before the delete policy is consulted: the
+-- assertion passes with `chore_is_visible` removed from the delete policy
+-- entirely. A bare delete references no columns, triggers no SELECT policy,
+-- and is the only shape where this guard is the thing standing in the way. The
+-- same discovery is recorded on `plan_entries_delete` in 20260907210000.
 --
--- And the delete has to carry **no WHERE clause**. A `delete … where chore_id
--- = …` must read the row to find it, so `chore_flags_select` blocks it before
--- the delete policy is consulted — the assertion passes with
--- `chore_is_visible` removed from the delete policy entirely. A bare delete
--- references no columns, triggers no SELECT policy, and is the only shape
--- where this guard is the thing standing in the way. The same discovery is
--- recorded on `plan_entries_delete` in 20260907210000.
+-- An earlier version of this comment also claimed that `RETURNING` is filtered
+-- by the SELECT policy and so could not discriminate — and said that had been
+-- measured. It had not, and it is false: as Bob, `delete … returning 1` counts
+-- 1 under the real policy and 2 with `chore_is_visible` stripped out, so a
+-- `returning 1` CTE would have worked. Counting afterwards as Alice is kept
+-- because it reads as the question being asked — is the row still there — but
+-- it is a preference, not a necessity.
 delete from public.chore_flags;
 
 set local request.jwt.claims to '{"sub":"f1111111-1111-1111-1111-111111111111"}';
@@ -146,9 +149,27 @@ select is(
   'Bob cannot clear a flag on a chore he cannot see'
 );
 
+/*
+ * Alice's flag on the *shared* chore, put back as the table owner.
+ *
+ * The assertion below is about the update policy, and it needs a row Bob can
+ * see: by this point the only Alice flag left is on her private chore, which
+ * `chore_flags_select` hides from him — so the update matched nothing whatever
+ * the policy said. Replacing `chore_flags_update` with `using (true) with
+ * check (true)` left the whole file green. Measured.
+ */
+reset role;
+insert into public.chore_flags (household_id, chore_id, user_id, flagged_on)
+values ('fa000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000001',
+        'f1111111-1111-1111-1111-111111111111', '2026-08-27');
+
 -- Back to Bob; everything below is about what he may do.
+set local role authenticated;
 set local request.jwt.claims to '{"sub":"f2222222-2222-2222-2222-222222222222"}';
 
+-- Clearing a housemate's flag is now his to do; moving its date is not. The
+-- update policy stayed `user_id = auth.uid()`, because re-dating somebody
+-- else's flag is not an action any screen offers.
 with touched as (
   update public.chore_flags set flagged_on = '2020-01-01'
    where user_id = 'f1111111-1111-1111-1111-111111111111'

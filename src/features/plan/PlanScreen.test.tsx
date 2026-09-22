@@ -89,7 +89,6 @@ jest.mock('@/data/hooks/useFlags', () => ({
     for (const id of mockTheirFlags) map.set(id, [...(map.get(id) ?? []), THEM]);
     return map;
   },
-  useMyFlags: () => mockMyFlags,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
 }));
 
