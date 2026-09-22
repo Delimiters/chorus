@@ -533,6 +533,43 @@ where nothing competes with it.
 
 ---
 
+## 2026-09-22 — The plan starts empty, and auto-fill is an opt-in household setting
+
+**Was:** recurring chores that were due or late were added to each person's
+plan automatically every morning. Argued for, twice, and written down here:
+"the litter box is not a decision."
+
+**Now:** `households.auto_plan`, `not null default false`. Nothing is added
+unless the household turns it on. A new ghost button on the empty plan — "Add
+everything due or late (N)" — does the same thing in one tap, on purpose.
+
+**Why:** Emily's complaint, twice, was that there was too much on the plan.
+Jake: *"I guess we should go back to having the plan page just start empty and
+you have to add everything manually ... whatever Emily wants me to do today she
+can assign me and there will be no confusion as to whether something is getting
+done today or not. **If I added it to the plan I'm doing it.**"*
+
+That last sentence is the actual reversal. The old rule was defended on the
+grounds that routine work should not need deciding — which is true about the
+*work* and false about the *plan*. A plan row was being used as evidence of
+intention, and auto-fill put rows there that carried none, so the plan stopped
+meaning anything. The count in the button label exists for the same reason:
+the failure mode being fixed is volume, so the control says how much before you
+commit to it.
+
+**Why the household and not the person**, when every neighbouring preference is
+per person: this one changes what a row *means* rather than how it looks. Split
+answers would make the same row read as "I am doing this" on one phone and "the
+app put this here" on the other, and the shared contract would be worth nothing.
+
+**What it costs:** the two people who wanted it filled now have to turn it back
+on, and the bulk-add button is offered only while the plan is still empty —
+once you have chosen anything, the picker is the way to add more. If reaching
+for "everything else I owe" mid-morning turns out to matter, that is a second
+placement, not a rethink.
+
+---
+
 ## Standing constraints that are not up for rediscovery
 
 - **44pt minimum on every touchable.** Use `MIN_TARGET` from

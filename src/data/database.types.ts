@@ -518,6 +518,7 @@ export type Database = {
       }
       households: {
         Row: {
+          auto_plan: boolean
           created_at: string
           created_by: string | null
           default_reminder_time: string | null
@@ -528,6 +529,7 @@ export type Database = {
           week_starts_on: number
         }
         Insert: {
+          auto_plan?: boolean
           created_at?: string
           created_by?: string | null
           default_reminder_time?: string | null
@@ -538,6 +540,7 @@ export type Database = {
           week_starts_on?: number
         }
         Update: {
+          auto_plan?: boolean
           created_at?: string
           created_by?: string | null
           default_reminder_time?: string | null

@@ -110,6 +110,9 @@ export function SettingsScreen() {
   const myRoutineCount = routineItems.data?.items.filter((i) => i.ownerId === userId).length ?? 0;
 
   const weekStartsOn = String(household.data?.weekStartsOn ?? 0);
+  // Defaults to off while the household is still loading, which is also the
+  // stored default — the switch never flashes on and then turns itself off.
+  const autoPlan = household.data?.autoPlan ?? false;
   const timeZone = household.data?.timeZone ?? 'UTC';
 
   /** The device's zone, for the "this looks wrong" case below. */
@@ -172,6 +175,22 @@ export function SettingsScreen() {
               label="Week starts on"
             />
           </FieldGroup>
+
+          {/*
+            Under "Household", not "Your daily plan", even though it is about
+            the plan. It is one answer for both people: it decides what a plan
+            row *means*, and two answers would make the same row read as "I am
+            doing this" on one phone and "the app put this here" on the other.
+          */}
+          {row(
+            'Fill the plan automatically',
+            'Adds recurring chores that are due or late to both plans each morning. Off by default — with it off, a chore is on the plan only because somebody put it there.',
+            <Switch
+              value={autoPlan}
+              onValueChange={(value) => updateHousehold.mutate({ autoPlan: value })}
+              accessibilityLabel="Fill the plan automatically"
+            />,
+          )}
 
           {row(
             'Time zone',

@@ -18,6 +18,14 @@ export interface Household {
   readonly name: string;
   readonly timeZone: string;
   readonly weekStartsOn: number;
+  /**
+   * Whether due-or-late recurring work fills each plan by itself.
+   *
+   * The household's, not the person's: it decides what a plan row *means*, and
+   * two different answers would make the same row mean "I am doing this" on
+   * one phone and "the app put this here" on the other.
+   */
+  readonly autoPlan: boolean;
 }
 
 function fail(error: { code?: string | undefined; message: string }): never {
@@ -45,7 +53,7 @@ function rethrow(error: unknown): never {
 export async function listMyHouseholds(): Promise<Household[]> {
   const { data, error } = await supabase
     .from('households')
-    .select('id, name, time_zone, week_starts_on')
+    .select('id, name, time_zone, week_starts_on, auto_plan')
     .order('created_at');
   if (error) fail(error);
 
@@ -54,13 +62,14 @@ export async function listMyHouseholds(): Promise<Household[]> {
     name: row.name,
     timeZone: row.time_zone,
     weekStartsOn: row.week_starts_on,
+    autoPlan: row.auto_plan,
   }));
 }
 
 export async function getHousehold(householdId: string): Promise<Household | null> {
   const { data, error } = await supabase
     .from('households')
-    .select('id, name, time_zone, week_starts_on')
+    .select('id, name, time_zone, week_starts_on, auto_plan')
     .eq('id', householdId)
     .maybeSingle();
   if (error) fail(error);
@@ -71,6 +80,7 @@ export async function getHousehold(householdId: string): Promise<Household | nul
     name: data.name,
     timeZone: data.time_zone,
     weekStartsOn: data.week_starts_on,
+    autoPlan: data.auto_plan,
   };
 }
 
@@ -129,7 +139,7 @@ export async function setPlanGroupOrder(order: PlanGroupOrder, userId: string): 
  */
 export async function updateHousehold(
   householdId: string,
-  patch: Partial<{ name: string; timeZone: string; weekStartsOn: number }>,
+  patch: Partial<{ name: string; timeZone: string; weekStartsOn: number; autoPlan: boolean }>,
 ): Promise<void> {
   const { data, error } = await supabase
     .from('households')
@@ -137,6 +147,7 @@ export async function updateHousehold(
       ...(patch.name !== undefined ? { name: patch.name } : {}),
       ...(patch.timeZone !== undefined ? { time_zone: patch.timeZone } : {}),
       ...(patch.weekStartsOn !== undefined ? { week_starts_on: patch.weekStartsOn } : {}),
+      ...(patch.autoPlan !== undefined ? { auto_plan: patch.autoPlan } : {}),
     })
     .eq('id', householdId)
     .select('id');

@@ -90,6 +90,16 @@ interface PlanScreenProps {
    */
   readonly proposal?: { items: readonly AgendaItem[]; reason: string } | null;
   readonly onAcceptProposal?: (items: readonly AgendaItem[]) => void;
+  /**
+   * How many outstanding chores are due today or already late.
+   *
+   * A count rather than the items, because the screen only needs to say how
+   * big the commitment is and whether to offer it at all. Zero hides the
+   * button: an "Add everything due" that adds nothing is the dead-button shape
+   * this area keeps producing.
+   */
+  readonly dueOrLateCount?: number;
+  readonly onAddAllDue?: () => void;
   readonly onAdd: () => void;
   /** Which chores recur — the screen's own `chores` prop has no schedules. */
   readonly recurringChoreIds: ReadonlySet<string>;
@@ -107,6 +117,8 @@ export function PlanScreen({
   recurringChoreIds,
   proposal = null,
   onAcceptProposal,
+  dueOrLateCount = 0,
+  onAddAllDue,
 }: PlanScreenProps) {
   const { colors } = useTheme();
   const router = useRouter();
@@ -873,6 +885,25 @@ export function PlanScreen({
                 <Button label="Start the day" onPress={() => onAcceptProposal?.(proposal.items)} />
                 <Button label="Pick my own" variant="ghost" onPress={onAdd} />
               </View>
+            )}
+
+            {/*
+              Outside both branches, so it sits in the same place whether the
+              morning offers a curated day or nothing at all. It is the blunt
+              option — everything you already owe, in one tap — and it reads as
+              the quiet third choice rather than competing with the proposal.
+
+              The count is in the label because the whole reason the plan no
+              longer fills itself is that it got too big. Being told it is
+              seven before you tap is the difference between choosing a full
+              day and being handed one.
+            */}
+            {dueOrLateCount === 0 || onAddAllDue === undefined ? null : (
+              <Button
+                label={`Add everything due or late (${dueOrLateCount})`}
+                variant="ghost"
+                onPress={onAddAllDue}
+              />
             )}
           </View>
         ) : (

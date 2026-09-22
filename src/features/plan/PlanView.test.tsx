@@ -167,8 +167,16 @@ const mockScheduleToday = jest.fn();
 jest.mock('@/data/hooks/useChores', () => ({
   useScheduleToday: () => ({ mutate: mockScheduleToday }),
 }));
+/*
+ * Auto-fill is a household setting and it is off by default, so every test
+ * that wants the plan to fill itself has to say so. A `let` rather than a
+ * constant for exactly that reason — and the default here is `false`, matching
+ * the column, so a test that forgets gets the shipped behaviour rather than a
+ * convenient one.
+ */
+let mockAutoPlan = false;
 jest.mock('@/data/hooks/useHousehold', () => ({
-  useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC' } }),
+  useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC', autoPlan: mockAutoPlan } }),
   useMembers: () => ({ data: mockMembers }),
   useSetPlanGroupOrder: () => ({ mutate: jest.fn(), error: null }),
 }));
@@ -244,6 +252,7 @@ beforeEach(() => {
   mockProposeDay.mockClear();
   mockMyFlags = new Set();
   mockTheirFlags = new Set();
+  mockAutoPlan = false;
   mockView = { mine: [], theirs: [], done: [], skipped: [], upcoming: [], floating: [] };
   mockChores = [];
   mockEntries = [];
@@ -258,6 +267,10 @@ beforeEach(() => {
 });
 
 describe('recurring chores that are due today or late', () => {
+  beforeEach(() => {
+    mockAutoPlan = true;
+  });
+
   it('go on the plan by themselves', async () => {
     mockView.mine = [item('litter')];
     mockChores = [recurring('litter')];
@@ -621,6 +634,10 @@ describe('work already on the plan', () => {
 });
 
 describe('the day is only marked auto-planned once the write lands', () => {
+  beforeEach(() => {
+    mockAutoPlan = true;
+  });
+
   /*
    * `useAddToPlan` is optimistic: `onMutate` puts the new rows in the cache
    * before the request is sent. `entries` is a dependency of the auto-plan
@@ -762,6 +779,10 @@ describe('a chore created with "put it on today" ticked', () => {
 });
 
 describe('two people sharing one household', () => {
+  beforeEach(() => {
+    mockAutoPlan = true;
+  });
+
   const THEM = 'user-them';
 
   beforeEach(() => {
@@ -835,5 +856,93 @@ describe('what the morning proposal counts as urgent', () => {
 
     const options = mockProposeDay.mock.calls.at(-1)?.[1] as { flagged: ReadonlySet<string> };
     expect([...options.flagged].sort()).toEqual(['dishes', 'gutters']);
+  });
+});
+
+describe('the plan starts empty unless the household asked otherwise', () => {
+  /*
+   * Emily, twice: too much on the plan. Jake: *"I guess we should go back to
+   * having the plan page just start empty and you have to add everything
+   * manually ... If I added it to the plan I'm doing it."*
+   *
+   * The fixture is deliberately the exact one that fills the plan in the
+   * describe above — `litter` due today, plus something long overdue. If the
+   * setting were ignored these would be added, so the assertion cannot pass by
+   * having nothing to add, which is the vacuous shape this repo keeps hitting.
+   */
+  const dueAndLate = () => {
+    mockView.mine = [
+      item('litter'),
+      item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
+    ];
+    mockChores = [recurring('litter'), recurring('gutters')];
+  };
+
+  it('adds nothing when the setting is off', async () => {
+    mockAutoPlan = false;
+    dueAndLate();
+    renderView();
+
+    /*
+     * Waits for the screen to settle rather than asserting immediately, so a
+     * late effect cannot sneak the rows in after the assertion has passed.
+     *
+     * Settles on the proposal, not on "Nothing planned yet." — with the plan
+     * empty and work outstanding, the morning offer is what renders, and that
+     * is the shape this change is meant to produce: asked, not filled.
+     */
+    await screen.findByText('Start the day');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('adds them when it is on', async () => {
+    mockAutoPlan = true;
+    dueAndLate();
+    renderView();
+
+    await waitFor(() => expect(addedKeys().sort()).toEqual(['v1:gutters', 'v1:litter']));
+  });
+
+  it('offers them behind a button instead, counting what it would add', async () => {
+    mockAutoPlan = false;
+    dueAndLate();
+    /*
+     * A third chore that is outstanding but *not* yet owed, so the count can
+     * tell "due or late" apart from "everything on the list". Without it both
+     * rules produce 2 and the label agrees with a button that would dump next
+     * week onto today.
+     */
+    mockView.mine = [
+      ...mockView.mine,
+      item('filters', { status: 'due', dueOn: civilDate('2026-09-09') }),
+    ];
+    mockChores = [...mockChores, recurring('filters')];
+    renderView();
+
+    // The count is in the label because the reason the plan no longer fills
+    // itself is that it got too big — being told it is two before you tap is
+    // the point of the control.
+    const button = await screen.findByText('Add everything due or late (2)');
+    fireEvent.press(button);
+
+    await waitFor(() => expect(addedKeys().sort()).toEqual(['v1:gutters', 'v1:litter']));
+  });
+
+  it('hides the button when there is nothing due or late', async () => {
+    /*
+     * A button that adds nothing is the dead-button shape this screen keeps
+     * producing — offered, counted, and then doing nothing at all.
+     *
+     * `filters` is pulled forward by `showFrom` rather than absent, so the
+     * plan is non-empty in the way that matters: there is outstanding work on
+     * screen, it is simply not owed yet.
+     */
+    mockAutoPlan = false;
+    mockView.mine = [item('filters', { status: 'due', dueOn: civilDate('2026-09-09') })];
+    mockChores = [recurring('filters')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(screen.queryByText(/Add everything due or late/)).toBeNull();
   });
 });

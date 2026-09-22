@@ -339,6 +339,26 @@ export function PlanView() {
     };
   }, [entries, today, view.mine, floatingSlots, chores, householdFlags]);
 
+  /**
+   * Everything due or late that is not on your plan yet.
+   *
+   * The manual counterpart to the setting above, and computed from the same
+   * `autoPlannable` rule on purpose: if the button offered a different set from
+   * the one auto-fill would add, the two would be describing different days and
+   * the label would be a lie.
+   *
+   * Jake asked for this alongside turning the filling off — *"maybe there can
+   * be a button that says like 'Add all due/overdue'"*. Off by default means
+   * the wall is gone; this is how you get it back deliberately on a morning
+   * when you do want everything.
+   */
+  const dueOrLate = useMemo(() => {
+    const planned = new Set(
+      entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
+    );
+    return autoPlannable(view.mine, { userId: userId ?? '', on: today, planned });
+  }, [entries, today, view.mine, userId]);
+
   /*
    * Recurring chores that are due today, or late, go on the plan by themselves.
    *
@@ -378,6 +398,20 @@ export function PlanView() {
     // Waits for the *plan* too, not only the chores. They are separate queries
     // with no ordering between them, and acting while `entries` is still empty
     // means every already-planned chore looks unplanned and gets re-added.
+    /*
+     * Off unless the household has asked for it, and off is the default.
+     *
+     * Emily's complaint, twice: too much on the plan. Jake: *"If I added it to
+     * the plan I'm doing it."* A row nobody chose breaks that, so the filling
+     * is now opt-in — see 20260922190000_auto_plan_is_opt_in.sql for why the
+     * answer belongs to the household rather than to each person.
+     *
+     * `== null` covers both "still loading" and "no household row". Optional
+     * chaining would collapse those into `false` and happen to be right, since
+     * the default is off — but only by luck. Waiting costs one render and means
+     * the branch is never taken on data nobody has read yet.
+     */
+    if (household.data == null || !household.data.autoPlan) return;
     if (isLoading || entriesLoading || autoPlannedOn === today) return;
     if (inFlight.current || failedFor.current === today) return;
 
@@ -422,10 +456,14 @@ export function PlanView() {
      * are early, and auto-adding them puts next week on today.
      */
     /*
-     * The rule itself lives in `core/plan/autoplan`, because the plan screen
-     * also previews a housemate's day with it — what will be added when they
-     * open the app. Two copies would drift, and the preview would quietly stop
-     * matching what actually lands.
+     * The rule itself lives in `core/plan/autoplan`, and is now shared with the
+     * "Add everything due or late" button below — the two must agree about what
+     * counts as due, or the button would offer a different day from the one the
+     * setting fills.
+     *
+     * An earlier version of this comment said the screen also previewed a
+     * housemate's day with it. Nothing does; `autoPlannable` has exactly one
+     * other caller and it is in this file.
      */
     const due = autoPlannable(view.mine, {
       userId: userId ?? '',
@@ -464,6 +502,7 @@ export function PlanView() {
     add,
     markAutoPlanned,
     userId,
+    household.data,
   ]);
 
   /*
@@ -580,6 +619,10 @@ export function PlanView() {
           setPicking(true);
         }}
         proposal={proposal}
+        dueOrLateCount={dueOrLate.length}
+        onAddAllDue={() =>
+          add.mutate(dueOrLate.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
+        }
         onAcceptProposal={(items) =>
           add.mutate(items.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
         }
