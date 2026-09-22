@@ -353,11 +353,30 @@ export function PlanView() {
    * when you do want everything.
    */
   const dueOrLate = useMemo(() => {
+    /*
+     * Empty while the plan is still loading, not "everything".
+     *
+     * `entries` is `EMPTY` until the plan query lands, so `planned` would be
+     * empty and the count would include occurrences already on today's plan —
+     * and in that same window the screen's own `planned` is empty too, so the
+     * empty-plan branch renders and offers the button. The result was an
+     * inflated number on a day that is already full.
+     *
+     * Pressing it could not create duplicate rows — the upsert ignores
+     * conflicts — but the entire justification for putting the count in the
+     * label is that you are told how big the commitment is before you tap.
+     * `usePlanLoading` exists for exactly this: anything that acts on "what is
+     * already planned" has to wait for it.
+     *
+     * The auto-fill effect below has always had this guard. Sharing the rule
+     * but not the gating is where the two would have diverged.
+     */
+    if (entriesLoading) return [];
     const planned = new Set(
       entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
     return autoPlannable(view.mine, { userId: userId ?? '', on: today, planned });
-  }, [entries, today, view.mine, userId]);
+  }, [entries, entriesLoading, today, view.mine, userId]);
 
   /*
    * Recurring chores that are due today, or late, go on the plan by themselves.
@@ -399,19 +418,14 @@ export function PlanView() {
     // with no ordering between them, and acting while `entries` is still empty
     // means every already-planned chore looks unplanned and gets re-added.
     /*
-     * Off unless the household has asked for it, and off is the default.
-     *
-     * Emily's complaint, twice: too much on the plan. Jake: *"If I added it to
-     * the plan I'm doing it."* A row nobody chose breaks that, so the filling
-     * is now opt-in — see 20260922190000_auto_plan_is_opt_in.sql for why the
-     * answer belongs to the household rather than to each person.
+     * Waits for the household, because what gets added depends on its setting.
      *
      * `== null` covers both "still loading" and "no household row". Optional
      * chaining would collapse those into `false` and happen to be right, since
      * the default is off — but only by luck. Waiting costs one render and means
      * the branch is never taken on data nobody has read yet.
      */
-    if (household.data == null || !household.data.autoPlan) return;
+    if (household.data == null) return;
     if (isLoading || entriesLoading || autoPlannedOn === today) return;
     if (inFlight.current || failedFor.current === today) return;
 
@@ -465,11 +479,34 @@ export function PlanView() {
      * housemate's day with it. Nothing does; `autoPlannable` has exactly one
      * other caller and it is in this file.
      */
-    const due = autoPlannable(view.mine, {
+    const dueToday = autoPlannable(view.mine, {
       userId: userId ?? '',
       on: today,
       planned,
     });
+
+    /*
+     * Flagged work still lands by itself; nothing else does.
+     *
+     * Jake, after turning the filling off: *"okay so if things are flagged they
+     * should still automatically populate onto the plan but nothing else
+     * should."*
+     *
+     * This is not an exception to "if I added it to the plan I'm doing it" —
+     * it is the clearest case of it. Every other row auto-fill produced came
+     * from a schedule nobody looked at this morning; a flag is a person
+     * deciding, by hand, that this one needs doing, and flags are shared, so it
+     * is also how Emily says it to Jake without a conversation. Making him then
+     * add it again would be asking him to agree twice.
+     *
+     * Narrowed by the same due-or-late rule rather than taking every flagged
+     * chore: a flag lasts until the work is done, so something flagged and due
+     * in three weeks would otherwise sit on every day between now and then.
+     * Flagging pins it to the top of the plan the moment it is actually owed.
+     */
+    const due = household.data.autoPlan
+      ? dueToday
+      : dueToday.filter((item) => householdFlags.has(item.choreId));
 
     if (due.length === 0) {
       markAutoPlanned(today);
@@ -503,6 +540,7 @@ export function PlanView() {
     markAutoPlanned,
     userId,
     household.data,
+    householdFlags,
   ]);
 
   /*
@@ -619,6 +657,7 @@ export function PlanView() {
           setPicking(true);
         }}
         proposal={proposal}
+        autoPlan={household.data?.autoPlan ?? false}
         dueOrLateCount={dueOrLate.length}
         onAddAllDue={() =>
           add.mutate(dueOrLate.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))

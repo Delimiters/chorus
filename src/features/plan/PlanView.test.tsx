@@ -175,8 +175,19 @@ jest.mock('@/data/hooks/useChores', () => ({
  * convenient one.
  */
 let mockAutoPlan = false;
+/*
+ * The household query's own loading state, which this harness could not
+ * express at all — `useHousehold` always handed back a resolved object, so the
+ * guard that waits for it had no test that could fail. A review found the gate
+ * could be inverted to run while the household was still in flight with all
+ * 1412 tests green.
+ */
+let mockHouseholdLoading = false;
 jest.mock('@/data/hooks/useHousehold', () => ({
-  useHousehold: () => ({ data: { weekStartsOn: 1, timeZone: 'UTC', autoPlan: mockAutoPlan } }),
+  useHousehold: () =>
+    mockHouseholdLoading
+      ? { data: undefined }
+      : { data: { weekStartsOn: 1, timeZone: 'UTC', autoPlan: mockAutoPlan } },
   useMembers: () => ({ data: mockMembers }),
   useSetPlanGroupOrder: () => ({ mutate: jest.fn(), error: null }),
 }));
@@ -253,6 +264,7 @@ beforeEach(() => {
   mockMyFlags = new Set();
   mockTheirFlags = new Set();
   mockAutoPlan = false;
+  mockHouseholdLoading = false;
   mockView = { mine: [], theirs: [], done: [], skipped: [], upcoming: [], floating: [] };
   mockChores = [];
   mockEntries = [];
@@ -944,5 +956,169 @@ describe('the plan starts empty unless the household asked otherwise', () => {
 
     await screen.findByText('Start the day');
     expect(screen.queryByText(/Add everything due or late/)).toBeNull();
+  });
+});
+
+describe('what the bulk-add button counts', () => {
+  /*
+   * Three properties the first version of these tests could not see, each
+   * found by mutating the source and watching the suite stay green:
+   *
+   *  - every fixture used the default `assignee: { kind: 'anyone' }`, so
+   *    widening the button from `view.mine` to the whole household changed
+   *    nothing;
+   *  - `mockEntries` was `[]` everywhere, so dropping the already-planned
+   *    filter changed nothing;
+   *  - `useHousehold` always resolved, so the wait-for-the-household guard
+   *    could be inverted and nothing noticed.
+   */
+  it('leaves out work that is your housemate’s turn', async () => {
+    mockAutoPlan = false;
+    /*
+     * `litter` is shared, so it sits in *both* sections — that is how "anyone"
+     * work is projected, and it is what makes reading `theirs` as well as
+     * `mine` produce a duplicate rather than merely extra work. Without it the
+     * `belongsTo` filter alone neutralises the mistake and the assertion
+     * cannot tell the two implementations apart.
+     *
+     * `gutters` is Emily's turn: adding it to Jake's day would reassign her
+     * work with nothing on screen saying so.
+     */
+    mockView.mine = [item('litter')];
+    mockView.theirs = [
+      item('litter'),
+      item('gutters', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
+    ];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    const button = await screen.findByText('Add everything due or late (1)');
+    fireEvent.press(button);
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:litter']));
+  });
+
+  it('does not count what is already on your plan', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter'), item('bins')];
+    mockChores = [recurring('litter'), recurring('bins')];
+    mockEntries = [
+      { occurrenceKey: 'v1:bins', choreId: 'bins', plannedFor: mockToday, position: 0 },
+    ];
+    renderView();
+
+    // One, not two: the bins are already spoken for. The plan is non-empty
+    // here, so this also pins that the button is reachable in that state.
+    await screen.findByText('Add everything due or late (1)');
+  });
+
+  it('offers nothing while the household setting is still loading', async () => {
+    /*
+     * The guard reads `household.data == null` rather than `?.autoPlan`, on
+     * the grounds that treating "not read yet" as "off" would be right only by
+     * luck. This is the test that makes that a guarantee rather than a comment:
+     * with the household in flight, auto-fill must not run.
+     */
+    mockHouseholdLoading = true;
+    mockAutoPlan = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe('the bulk-add button waits for the plan', () => {
+  /*
+   * `entries` is empty until the plan query lands, so "what is already
+   * planned" reads as nothing and the count would include work that is
+   * already on today's plan — on a screen that, in that same window, is also
+   * rendering the empty state. The number would be wrong in the one direction
+   * that matters: too big.
+   *
+   * Pressing it could not have created duplicate rows, since the upsert
+   * ignores conflicts. But the whole reason the count is in the label is to
+   * say how large the commitment is before you accept it.
+   */
+  it('offers nothing while the plan query is still in flight', async () => {
+    mockAutoPlan = false;
+    mockEntriesLoading = true;
+    mockView.mine = [item('litter'), item('bins')];
+    mockChores = [recurring('litter'), recurring('bins')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(screen.queryByText(/Add everything due or late/)).toBeNull();
+  });
+});
+
+describe('flagged work lands by itself even when nothing else does', () => {
+  /*
+   * Jake: *"okay so if things are flagged they should still automatically
+   * populate onto the plan but nothing else should."*
+   *
+   * Not an exception to "if I added it to the plan I'm doing it" — the
+   * clearest case of it. Every other row auto-fill produced came from a
+   * schedule nobody looked at this morning. A flag is a person deciding by
+   * hand, and flags are shared, so it is also how Emily says it to Jake.
+   */
+  beforeEach(() => {
+    mockAutoPlan = false;
+  });
+
+  it('adds the flagged one and leaves the rest alone', async () => {
+    /*
+     * Both chores are due today and identical in every other way, so the only
+     * thing that can separate them is the flag. A fixture with just the
+     * flagged chore would pass against "add everything", which is the rule
+     * this is meant to rule out.
+     */
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('litter'), item('gutters')];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+
+  it('counts your housemate’s flag too', async () => {
+    // Flags are shared: Emily flagging something is her telling Jake it needs
+    // doing, and it would be a strange kind of shared if it reached only her
+    // plan.
+    mockTheirFlags = new Set(['gutters']);
+    mockView.mine = [item('litter'), item('gutters')];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+
+  it('does not drag a flagged chore forward before it is owed', async () => {
+    /*
+     * A flag lasts until the work is done, so a chore flagged now and due in
+     * three weeks would otherwise sit on every single day between here and
+     * there — the wall of rows this whole change exists to remove. Flagging
+     * pins it to the top of the plan on the day it is actually owed.
+     */
+    mockMyFlags = new Set(['filters']);
+    mockView.mine = [item('filters', { status: 'due', dueOn: civilDate('2026-09-09') })];
+    mockChores = [recurring('filters')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('adds a flagged chore that is late, not only one due today', async () => {
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [
+      item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
+    ];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
   });
 });

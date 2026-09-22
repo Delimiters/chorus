@@ -1,10 +1,12 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- The plan starts empty
 --
--- Recurring work that was due or late went onto your plan by itself every
--- morning. That was asked for — "the litter box is not a decision" — and it
--- made the plan fill up with things nobody had chosen. Emily's complaint,
--- twice now, is that there is too much on it.
+-- Everything due or late went onto your plan by itself every morning —
+-- one-off tasks included, which is where most of the volume came from. That
+-- was asked for twice ("the litter box is not a decision", and then the
+-- one-off reversal that measured the cost at 38 extra rows), and it made the
+-- plan fill up with things nobody had chosen. Emily's complaint, also twice,
+-- is that there is too much on it.
 --
 -- Jake: *"I guess we should go back to having the plan page just start empty
 -- and you have to add everything manually ... Basically I want it to be where
@@ -34,10 +36,23 @@
 -- off for Jake and Emily immediately. That is the change being asked for, not
 -- a migration hazard. *"For now have that setting be off so our days start
 -- completely clear."*
+--
+-- ── One thing still fills itself, and it is not an exception ──────────────
+--
+-- Jake, straight after: *"okay so if things are flagged they should still
+-- automatically populate onto the plan but nothing else should."*
+--
+-- Flagged work is added whatever this column says. That is not a hole in "a
+-- plan row is a promise somebody made" — it is the purest case of it. Every
+-- other row auto-fill produced came from a schedule nobody looked at this
+-- morning; a flag is a person deciding by hand that this one needs doing, and
+-- flags are shared, so it is also how one of them says it to the other without
+-- a conversation. The rule lives in `PlanView.tsx`, not here, because it is
+-- about what the client adds rather than what the table permits.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 alter table public.households
   add column auto_plan boolean not null default false;
 
 comment on column public.households.auto_plan is
-  'Whether recurring work that is due or late is added to each plan automatically. Off by default: a plan row is meant to be a promise somebody made, and the household shares one answer so a row means the same thing on both phones.';
+  'Whether everything due or late — one-off tasks included — is added to each plan automatically. Off by default. Flagged work is added regardless, because a flag is somebody deciding by hand. The household shares one answer so a plan row means the same thing on both phones.';

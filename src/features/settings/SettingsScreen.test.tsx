@@ -16,7 +16,7 @@ import { useViewStore } from '@/stores/viewStore';
 import { SettingsScreen } from './SettingsScreen';
 
 const mockUpdate = jest.fn();
-let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York' };
+let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: false };
 
 let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
 const mockSetGroupOrder = jest.fn();
@@ -93,7 +93,7 @@ async function renderScreen() {
 
 beforeEach(() => {
   mockUpdate.mockClear();
-  mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York' };
+  mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: false };
   useReminderStore.setState({ policy: DEFAULT_POLICY });
   mockAvailable = true;
   mockMyGroupOrder = 'chores';
@@ -236,7 +236,7 @@ describe('when this build cannot schedule notifications at all', () => {
 
 describe('when the phone and the household disagree about the time zone', () => {
   it('says so, because it changes which day a chore is due', async () => {
-    mockHousehold = { weekStartsOn: 0, timeZone: 'Pacific/Kiritimati' };
+    mockHousehold = { weekStartsOn: 0, timeZone: 'Pacific/Kiritimati', autoPlan: false };
     await renderScreen();
     // The device zone comes from Intl, whatever the test runner is in; the
     // point is that a mismatch is reported at all.
@@ -249,6 +249,7 @@ describe('when the phone and the household disagree about the time zone', () => 
   it('says nothing when they agree', async () => {
     mockHousehold = {
       weekStartsOn: 0,
+      autoPlan: false,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
     await renderScreen();
@@ -422,5 +423,55 @@ describe('the words on the screen', () => {
     expect(screen.getByRole('header', { name: /Household/ })).toBeOnTheScreen();
     // Display and Notifications both say it, which is the point.
     expect(screen.getAllByRole('header', { name: /on this phone/i })).toHaveLength(2);
+  });
+
+  describe('filling the plan automatically', () => {
+    /*
+     * Under "Household", not "on this phone", and that placement is the
+     * assertion worth making: the switch decides what a plan row *means*, so
+     * two different answers would make the same row read as "I am doing this"
+     * on one phone and "the app put this here" on the other.
+     */
+    it('reflects the stored value rather than defaulting to on', async () => {
+      mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
+      await renderScreen();
+
+      expect(screen.getByLabelText('Fill the plan automatically').props.value).toBe(true);
+    });
+
+    it('is off when the household has not asked for it', async () => {
+      await renderScreen();
+
+      expect(screen.getByLabelText('Fill the plan automatically').props.value).toBe(false);
+    });
+
+    it('writes the household setting when flipped', async () => {
+      await renderScreen();
+
+      fireEvent(screen.getByLabelText('Fill the plan automatically'), 'valueChange', true);
+
+      expect(mockUpdate).toHaveBeenCalledWith({ autoPlan: true });
+    });
+
+    it('says that flagged work lands either way', async () => {
+      // The carve-out is invisible otherwise: somebody reading "off" would
+      // reasonably expect nothing at all to be added, and then be surprised
+      // every time their housemate flags something.
+      await renderScreen();
+
+      expect(screen.getByText(/Flagged work still lands on the plan either way/)).toBeOnTheScreen();
+    });
+
+    it('describes what it actually adds, one-off tasks included', async () => {
+      /*
+       * `autoPlannable` consults nothing about a chore's schedule — the
+       * one-off reversal of 2026-09-07 saw to that, at a measured cost of 38
+       * extra rows. Copy saying "recurring chores" would under-describe the
+       * switch by exactly the rows that caused the complaint it exists to fix.
+       */
+      await renderScreen();
+
+      expect(screen.getByText(/one-time tasks as well as chores/)).toBeOnTheScreen();
+    });
   });
 });

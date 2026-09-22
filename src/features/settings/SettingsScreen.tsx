@@ -184,7 +184,7 @@ export function SettingsScreen() {
           */}
           {row(
             'Fill the plan automatically',
-            'Adds recurring chores that are due or late to both plans each morning. Off by default — with it off, a chore is on the plan only because somebody put it there.',
+            'Adds everything due or late to both plans each morning — one-time tasks as well as chores, however old. Off by default. Flagged work still lands on the plan either way: a flag is one of you saying it needs doing.',
             <Switch
               value={autoPlan}
               onValueChange={(value) => updateHousehold.mutate({ autoPlan: value })}

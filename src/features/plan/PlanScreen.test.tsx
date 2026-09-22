@@ -203,6 +203,7 @@ const onAcceptProposal = jest.fn();
 function renderScreen(
   available: AgendaItem[],
   proposal: { items: readonly AgendaItem[]; reason: string } | null = null,
+  autoPlan = false,
 ) {
   return render(
     <ThemeProvider>
@@ -216,6 +217,7 @@ function renderScreen(
         onAddFor={mockAddFor}
         proposal={proposal}
         onAcceptProposal={onAcceptProposal}
+        autoPlan={autoPlan}
       />
     </ThemeProvider>,
   );
@@ -1591,5 +1593,30 @@ describe('whose job a row is', () => {
 
     fireEvent.press(screen.getByLabelText(/Post\. Show details\./));
     expect(screen.getAllByText('Sam')).toHaveLength(1);
+  });
+});
+
+describe('what the housemate’s empty day says', () => {
+  /*
+   * This line read "Their day fills up when they open the app" unconditionally
+   * — and the moment auto-filling became opt-in and defaulted off, it became
+   * false for every household, on the branch that renders in the *normal*
+   * case. Nothing would ever put anything on Emily's day, and Jake was being
+   * told to wait for it.
+   *
+   * It is also the second time this sentence has outlived its mechanism: the
+   * housemate forecast it originally described was removed in #105.
+   */
+  it('does not promise a day that will never fill itself', () => {
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.queryByText(/fills up when they open the app/)).toBeNull();
+    expect(screen.getByText(/You can put something on their day/)).toBeOnTheScreen();
+  });
+
+  it('still promises it when the household has turned filling on', () => {
+    renderScreen([item('dishes', 'Dishes')], null, true);
+
+    expect(screen.getByText(/fills up when they open the app/)).toBeOnTheScreen();
   });
 });

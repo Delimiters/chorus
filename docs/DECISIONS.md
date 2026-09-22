@@ -492,8 +492,13 @@ push it? I don't see Emily's plan."*
 
 **The thing worth knowing:** the auto-plan runs on *your device* when *you* open
 the app. A housemate who has not opened Chorus has no plan at all — which is not
-a decision they made. That is why the empty state shows a forecast of what will
-fill their day, computed with the same `autoPlannable` that will fill it.
+a decision they made. That is why the empty state showed a forecast of what
+would fill their day, computed with the same `autoPlannable` that would fill it.
+
+**Superseded twice since.** The forecast was removed in #105, and as of
+2026-09-22 auto-filling is off unless the household turns it on — so by default
+there is nothing to forecast, and the housemate's empty day now says only that
+you can put something on it.
 
 **Still open:** moving auto-planning server-side would make everyone's day exist
 every morning regardless of who opens the app. Raised with Jake, not decided.
@@ -535,13 +540,27 @@ where nothing competes with it.
 
 ## 2026-09-22 — The plan starts empty, and auto-fill is an opt-in household setting
 
-**Was:** recurring chores that were due or late were added to each person's
-plan automatically every morning. Argued for, twice, and written down here:
-"the litter box is not a decision."
+**Was:** everything due or late was added to each person's plan automatically
+every morning — one-off tasks included, per the 2026-09-07 reversal above,
+which measured the cost at 38 extra rows and a day going from about 25 items
+to about 50. Argued for, twice, and written down here: "the litter box is not
+a decision."
 
 **Now:** `households.auto_plan`, `not null default false`. Nothing is added
-unless the household turns it on. A new ghost button on the empty plan — "Add
-everything due or late (N)" — does the same thing in one tap, on purpose.
+unless the household turns it on — **except flagged work, which still lands by
+itself**. A new ghost button — "Add everything due or late (N)" — does the rest
+in one tap, and appears in both the empty and the started states.
+
+**Why flags are carved out**, asked for immediately after the switch: *"if
+things are flagged they should still automatically populate onto the plan but
+nothing else should."* It is not an exception to the rule below, it is the
+clearest instance of it. Every other row auto-fill produced came from a
+schedule nobody looked at that morning; a flag is a person deciding by hand,
+and flags are shared, so it is also how Emily tells Jake something needs doing
+without a conversation. Making him add it again would be asking him to agree
+twice. Narrowed by the same due-or-late rule, because a flag lasts until the
+work is done and a chore flagged now but due in three weeks would otherwise sit
+on every day in between.
 
 **Why:** Emily's complaint, twice, was that there was too much on the plan.
 Jake: *"I guess we should go back to having the plan page just start empty and
