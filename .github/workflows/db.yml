@@ -93,9 +93,50 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: supabase db reset
 
+      # `supabase test db` exits 0 when it runs nothing at all. Measured, not
+      # assumed: moving `supabase/tests` aside gives `Files=0, Tests=0`,
+      # `Result: NOTESTS`, and `$? == 0`. So a bad path or a moved directory
+      # would take the whole policy suite out of CI while this job stayed
+      # green — the one failure mode a
+      # policy suite cannot afford, because nothing else here checks RLS.
+      #
+      # The count is `*.sql`, which is what the runner itself globs — measured
+      # by renaming `flags.test.sql` to `flags.sql`, which still ran. So the
+      # guard compares like with like and fails when a file present on disk
+      # goes unrun: a connection that dies mid-suite, a directory moved, a
+      # path that stops resolving.
+      #
+      # What it deliberately does not claim to catch is a file *deleted*, since
+      # both sides then drop together. That one is visible in the diff; a suite
+      # silently shrinking to nothing in CI is not.
       - name: Policy tests (pgTAP)
         if: steps.scope.outputs.run == 'true'
-        run: supabase test db
+        run: |
+          set -o pipefail
+          # `|| true` is load-bearing, and `2>/dev/null` alone was not enough.
+          # Under Actions' `bash -e` plus `pipefail`, a glob that matches
+          # nothing makes `ls` fail, which fails the pipeline, which kills the
+          # step on the assignment itself — silently, before the branch below
+          # can say what went wrong. Measured: without `|| true` the missing-
+          # directory case exits 1 having printed nothing at all on either
+          # stream. It failed closed, but "the directory moved" is precisely
+          # the case this message exists for.
+          EXPECTED="$(ls -1 supabase/tests/*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+          if [ "$EXPECTED" -eq 0 ]; then
+            echo "::error::No .sql test files found in supabase/tests/."
+            exit 1
+          fi
+          supabase test db 2>&1 | tee /tmp/pgtap.log
+          if ! grep -q "^Result: PASS" /tmp/pgtap.log; then
+            echo "::error::pgTAP did not report a pass."
+            exit 1
+          fi
+          RAN="$(sed -n 's/^Files=\([0-9]*\),.*/\1/p' /tmp/pgtap.log | tail -1)"
+          if [ "$RAN" != "$EXPECTED" ]; then
+            echo "::error::pgTAP ran $RAN of the $EXPECTED .sql files in supabase/tests/. A file it skipped is a test that is not running."
+            exit 1
+          fi
+          echo "pgTAP ran all $EXPECTED test files."
 
       - name: Integration tests
         if: steps.scope.outputs.run == 'true'

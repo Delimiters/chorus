@@ -1,6 +1,6 @@
 import { civilDate } from '../civil/date';
 import type { CivilDate } from '../civil/types';
-import { flaggedFirst, liveFlagsByChore, liveFlagsFor, toggleFlag, type ChoreFlag } from './flag';
+import { flaggedFirst, liveFlagsByChore, toggleFlag, type ChoreFlag } from './flag';
 
 const d = (s: string): CivilDate => civilDate(s);
 
@@ -25,19 +25,22 @@ describe('a flag has no expiry', () => {
    * left and nothing in this module can answer it wrongly.
    *
    * What remains is the guarantee that age is not consulted: a flag from
-   * months ago counts exactly as much as one raised this morning.
+   * months ago counts exactly as much as one raised this morning. Asked of
+   * `liveFlagsByChore` now that the per-person reader is gone — it is the only
+   * thing left that turns rows into live flags, so it is where the guarantee
+   * has to hold.
    */
   it('counts a flag from long ago the same as one from today', () => {
     const old = flag('gutters', '2026-01-04');
     const fresh = flag('dishes', '2026-08-12');
 
-    expect(liveFlagsFor([old, fresh], ME)).toEqual(new Set(['gutters', 'dishes']));
+    expect([...liveFlagsByChore([old, fresh]).keys()].sort()).toEqual(['dishes', 'gutters']);
   });
 
   it('counts a flag dated in the future, rather than hiding it', () => {
     // Nothing compares the date to anything, so a clock skew on one phone
     // cannot make a flag invisible to the other.
-    expect(liveFlagsFor([flag('bins', '2027-01-01')], ME)).toEqual(new Set(['bins']));
+    expect([...liveFlagsByChore([flag('bins', '2027-01-01')]).keys()]).toEqual(['bins']);
   });
 });
 
@@ -47,15 +50,6 @@ describe('whose flags', () => {
     flag('trash', '2026-08-25', THEM),
     flag('plants', '2026-08-10', ME),
   ];
-
-  it('returns only mine', () => {
-    /*
-     * `plants` is mine and months old; `trash` is theirs. Ownership
-     * is the only thing that decides, so both have to be in the fixture — one
-     * of each would pass against a filter that tested the wrong field.
-     */
-    expect([...liveFlagsFor(flags, ME)].sort()).toEqual(['dishes', 'plants']);
-  });
 
   it('returns everyone for the shared view', () => {
     const byChore = liveFlagsByChore(flags);

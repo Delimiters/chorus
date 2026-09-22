@@ -1,16 +1,24 @@
 create extension if not exists pgtap with schema extensions;
 
--- Flags, and the one asymmetry that makes them different from everything else.
+-- Flags are a household fact, like completions.
 --
--- Completions are household facts: either person may record or undo one,
--- because a two-person household is a trust relationship. A flag is not a fact
--- about the household, it is a statement about what somebody is worrying
--- about — so both people can *see* both flags, and neither can set or clear
--- the other's. That read/write split is the whole of what is tested here,
--- along with the usual private-chore leak.
+-- They used to be the one asymmetry: both people could see both flags and
+-- neither could clear the other's, on the reasoning that a flag is a statement
+-- about what somebody is worrying about rather than a fact about the house.
+--
+-- That reasoning did not survive contact. Jake: *"If I flag something does it
+-- flag it for both of us? Because I want it to."* Every read was already
+-- household-wide — the "!!" showed on both phones and lifted the chore on both
+-- plans — so the asymmetry only ever meant Emily could see a flag she could
+-- not lift, and was offered "Flag it" on something already flagged.
+--
+-- So: either housemate may clear any flag in their household. Raising one is
+-- still your own row, because who raised it is worth recording. What is tested
+-- here is that pair, plus the usual private-chore leak, plus the boundary that
+-- did not move — somebody outside the household still cannot touch it.
 
 begin;
-select plan(9);
+select plan(10);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -99,18 +107,74 @@ select is(
   'the private chore''s flag is invisible to him specifically'
 );
 
--- The asymmetry with completions, stated as a test. Either housemate may
--- un-complete a chore; neither may un-worry the other.
+-- The reversal. Either housemate may clear any flag in the house, which is
+-- what makes one person's flag mean something to the other.
 -- A data-modifying statement has to be a CTE; it cannot sit in a subquery.
--- RLS makes these no-ops rather than errors: the rows are simply not visible
--- to the USING clause, so nothing matches and nothing is returned.
 with deleted as (
   delete from public.chore_flags
    where user_id = 'f1111111-1111-1111-1111-111111111111'
+     and chore_id = 'fb000000-0000-0000-0000-000000000001'
   returning 1
 )
-select is((select count(*)::int from deleted), 0, 'Bob cannot clear Alice''s flag');
+select is((select count(*)::int from deleted), 1, 'Bob can clear Alice''s flag');
 
+-- The boundary that did *not* move. `chore_is_visible` is still on the delete
+-- policy, so widening "whose flag" did not widen "which chores" — Bob cannot
+-- reach a flag on a chore Alice has kept private.
+--
+-- The delete has to carry **no WHERE clause**, and that part is measured.
+--
+-- A `delete … where chore_id = …` must read the row to find it, so
+-- `chore_flags_select` blocks it before the delete policy is consulted: the
+-- assertion passes with `chore_is_visible` removed from the delete policy
+-- entirely. A bare delete references no columns, triggers no SELECT policy,
+-- and is the only shape where this guard is the thing standing in the way. The
+-- same discovery is recorded on `plan_entries_delete` in 20260907210000.
+--
+-- An earlier version of this comment claimed `RETURNING` is filtered by the
+-- SELECT policy and so could not discriminate, and said that had been
+-- measured. It had not, and the claim is false. The correction that replaced
+-- it then quoted 1 and 2, which is also wrong: those numbers were not taken
+-- against this file as written, where the delete above has already consumed
+-- Alice's visible flag.
+--
+-- Measured here, at this line: a `returning 1` CTE counts **0** under the real
+-- policy and **1** with `chore_is_visible` stripped from the delete policy. So
+-- `RETURNING` does discriminate and the CTE shape would have worked. Counting afterwards as Alice is kept
+-- because it reads as the question being asked — is the row still there — but
+-- it is a preference, not a necessity.
+delete from public.chore_flags;
+
+set local request.jwt.claims to '{"sub":"f1111111-1111-1111-1111-111111111111"}';
+
+select is(
+  (select count(*)::int from public.chore_flags
+   where chore_id = 'fb000000-0000-0000-0000-000000000002'),
+  1,
+  'Bob cannot clear a flag on a chore he cannot see'
+);
+
+/*
+ * Alice's flag on the *shared* chore, put back as the table owner.
+ *
+ * The assertion below is about the update policy, and it needs a row Bob can
+ * see: by this point the only Alice flag left is on her private chore, which
+ * `chore_flags_select` hides from him — so the update matched nothing whatever
+ * the policy said. Replacing `chore_flags_update` with `using (true) with
+ * check (true)` left the whole file green. Measured.
+ */
+reset role;
+insert into public.chore_flags (household_id, chore_id, user_id, flagged_on)
+values ('fa000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000001',
+        'f1111111-1111-1111-1111-111111111111', '2026-08-27');
+
+-- Back to Bob; everything below is about what he may do.
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"f2222222-2222-2222-2222-222222222222"}';
+
+-- Clearing a housemate's flag is now his to do; moving its date is not. The
+-- update policy stayed `user_id = auth.uid()`, because re-dating somebody
+-- else's flag is not an action any screen offers.
 with touched as (
   update public.chore_flags set flagged_on = '2020-01-01'
    where user_id = 'f1111111-1111-1111-1111-111111111111'

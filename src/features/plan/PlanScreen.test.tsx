@@ -89,7 +89,6 @@ jest.mock('@/data/hooks/useFlags', () => ({
     for (const id of mockTheirFlags) map.set(id, [...(map.get(id) ?? []), THEM]);
     return map;
   },
-  useMyFlags: () => mockMyFlags,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
 }));
 
@@ -532,19 +531,28 @@ describe('a finished plan', () => {
 });
 
 describe('adding a chore from the plan', () => {
-  it('does not float a + beside the button that adds what you already have', () => {
+  it('floats a + that puts the new chore on the plan', () => {
     /*
-     * The + is the *create a new chore* button, and on this sub-tab it sat
-     * directly beside "Add something", which picks from existing chores. The
-     * most prominent control on the screen looked like the common action and
-     * did the rare one — Jake read it exactly that way.
+     * The + was taken off this sub-tab once, because it sat beside "Add
+     * something" — which picks from existing chores — and created a chore that
+     * then did *not* appear on the plan. The most prominent control looked
+     * like the common action and did the rare one; Jake read it exactly that
+     * way.
      *
-     * Creating still happens from the plan, in the picker's first row, so this
-     * asserts the removal rather than the loss of the ability. It stays on the
-     * Chores and Routines sub-tabs, where nothing competes with it.
+     * What brings it back is that the complaint is now fixed rather than
+     * avoided: it opens the form with "Add to today's plan" already on, so it
+     * does the thing its position implies. Jake: *"just defaultly leave that
+     * toggle on and they can turn it off if they were just trying to make a
+     * chore outside of the plan."*
+     *
+     * `plan=1` is asserted, not merely the button: without it this is the old
+     * button back, complaint and all.
      */
     renderScreen([]);
-    expect(screen.queryByRole('button', { name: 'Add a chore' })).toBeNull();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Add a chore' }));
+
+    expect(mockPush).toHaveBeenCalledWith('/chore/new?plan=1');
   });
 });
 
@@ -1376,7 +1384,6 @@ describe('flagging from the plan', () => {
      * against the minimum stops the write rather than letting it drift.
      */
     mockMyFlags = new Set();
-    mockTheirFlags = new Set(['dishes']);
     mockEntries = [entry('dishes', 1), entry('bins', 3)];
     renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
 
@@ -1387,26 +1394,7 @@ describe('flagging from the plan', () => {
     expect(mockReorder).not.toHaveBeenCalled();
   });
 
-  it('still writes a position for a row lifted by a flag set on Today', () => {
-    /*
-     * The case a `theirsToo` gate got wrong. Flagging from Today writes no
-     * position, so a row your housemate flagged there is lifted while its
-     * stored position is still mid-day. Skipping the write because "it is
-     * already at the top" means that once both flags lapse it drops back into
-     * the middle — losing the one thing the position is for.
-     */
-    mockMyFlags = new Set();
-    mockTheirFlags = new Set(['dishes']);
-    mockEntries = [entry('dishes', 3), entry('bins', 1)];
-    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
-
-    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
-    fireEvent.press(screen.getByRole('button', { name: /^Flag it$/ }));
-
-    expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 0, ME);
-  });
-
-  it('promises the drop only when yours is the last flag on it', () => {
+  it('describes the drop as happening for both of you', () => {
     mockMyFlags = new Set(['dishes']);
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
@@ -1416,22 +1404,22 @@ describe('flagging from the plan', () => {
     expect(screen.getByText(/drops back in with the rest of the day/)).toBeOnTheScreen();
   });
 
-  it('says the row stays up when the housemate has flagged it too', () => {
+  it('offers to unflag one your housemate raised, not to flag it again', () => {
     /*
-     * The lift belongs to the household: either flag is enough to raise the
-     * row, and it comes down only when the last one does. Promising it "drops
-     * back in with the rest of the day" here is simply false — you tap, and
-     * nothing moves.
+     * The reversal, and the thing Jake actually asked for. Their flag used to
+     * be visible and not yours to lift, so the sheet said "Flag it" on a row
+     * already showing "!!" and a tap added a second row that changed nothing.
      */
-    mockMyFlags = new Set(['dishes']);
+    mockMyFlags = new Set();
     mockTheirFlags = new Set(['dishes']);
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
 
     fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
 
-    expect(screen.getByText(/stays at the top/)).toBeOnTheScreen();
-    expect(screen.queryByText(/drops back in with the rest of the day/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Unflag it' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Flag it$/ })).toBeNull();
+    expect(screen.getByText(/for both of you/)).toBeOnTheScreen();
   });
 
   it('leaves the position alone when the flag comes off', () => {
@@ -1552,5 +1540,56 @@ describe('flagged work leads the whole day', () => {
     // Dishes sits at 1 and the taxes are landing above it with nothing before,
     // so the position is 0 — a real write, within the flagged group.
     expect(mockReorder).toHaveBeenCalledWith('v1:taxes', 0, ME);
+  });
+});
+
+describe('whose job a row is', () => {
+  /*
+   * The plan is grouped by whose *day* a row is on, so it names no assignee:
+   * everything under "Doing today" is yours to look at. Flags broke that —
+   * a flag lifts a chore out of the day it was planned under and into the
+   * Flagged group, so a chore assigned to Emily can sit at the top of Jake's
+   * plan reading as his. Jake: *"maybe if it's assigned to someone else have
+   * some indication of that in the UI."*
+   */
+  it('names the assignee when it is not whose day the row is on', () => {
+    mockMyFlags = new Set(['mail']);
+    mockEntries = [entry('mail', 1)];
+    renderScreen([item('mail', 'Post', 'due', { kind: 'member', memberId: THEM, turn: 0 })]);
+
+    expect(screen.getByText('Sam')).toBeOnTheScreen();
+  });
+
+  it('says nothing when the row is on the day of the person it belongs to', () => {
+    // Otherwise the heading is repeated on every row underneath it.
+    mockEntries = [entry('mail', 1)];
+    renderScreen([item('mail', 'Post', 'due', { kind: 'member', memberId: ME, turn: 0 })]);
+
+    expect(screen.queryByText('Jake')).toBeNull();
+  });
+
+  it('says nothing for work anyone can do', () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes', 'due', { kind: 'anyone' })]);
+
+    expect(screen.queryByText('Sam')).toBeNull();
+    expect(screen.queryByText('Jake')).toBeNull();
+  });
+
+  it('keeps the name in both states, so the row does not reflow', () => {
+    /*
+     * The meta column's contents must not differ between collapsed and
+     * expanded — a marker that appeared in one state and not the other handed
+     * its width back to the title mid-tap, which took four reports to find.
+     * See docs/DECISIONS.md, 2026-09-09.
+     */
+    mockMyFlags = new Set(['mail']);
+    mockEntries = [entry('mail', 1)];
+    renderScreen([item('mail', 'Post', 'due', { kind: 'member', memberId: THEM, turn: 0 })]);
+
+    expect(screen.getAllByText('Sam')).toHaveLength(1);
+
+    fireEvent.press(screen.getByLabelText(/Post\. Show details\./));
+    expect(screen.getAllByText('Sam')).toHaveLength(1);
   });
 });

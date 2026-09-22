@@ -38,7 +38,7 @@ import { Toast } from '@/design/Toast';
 import { groupItems } from '@/core/occurrence/grouping';
 import { toPriority } from '@/core/chore/priority';
 import { useCategoryList } from '@/data/hooks/useCategories';
-import { useFlagsByChore, useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
+import { useFlagsByChore, useToggleFlag } from '@/data/hooks/useFlags';
 import { flaggedFirst } from '@/core/chore/flag';
 import { toIconName } from '@/design/icons';
 import { useViewPreference, useViewStore } from '@/stores/viewStore';
@@ -150,19 +150,14 @@ export function TodayScreen() {
   );
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
   /*
-   * Two questions, two answers.
+   * One question, one answer: is this chore flagged in this house?
    *
-   * `anyFlags` decides what the row *shows* and how it sorts, because the sheet
-   * promises "both of you can see it" and the RLS policy was written for that —
-   * the point of a flag in a shared house is saying "this is worrying me"
-   * without a conversation. `myFlags` decides what the sheet's action *does*,
-   * because you can only raise or lower your own.
-   *
-   * A review found the shared half unreachable: every consumer used `myFlags`,
-   * so `useFlagsByChore` had no call site at all while the pgTAP suite spent
-   * five of nine assertions proving the visibility it enabled.
+   * It used to be two. The row showed the household's flags while the sheet
+   * acted on your own, so a chore your housemate had flagged showed "!!" and
+   * offered "Flag it" — adding a second row and changing nothing visible.
+   * Jake: *"If I flag something does it flag it for both of us? Because I want
+   * it to."* It does now, in both directions.
    */
-  const myFlags = useMyFlags();
   const flagsByChore = useFlagsByChore();
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
   const toggleFlag = useToggleFlag(today);
@@ -831,7 +826,7 @@ export function TodayScreen() {
         item={open}
         today={today}
         weekStartsOn={weekStartsOn}
-        flagged={open !== null && myFlags.has(open.choreId)}
+        flagged={open !== null && anyFlags.has(open.choreId)}
         onToggleFlag={(choreId) => toggleFlag.mutate(choreId)}
         onClose={() => setOpen(null)}
         onToggleComplete={(item) => completeItem(item, item.status !== 'completed')}

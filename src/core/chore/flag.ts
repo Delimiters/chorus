@@ -32,25 +32,12 @@ export interface ChoreFlag {
 }
 
 /**
- * The chore ids one person has flagged.
- *
- * No date and no week: a row that is still here is a live flag. There is no
- * `isFlagLive` any more, because there is nothing left for it to decide.
- *
- * A set rather than a list: every caller is asking "is this one flagged", and
- * handing back an array invites a linear scan inside a render loop.
- */
-export function liveFlagsFor(flags: readonly ChoreFlag[], userId: string): ReadonlySet<string> {
-  const live = new Set<string>();
-  for (const flag of flags) {
-    if (flag.userId !== userId) continue;
-    live.add(flag.choreId);
-  }
-  return live;
-}
-
-/**
  * Everyone's flags, by chore.
+ *
+ * There is no by-person counterpart. `liveFlagsFor(flags, userId)` existed
+ * until flags became shared, and then had exactly one caller passing exactly
+ * one id — the signed-in person's — which is the composition the plan's
+ * proposal got wrong. Deleted rather than left available.
  *
  * Seeing that your housemate is worried about the car inspection is most of
  * the point — it is how "this is on my mind" gets said without a conversation.

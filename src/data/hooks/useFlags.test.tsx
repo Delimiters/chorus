@@ -26,7 +26,8 @@ const ME = 'user-me';
 const TODAY = civilDate('2026-08-27'); // a Thursday
 
 const mockRaised: { choreId: string; flaggedOn: string }[] = [];
-const mockLowered: { choreId: string; userId: string }[] = [];
+const mockLowered: { choreId: string }[] = [];
+let mockLowerFails = false;
 
 /**
  * A server that remembers.
@@ -46,9 +47,12 @@ jest.mock('../api/flags', () => ({
       { choreId: input.choreId, userId: input.userId, flaggedOn: input.flaggedOn },
     ];
   }),
-  lowerFlag: jest.fn(async (choreId: string, userId: string) => {
-    mockLowered.push({ choreId, userId });
-    mockServerRows = mockServerRows.filter((r) => !(r.choreId === choreId && r.userId === userId));
+  // Everyone's row on the chore, matching the real one: a flag is shared, so
+  // lowering it is not scoped to a person.
+  lowerFlag: jest.fn(async (choreId: string) => {
+    if (mockLowerFails) throw new Error('nope');
+    mockLowered.push({ choreId });
+    mockServerRows = mockServerRows.filter((r) => r.choreId !== choreId);
   }),
 }));
 
@@ -77,6 +81,7 @@ beforeEach(() => {
   mockRaised.length = 0;
   mockLowered.length = 0;
   mockServerRows = [];
+  mockLowerFails = false;
 });
 
 describe('toggling a flag writes what it says it writes', () => {
@@ -103,7 +108,7 @@ describe('toggling a flag writes what it says it writes', () => {
     act(() => result.current.mutate('dishes'));
 
     await waitFor(() => expect(mockLowered).toHaveLength(1));
-    expect(mockLowered[0]).toEqual({ choreId: 'dishes', userId: ME });
+    expect(mockLowered[0]).toEqual({ choreId: 'dishes' });
     expect(mockRaised).toHaveLength(0);
   });
 
@@ -121,20 +126,25 @@ describe('toggling a flag writes what it says it writes', () => {
     act(() => result.current.mutate('dishes'));
 
     await waitFor(() => expect(mockLowered).toHaveLength(1));
-    expect(mockLowered[0]).toEqual({ choreId: 'dishes', userId: ME });
+    expect(mockLowered[0]).toEqual({ choreId: 'dishes' });
     expect(mockRaised).toHaveLength(0);
   });
 
-  it('ignores a flag belonging to the other person', async () => {
-    // Their flag is visible but not mine to clear, so tapping raises my own.
+  it('lowers a flag your housemate raised', async () => {
+    /*
+     * The reversal. Their flag used to be visible but not mine to clear, so a
+     * tap raised a second row and the "!!" stayed put. A flag is the
+     * household's now, so tapping it means lower it.
+     */
     const { client, wrapper } = harness();
     seed(client, [{ choreId: 'dishes', userId: 'user-them', flaggedOn: TODAY }]);
     const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
-    await waitFor(() => expect(mockRaised).toHaveLength(1));
-    expect(mockLowered).toHaveLength(0);
+    await waitFor(() => expect(mockLowered).toHaveLength(1));
+    expect(mockLowered[0]).toEqual({ choreId: 'dishes' });
+    expect(mockRaised).toHaveLength(0);
   });
 
   it('leaves the cache agreeing with the server once it settles', async () => {
@@ -160,5 +170,66 @@ describe('toggling a flag writes what it says it writes', () => {
       const cached = client.getQueryData<readonly ChoreFlagRow[]>(qk.flags(HOUSE)) ?? [];
       expect(cached.map((f) => f.choreId)).toEqual(['dishes']);
     });
+  });
+});
+
+describe('what the cache looks like before the write lands', () => {
+  /*
+   * The optimistic update, which had no assertion at all — reverting it to the
+   * per-person filter left all 686 tests green. Its own comment names a
+   * symptom nothing was checking: with the housemate's row left in the cache,
+   * the "!!" stays on the row until the refetch lands and the tap looks as
+   * though it failed.
+   *
+   * This asserts the cache *after* the mutation settles, and that is a
+   * deliberate choice rather than a near miss. An earlier version of this
+   * comment said `lowerFlag` was "mocked to never settle" so the assertion
+   * landed mid-flight. It is not — the mock at the top of this file resolves
+   * immediately. What actually holds the optimistic value in place is that
+   * `qk.flags(HOUSE)` has no observer in this harness, so `onSettled`'s
+   * `invalidateQueries` marks it stale without refetching.
+   *
+   * That still pins the thing that matters: `onMutate` is the only writer of
+   * this cache entry in the whole test, so what is in it is exactly what the
+   * optimistic update put there. Reverting the filter to the per-person one
+   * reddens this test, which was the point.
+   */
+  it('drops every flag on the chore, not just yours', async () => {
+    const { client, wrapper } = harness();
+    seed(client, [
+      { choreId: 'dishes', userId: ME, flaggedOn: TODAY },
+      { choreId: 'dishes', userId: 'user-them', flaggedOn: TODAY },
+      { choreId: 'bins', userId: 'user-them', flaggedOn: TODAY },
+    ]);
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
+
+    act(() => result.current.mutate('dishes'));
+
+    await waitFor(() =>
+      expect(client.getQueryData<ChoreFlagRow[]>(qk.flags(HOUSE))).toEqual([
+        { choreId: 'bins', userId: 'user-them', flaggedOn: TODAY },
+      ]),
+    );
+  });
+
+  it('puts the housemate’s row back when the write fails', async () => {
+    /*
+     * Rollback restores the snapshot wholesale, so it has to return *both*
+     * rows — not merely the one this user owned. Nothing covered the error
+     * path at all.
+     */
+    const { client, wrapper } = harness();
+    const before: ChoreFlagRow[] = [
+      { choreId: 'dishes', userId: ME, flaggedOn: TODAY },
+      { choreId: 'dishes', userId: 'user-them', flaggedOn: TODAY },
+    ];
+    seed(client, before);
+    mockLowerFails = true;
+
+    const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
+    act(() => result.current.mutate('dishes'));
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(client.getQueryData<ChoreFlagRow[]>(qk.flags(HOUSE))).toEqual(before);
   });
 });

@@ -36,6 +36,34 @@ still has it. Nobody has asked for it back.
 
 ---
 
+## 2026-09-22 — The floating + returns to the plan, doing what its position implies
+
+**Was:** the + was removed from Today > Plan. It sat beside "Add something",
+which picks from chores that already exist, and it created a *new* chore — so
+the most prominent control on the screen looked like the common action and did
+the rare one. Jake read it exactly that way, which is why it went.
+
+**Now:** it is back, and it opens the form with "Add to today's plan" already
+switched on.
+
+**Why this is not a straight reversal:** the original complaint was not "there
+is a + here", it was "the + makes a chore that does not end up on my plan". A
+default of `plan=1` fixes the complaint rather than avoiding it, so the button
+now does the thing its position implies. Jake: *"just defaultly leave that
+toggle on and they can turn it off if they were just trying to make a chore
+outside of the plan."*
+
+`plan=1` is the same parameter the picker's "Create a new chore" row already
+passed, so there is one code path and one behaviour.
+
+**Cost:** two ways to add to the plan now sit on one screen — the + creates
+something new, "Add something" picks what exists. That is the ambiguity the
+removal was meant to end, and it is accepted on the grounds that both now put
+work on the plan, which is what the position promises. The toggle is still
+there to opt out.
+
+---
+
 ## 2026-09-21 — A flag lasts until the job is done, not until Sunday
 
 **Was:** a flag was live only while the date it was raised on fell inside the

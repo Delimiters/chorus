@@ -1,16 +1,18 @@
 /**
  * "This one, until it is done."
  *
- * A per-person marker on a chore. Every row is live: there is no expiry to
+ * A marker on a chore, raised by one person and owned by the house. Every row is live: there is no expiry to
  * compute, and the rows do not accumulate, because completing the chore
  * deletes them — a trigger, in
  * supabase/migrations/20260921120000_flags_last_until_done.sql, since a chore
  * can be completed from three screens and the clearing has to hold for all of
  * them.
  *
- * Raising and lowering are owner-only: you can see your housemate's flag and
- * cannot lift it. Completion is the exception, and it is the trigger rather
- * than a policy that does it — which is why the trigger is `security definer`.
+ * Raising is yours; lowering is anyone's in the house. Jake: *"If I flag
+ * something does it flag it for both of us? Because I want it to."* A flag is
+ * a message to the household, so either of you can answer it — `lowerFlag`
+ * clears every row on the chore, and `chore_flags_delete` permits that.
+ * Completion clears them too, via the trigger, which is why it is definer.
  */
 
 import { civilDate } from '@/core/civil/date';
@@ -82,17 +84,19 @@ export async function raiseFlag(input: {
 }
 
 /**
- * Lower your own flag.
+ * Lower the flag on a chore — everyone's, not only your own.
  *
- * Scoped to `userId` in the statement as well as in the policy. The policy is
- * the guarantee, but a query that relies on it alone reads as though clearing
- * somebody else's were merely unimplemented rather than refused.
+ * Deliberately not scoped to a `userId`. A flag is the household's: the "!!"
+ * shows on both phones and lifts the chore on both plans, so clearing only
+ * your row would leave the mark standing and the tap looking broken. Jake:
+ * *"If I flag something does it flag it for both of us? Because I want it
+ * to."*
+ *
+ * The policy allows exactly this and no more — any flag in your household, on
+ * a chore you can see. A flag on a housemate's private chore stays out of
+ * reach, which is why `chore_is_visible` is still on the delete policy.
  */
-export async function lowerFlag(choreId: string, userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('chore_flags')
-    .delete()
-    .eq('chore_id', choreId)
-    .eq('user_id', userId);
+export async function lowerFlag(choreId: string): Promise<void> {
+  const { error } = await supabase.from('chore_flags').delete().eq('chore_id', choreId);
   if (error) fail(error);
 }

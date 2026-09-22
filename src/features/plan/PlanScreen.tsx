@@ -27,6 +27,7 @@ import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ChoreRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
+import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { DragList } from '@/design/DragList';
 import { positionBetween } from '@/core/plan/reorder';
 import { Sheet, SheetAction } from '@/design/Sheet';
@@ -36,7 +37,7 @@ import { radius, space } from '@/design/tokens';
 import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { useMembers, useSetPlanGroupOrder, type PlanGroupOrder } from '@/data/hooks/useHousehold';
-import { useFlagsByChore, useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
+import { useFlagsByChore, useToggleFlag } from '@/data/hooks/useFlags';
 import { useToggleCompletion } from '@/data/hooks/useOccurrences';
 import {
   useMyPlanEntries,
@@ -118,16 +119,18 @@ export function PlanScreen({
    * be flagged but the plan neither showed it nor offered to set one. Jake:
    * *"I don't see a button to add the !! on daily plan."*
    *
-   * `useFlagsByChore` is the whole household's, and decides what a row *shows*:
-   * a flag your housemate set is still a flag. `useMyFlags` is what the sheet
-   * toggles, because you can only lift your own.
+   * `useFlagsByChore` is the whole household's, and it decides both what a row
+   * shows and what the sheet toggles. There is no per-person set any more:
+   * a flag your housemate set is a flag, and you can lift it.
    */
   /* No `weekStartsOn` here any more, and therefore no `useHousehold()`: flags
      stopped having a week, and the query was being kept alive — a live
      subscription and a re-render source — purely to feed a dead argument. */
+  /** Your accent, so the floating button wears your ink like the other tabs. */
+  const myInk = members.data?.find((m) => m.userId === userId)?.accent ?? null;
+
   const flagsByChore = useFlagsByChore();
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
-  const myFlags = useMyFlags();
   const toggleFlag = useToggleFlag(today as never);
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
@@ -504,21 +507,15 @@ export function PlanScreen({
   };
 
   /**
-   * Whose flag is on the row the sheet is open for.
+   * Is the row the sheet is open for flagged?
    *
-   * `mine` decides what the button does — you can only lift your own. `theirsToo`
-   * decides what it *achieves*, because the lift is the household's: the row
-   * stays at the top while anyone's flag is live.
+   * One question now. It used to be two — whose flag it was, and whether the
+   * other person also had one — because you could only lift your own, so the
+   * copy had to explain four states and warn that unflagging might visibly do
+   * nothing. A flag is the household's, so there are two states and the button
+   * means what it says.
    */
-  const flagState = (() => {
-    const choreId = removing?.item.choreId;
-    if (choreId === undefined) return { mine: false, theirsToo: false };
-    const setBy = flagsByChore.get(choreId) ?? [];
-    return {
-      mine: myFlags.has(choreId),
-      theirsToo: setBy.some((id) => id !== userId),
-    };
-  })();
+  const isFlagged = removing !== null && anyFlags.has(removing.item.choreId);
 
   /**
    * The control for the order, or nothing when your day shows no split.
@@ -653,12 +650,28 @@ export function PlanScreen({
   const renderRow = ({ item }: { item: AgendaItem }, ownerId: string | undefined) => {
     const meta = choreMeta.get(item.choreId);
     const category = categoryById.get(meta?.categoryId ?? '') ?? null;
+
+    /*
+     * Whose job it is, but only when the section heading does not already say.
+     *
+     * The plan is grouped by whose *day* a row is on, so naming the assignee
+     * on every row would repeat the heading forty times. It is worth saying
+     * exactly when the two disagree — a chore assigned to Emily sitting on
+     * Jake's day, which is ordinary in the Flagged group because a flag lifts
+     * work out of the day it was planned under.
+     */
+    const assignee = item.assignee;
+    const assigneeLabel =
+      assignee.kind === 'member' && assignee.memberId !== ownerId
+        ? (nameById.get(assignee.memberId) ?? null)
+        : null;
     return (
       <ChoreRow
         key={item.occurrenceKey}
         item={item}
         ink={null}
         turnLabel={null}
+        assigneeLabel={assigneeLabel}
         scheduleLabel=""
         notes={meta?.notes ?? null}
         /*
@@ -698,7 +711,9 @@ export function PlanScreen({
       <ScrollView
         contentContainerStyle={{
           padding: space.lg,
-          paddingBottom: space.xxxl,
+          // Clearance for the floating button, so the last row of the day is
+          // not sitting underneath it.
+          paddingBottom: ADD_BUTTON_CLEARANCE,
           gap: 2,
         }}
         scrollEnabled={!dragging}
@@ -993,6 +1008,17 @@ export function PlanScreen({
         the Chores and Routines sub-tabs, where nothing else competes with it.
       */}
 
+      {/*
+        The same floating + as Chores and Routines, and it lands on the plan.
+        
+        `plan=1` is what the picker's "Create a new chore" row already passes,
+        so the form opens with "Add to today's plan" switched on — Jake: *"just
+        defaultly leave that toggle on and they can turn it off if they were
+        just trying to make a chore outside of the plan."* One code path, one
+        behaviour, and the toggle is still there to say no.
+      */}
+      <AddChoreButton onPress={() => router.push('/chore/new?plan=1')} ink={myInk} />
+
       <Sheet
         visible={removing !== null}
         onClose={() => setRemoving(null)}
@@ -1039,22 +1065,17 @@ export function PlanScreen({
             decision you have made, and undoing the flag is not a request to
             undo that too.
 
-            A flag belongs to the person who set it, but the *lift* belongs to
-            the household: either of you flagging is enough to raise the row,
-            and it comes down only when the last flag does. So the copy has to
-            say which of the four states you are in, rather than promise a
-            movement that a housemate's flag will quietly prevent.
+            A flag belongs to the household, raising and lowering alike, so
+            there are two states rather than four and the button means what it
+            says. It used to be personal, which meant "Unflag it" could
+            visibly do nothing while your housemate's flag held the row up.
           */}
           <SheetAction
-            label={flagState.mine ? 'Unflag it' : 'Flag it'}
+            label={isFlagged ? 'Unflag it' : 'Flag it'}
             hint={
-              flagState.mine
-                ? flagState.theirsToo
-                  ? `Yours comes off. ${theirName} has flagged it too, so it stays at the top.`
-                  : 'It drops back in with the rest of the day, where its position puts it.'
-                : flagState.theirsToo
-                  ? `${theirName} has already flagged this, so it is at the top either way. This adds yours.`
-                  : 'Marks it "!!" and lifts it to the top of the day. It stays until it is done or you unflag it. Both of you can see it.'
+              isFlagged
+                ? 'It drops back in with the rest of the day, for both of you.'
+                : 'Marks it "!!" and lifts it to the top of the day, for both of you. It stays until it is done or either of you unflags it.'
             }
             onPress={() => {
               if (removing !== null) {
@@ -1087,7 +1108,7 @@ export function PlanScreen({
                  * drops back among the rest wherever this put it, rather than
                  * springing back to where it was a week ago.
                  */
-                if (!flagState.mine) {
+                if (!isFlagged) {
                   const day = removing.ownerId === myOwnerId ? mySections : theirSections;
                   const stored = day.all.map((p) => p.position);
                   const here = day.all.find(

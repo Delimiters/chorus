@@ -120,6 +120,24 @@ jest.mock('@/stores/routineStore', () => ({
  * other made every test agree by construction, so the test named "shows a flag
  * somebody else set" would have passed against code reading the wrong set.
  */
+const mockProposeDay = jest.fn((...args: unknown[]) => {
+  const actual = jest.requireActual('@/core/plan/propose') as {
+    proposeDay: (...a: unknown[]) => unknown;
+  };
+  return actual.proposeDay(...args);
+});
+/*
+ * Spread, not replaced. A bare factory would make every other export of this
+ * module `undefined` under test only — `DAY_SIZE` has no importer here today,
+ * so the day one appears the failure would be silent and test-only, which is
+ * the exact shape AGENTS.md records as "it type-checked, because the wrong
+ * type was a subtype of the right one".
+ */
+jest.mock('@/core/plan/propose', () => ({
+  ...jest.requireActual('@/core/plan/propose'),
+  proposeDay: (...args: unknown[]) => mockProposeDay(...args),
+}));
+
 let mockMyFlags: Set<string> = new Set();
 let mockTheirFlags: Set<string> = new Set();
 const mockToggleFlag = jest.fn();
@@ -141,7 +159,6 @@ jest.mock('@/data/hooks/useFlags', () => ({
     for (const id of mockTheirFlags) map.set(id, [...(map.get(id) ?? []), mockThem]);
     return map;
   },
-  useMyFlags: () => mockMyFlags,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
 }));
 
@@ -220,6 +237,13 @@ beforeEach(() => {
   mockAdd.mockClear();
   mockMarkAutoPlanned.mockClear();
   mockClearPlanOnCreate.mockClear();
+  // Flags were the one group of fixtures this reset had missed, so a test that
+  // set them leaked into every test written after it — and the proposal test
+  // below reads `mockProposeDay.mock.calls.at(-1)`, which would then be
+  // reaching into another test's history.
+  mockProposeDay.mockClear();
+  mockMyFlags = new Set();
+  mockTheirFlags = new Set();
   mockView = { mine: [], theirs: [], done: [], skipped: [], upcoming: [], floating: [] };
   mockChores = [];
   mockEntries = [];
@@ -784,5 +808,32 @@ describe('two people sharing one household', () => {
     await waitFor(() => expect(mockAdd).toHaveBeenCalled());
     // The auto-plan is always your own day.
     expect(mockAdd.mock.calls[0]?.[2]).toBeUndefined();
+  });
+});
+
+describe('what the morning proposal counts as urgent', () => {
+  /*
+   * `propose.ts` documents its `flagged` argument as "what either of you" has
+   * flagged, and awards it 500 points — more than lateness. This file passed
+   * `useMyFlags`, so a chore Emily flagged never got the boost on Jake's
+   * proposal, and reverting the fix left all 686 tests green.
+   *
+   * Asserted on the argument rather than the rendered order. The bug was in
+   * the *composition* — a correct ranking handed the wrong set — and the
+   * proposal only reaches the screen when the plan is empty and nothing has
+   * auto-planned, which is a lot of fixture standing between the defect and
+   * the assertion.
+   */
+  it('hands the household’s flags to the ranking, not only yours', async () => {
+    mockMyFlags = new Set(['dishes']);
+    mockTheirFlags = new Set(['gutters']);
+    mockView.mine = [item('dishes'), item('gutters')];
+    mockChores = [recurring('dishes'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(mockProposeDay).toHaveBeenCalled());
+
+    const options = mockProposeDay.mock.calls.at(-1)?.[1] as { flagged: ReadonlySet<string> };
+    expect([...options.flagged].sort()).toEqual(['dishes', 'gutters']);
   });
 });
