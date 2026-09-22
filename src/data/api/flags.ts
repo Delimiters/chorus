@@ -82,17 +82,19 @@ export async function raiseFlag(input: {
 }
 
 /**
- * Lower your own flag.
+ * Lower the flag on a chore — everyone's, not only your own.
  *
- * Scoped to `userId` in the statement as well as in the policy. The policy is
- * the guarantee, but a query that relies on it alone reads as though clearing
- * somebody else's were merely unimplemented rather than refused.
+ * Deliberately not scoped to a `userId`. A flag is the household's: the "!!"
+ * shows on both phones and lifts the chore on both plans, so clearing only
+ * your row would leave the mark standing and the tap looking broken. Jake:
+ * *"If I flag something does it flag it for both of us? Because I want it
+ * to."*
+ *
+ * The policy allows exactly this and no more — any flag in your household, on
+ * a chore you can see. A flag on a housemate's private chore stays out of
+ * reach, which is why `chore_is_visible` is still on the delete policy.
  */
-export async function lowerFlag(choreId: string, userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('chore_flags')
-    .delete()
-    .eq('chore_id', choreId)
-    .eq('user_id', userId);
+export async function lowerFlag(choreId: string): Promise<void> {
+  const { error } = await supabase.from('chore_flags').delete().eq('chore_id', choreId);
   if (error) fail(error);
 }

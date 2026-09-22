@@ -26,7 +26,7 @@ const ME = 'user-me';
 const TODAY = civilDate('2026-08-27'); // a Thursday
 
 const mockRaised: { choreId: string; flaggedOn: string }[] = [];
-const mockLowered: { choreId: string; userId: string }[] = [];
+const mockLowered: { choreId: string }[] = [];
 
 /**
  * A server that remembers.
@@ -46,9 +46,11 @@ jest.mock('../api/flags', () => ({
       { choreId: input.choreId, userId: input.userId, flaggedOn: input.flaggedOn },
     ];
   }),
-  lowerFlag: jest.fn(async (choreId: string, userId: string) => {
-    mockLowered.push({ choreId, userId });
-    mockServerRows = mockServerRows.filter((r) => !(r.choreId === choreId && r.userId === userId));
+  // Everyone's row on the chore, matching the real one: a flag is shared, so
+  // lowering it is not scoped to a person.
+  lowerFlag: jest.fn(async (choreId: string) => {
+    mockLowered.push({ choreId });
+    mockServerRows = mockServerRows.filter((r) => r.choreId !== choreId);
   }),
 }));
 
@@ -103,7 +105,7 @@ describe('toggling a flag writes what it says it writes', () => {
     act(() => result.current.mutate('dishes'));
 
     await waitFor(() => expect(mockLowered).toHaveLength(1));
-    expect(mockLowered[0]).toEqual({ choreId: 'dishes', userId: ME });
+    expect(mockLowered[0]).toEqual({ choreId: 'dishes' });
     expect(mockRaised).toHaveLength(0);
   });
 
@@ -121,20 +123,25 @@ describe('toggling a flag writes what it says it writes', () => {
     act(() => result.current.mutate('dishes'));
 
     await waitFor(() => expect(mockLowered).toHaveLength(1));
-    expect(mockLowered[0]).toEqual({ choreId: 'dishes', userId: ME });
+    expect(mockLowered[0]).toEqual({ choreId: 'dishes' });
     expect(mockRaised).toHaveLength(0);
   });
 
-  it('ignores a flag belonging to the other person', async () => {
-    // Their flag is visible but not mine to clear, so tapping raises my own.
+  it('lowers a flag your housemate raised', async () => {
+    /*
+     * The reversal. Their flag used to be visible but not mine to clear, so a
+     * tap raised a second row and the "!!" stayed put. A flag is the
+     * household's now, so tapping it means lower it.
+     */
     const { client, wrapper } = harness();
     seed(client, [{ choreId: 'dishes', userId: 'user-them', flaggedOn: TODAY }]);
     const { result } = renderHook(() => useToggleFlag(TODAY), { wrapper });
 
     act(() => result.current.mutate('dishes'));
 
-    await waitFor(() => expect(mockRaised).toHaveLength(1));
-    expect(mockLowered).toHaveLength(0);
+    await waitFor(() => expect(mockLowered).toHaveLength(1));
+    expect(mockLowered[0]).toEqual({ choreId: 'dishes' });
+    expect(mockRaised).toHaveLength(0);
   });
 
   it('leaves the cache agreeing with the server once it settles', async () => {

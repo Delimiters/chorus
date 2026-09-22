@@ -73,7 +73,7 @@ export function useToggleFlag(on: CivilDate) {
   const mutation = useMutation({
     mutationFn: async ({ choreId, next }: { choreId: string; next: CivilDate | null }) => {
       if (householdId === null || userId === null) throw new Error('Please sign in again.');
-      if (next === null) await lowerFlag(choreId, userId);
+      if (next === null) await lowerFlag(choreId);
       else await raiseFlag({ householdId, choreId, userId, flaggedOn: next });
     },
 
@@ -84,7 +84,13 @@ export function useToggleFlag(on: CivilDate) {
       const snapshot = queryClient.getQueryData<readonly ChoreFlagRow[]>(key);
 
       queryClient.setQueryData<readonly ChoreFlagRow[]>(key, (existing = []) => {
-        const without = existing.filter((f) => !(f.choreId === choreId && f.userId === userId));
+        /*
+         * Lowering drops every row on the chore, matching what the write does.
+         * Filtering to your own left your housemate's row in the cache, so the
+         * "!!" stayed on the row until the refetch landed and the tap looked
+         * like it had failed.
+         */
+        const without = existing.filter((f) => f.choreId !== choreId);
         return next === null ? without : [...without, { choreId, userId, flaggedOn: next }];
       });
 
@@ -104,9 +110,15 @@ export function useToggleFlag(on: CivilDate) {
 
   const decide = (choreId: string): CivilDate | null => {
     if (householdId === null || userId === null) return null;
+    /*
+     * Anyone's flag on this chore, not just mine. A flag is the household's, so
+     * tapping a chore your housemate flagged means "lower it" — the old
+     * per-person lookup offered "Flag it" on something already showing "!!"
+     * and quietly added a second row.
+     */
     const existing = (
       queryClient.getQueryData<readonly ChoreFlagRow[]>(qk.flags(householdId)) ?? []
-    ).find((f) => f.choreId === choreId && f.userId === userId);
+    ).find((f) => f.choreId === choreId);
     return toggleFlag(
       existing === undefined ? undefined : { choreId, userId, flaggedOn: existing.flaggedOn },
       on,

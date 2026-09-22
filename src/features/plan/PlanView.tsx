@@ -17,7 +17,7 @@ import { proposeDay } from '@/core/plan/propose';
 import { autoPlannable } from '@/core/plan/autoplan';
 import { useUserId } from '@/stores/sessionStore';
 import { isRecurring } from '@/core/chore/kind';
-import { useMyFlags } from '@/data/hooks/useFlags';
+import { useFlagsByChore } from '@/data/hooks/useFlags';
 import { useScheduleToday } from '@/data/hooks/useChores';
 import { useHousehold } from '@/data/hooks/useHousehold';
 import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
@@ -74,7 +74,14 @@ export function PlanView() {
       [today, weekStartsOn],
     ),
   );
-  const myFlags = useMyFlags();
+  /*
+   * The household's flags, not just yours. `propose.ts` already documents this
+   * argument as "what either of you" has flagged, and the ranking gives it 500
+   * points — but this passed `useMyFlags`, so a chore Emily flagged never got
+   * the boost on Jake's proposal. Shared flags make the mismatch plain.
+   */
+  const flagsByChore = useFlagsByChore();
+  const myFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
 
   /**
    * Everything the plan could name, including what is already done today.

@@ -36,7 +36,7 @@ import { radius, space } from '@/design/tokens';
 import { toIconName } from '@/design/icons';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { useMembers, useSetPlanGroupOrder, type PlanGroupOrder } from '@/data/hooks/useHousehold';
-import { useFlagsByChore, useMyFlags, useToggleFlag } from '@/data/hooks/useFlags';
+import { useFlagsByChore, useToggleFlag } from '@/data/hooks/useFlags';
 import { useToggleCompletion } from '@/data/hooks/useOccurrences';
 import {
   useMyPlanEntries,
@@ -127,7 +127,6 @@ export function PlanScreen({
      subscription and a re-render source — purely to feed a dead argument. */
   const flagsByChore = useFlagsByChore();
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
-  const myFlags = useMyFlags();
   const toggleFlag = useToggleFlag(today as never);
   const categories = useCategoryList();
   const setTodayMode = useRoutineStore((s) => s.setTodayMode);
@@ -504,21 +503,15 @@ export function PlanScreen({
   };
 
   /**
-   * Whose flag is on the row the sheet is open for.
+   * Is the row the sheet is open for flagged?
    *
-   * `mine` decides what the button does — you can only lift your own. `theirsToo`
-   * decides what it *achieves*, because the lift is the household's: the row
-   * stays at the top while anyone's flag is live.
+   * One question now. It used to be two — whose flag it was, and whether the
+   * other person also had one — because you could only lift your own, so the
+   * copy had to explain four states and warn that unflagging might visibly do
+   * nothing. A flag is the household's, so there are two states and the button
+   * means what it says.
    */
-  const flagState = (() => {
-    const choreId = removing?.item.choreId;
-    if (choreId === undefined) return { mine: false, theirsToo: false };
-    const setBy = flagsByChore.get(choreId) ?? [];
-    return {
-      mine: myFlags.has(choreId),
-      theirsToo: setBy.some((id) => id !== userId),
-    };
-  })();
+  const isFlagged = removing !== null && anyFlags.has(removing.item.choreId);
 
   /**
    * The control for the order, or nothing when your day shows no split.
@@ -1039,22 +1032,17 @@ export function PlanScreen({
             decision you have made, and undoing the flag is not a request to
             undo that too.
 
-            A flag belongs to the person who set it, but the *lift* belongs to
-            the household: either of you flagging is enough to raise the row,
-            and it comes down only when the last flag does. So the copy has to
-            say which of the four states you are in, rather than promise a
-            movement that a housemate's flag will quietly prevent.
+            A flag belongs to the household, raising and lowering alike, so
+            there are two states rather than four and the button means what it
+            says. It used to be personal, which meant "Unflag it" could
+            visibly do nothing while your housemate's flag held the row up.
           */}
           <SheetAction
-            label={flagState.mine ? 'Unflag it' : 'Flag it'}
+            label={isFlagged ? 'Unflag it' : 'Flag it'}
             hint={
-              flagState.mine
-                ? flagState.theirsToo
-                  ? `Yours comes off. ${theirName} has flagged it too, so it stays at the top.`
-                  : 'It drops back in with the rest of the day, where its position puts it.'
-                : flagState.theirsToo
-                  ? `${theirName} has already flagged this, so it is at the top either way. This adds yours.`
-                  : 'Marks it "!!" and lifts it to the top of the day. It stays until it is done or you unflag it. Both of you can see it.'
+              isFlagged
+                ? 'It drops back in with the rest of the day, for both of you.'
+                : 'Marks it "!!" and lifts it to the top of the day, for both of you. It stays until it is done or either of you unflags it.'
             }
             onPress={() => {
               if (removing !== null) {
@@ -1087,7 +1075,7 @@ export function PlanScreen({
                  * drops back among the rest wherever this put it, rather than
                  * springing back to where it was a week ago.
                  */
-                if (!flagState.mine) {
+                if (!isFlagged) {
                   const day = removing.ownerId === myOwnerId ? mySections : theirSections;
                   const stored = day.all.map((p) => p.position);
                   const here = day.all.find(

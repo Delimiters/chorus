@@ -1376,7 +1376,6 @@ describe('flagging from the plan', () => {
      * against the minimum stops the write rather than letting it drift.
      */
     mockMyFlags = new Set();
-    mockTheirFlags = new Set(['dishes']);
     mockEntries = [entry('dishes', 1), entry('bins', 3)];
     renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
 
@@ -1387,26 +1386,7 @@ describe('flagging from the plan', () => {
     expect(mockReorder).not.toHaveBeenCalled();
   });
 
-  it('still writes a position for a row lifted by a flag set on Today', () => {
-    /*
-     * The case a `theirsToo` gate got wrong. Flagging from Today writes no
-     * position, so a row your housemate flagged there is lifted while its
-     * stored position is still mid-day. Skipping the write because "it is
-     * already at the top" means that once both flags lapse it drops back into
-     * the middle — losing the one thing the position is for.
-     */
-    mockMyFlags = new Set();
-    mockTheirFlags = new Set(['dishes']);
-    mockEntries = [entry('dishes', 3), entry('bins', 1)];
-    renderScreen([item('dishes', 'Dishes'), item('bins', 'Bins')]);
-
-    fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
-    fireEvent.press(screen.getByRole('button', { name: /^Flag it$/ }));
-
-    expect(mockReorder).toHaveBeenCalledWith('v1:dishes', 0, ME);
-  });
-
-  it('promises the drop only when yours is the last flag on it', () => {
+  it('describes the drop as happening for both of you', () => {
     mockMyFlags = new Set(['dishes']);
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
@@ -1416,22 +1396,22 @@ describe('flagging from the plan', () => {
     expect(screen.getByText(/drops back in with the rest of the day/)).toBeOnTheScreen();
   });
 
-  it('says the row stays up when the housemate has flagged it too', () => {
+  it('offers to unflag one your housemate raised, not to flag it again', () => {
     /*
-     * The lift belongs to the household: either flag is enough to raise the
-     * row, and it comes down only when the last one does. Promising it "drops
-     * back in with the rest of the day" here is simply false — you tap, and
-     * nothing moves.
+     * The reversal, and the thing Jake actually asked for. Their flag used to
+     * be visible and not yours to lift, so the sheet said "Flag it" on a row
+     * already showing "!!" and a tap added a second row that changed nothing.
      */
-    mockMyFlags = new Set(['dishes']);
+    mockMyFlags = new Set();
     mockTheirFlags = new Set(['dishes']);
     mockEntries = [entry('dishes', 1)];
     renderScreen([item('dishes', 'Dishes')]);
 
     fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
 
-    expect(screen.getByText(/stays at the top/)).toBeOnTheScreen();
-    expect(screen.queryByText(/drops back in with the rest of the day/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Unflag it' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: /^Flag it$/ })).toBeNull();
+    expect(screen.getByText(/for both of you/)).toBeOnTheScreen();
   });
 
   it('leaves the position alone when the flag comes off', () => {
