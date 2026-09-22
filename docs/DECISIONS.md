@@ -562,6 +562,16 @@ twice. Narrowed by the same due-or-late rule, because a flag lasts until the
 work is done and a chore flagged now but due in three weeks would otherwise sit
 on every day in between.
 
+**Flags could not use the existing once-a-day marker**, and finding that out is
+most of the work in this change. `autoPlannedOn` is set the first time the
+effect runs — including when it had nothing to add — and it exists so that
+"Take off today" sticks. Under it, a chore flagged at two in the afternoon
+would not have reached the plan until the next morning, which is exactly the
+case the carve-out is for: a flag usually goes up *because* something has just
+come up. So flagged occurrences are now recorded individually
+(`autoPlannedFlags`), each added at most once a day. That keeps removal sticky
+without making the flag wait for tomorrow.
+
 **Why:** Emily's complaint, twice, was that there was too much on the plan.
 Jake: *"I guess we should go back to having the plan page just start empty and
 you have to add everything manually ... whatever Emily wants me to do today she

@@ -43,6 +43,9 @@ let mockEntriesLoading = false;
 let mockAllEntries: typeof mockEntries | null = null;
 let mockMembers: { userId: string; displayName: string; accent: string }[] = [];
 let mockAutoPlannedOn: string | null = null;
+/** Flagged occurrences already auto-added today, as the store would persist them. */
+let mockAutoPlannedFlags: { on: string; keys: string[] } | null = null;
+const mockMarkFlagsAutoPlanned = jest.fn();
 let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
 
 let mockHorizon: AgendaItem[] = [];
@@ -98,10 +101,15 @@ jest.mock('@/data/hooks/usePlan', () => ({
 }));
 
 jest.mock('@/stores/routineStore', () => ({
-  useRoutinePreference: () => ({ autoPlannedOn: mockAutoPlannedOn, todayMode: 'plan' }),
+  useRoutinePreference: () => ({
+    autoPlannedOn: mockAutoPlannedOn,
+    autoPlannedFlags: mockAutoPlannedFlags,
+    todayMode: 'plan',
+  }),
   useRoutineStore: (selector: (s: unknown) => unknown) =>
     selector({
       markAutoPlanned: mockMarkAutoPlanned,
+      markFlagsAutoPlanned: mockMarkFlagsAutoPlanned,
       planOnCreate: mockPlanOnCreate,
       clearPlanOnCreate: mockClearPlanOnCreate,
       queuePlanOnCreate: jest.fn(),
@@ -273,6 +281,8 @@ beforeEach(() => {
   mockIsLoading = false;
   mockEntriesLoading = false;
   mockAutoPlannedOn = null;
+  mockAutoPlannedFlags = null;
+  mockMarkFlagsAutoPlanned.mockClear();
   mockPlanOnCreate = [];
   mockHorizon = [];
   mockScheduleToday.mockClear();
@@ -1116,6 +1126,73 @@ describe('flagged work lands by itself even when nothing else does', () => {
     mockView.mine = [
       item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
     ];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+});
+
+describe('a flag raised after the morning fill has already run', () => {
+  /*
+   * The case the whole carve-out is for, and the one a day-level marker gets
+   * wrong. `autoPlannedOn` is set the first time the effect runs — including
+   * when it had nothing to add — and it used to short-circuit everything after
+   * it. So a chore flagged at two in the afternoon, which is when flags
+   * actually get raised, would not have reached the plan until tomorrow.
+   */
+  beforeEach(() => {
+    mockAutoPlan = false;
+    // The day has already been through the fill.
+    mockAutoPlannedOn = mockToday;
+  });
+
+  it('still lands on the plan', async () => {
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('litter'), item('gutters')];
+    mockChores = [recurring('litter'), recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:gutters']));
+  });
+
+  it('records the occurrence so taking it off sticks', async () => {
+    /*
+     * The other half. A flag lives until the work is done, so without a record
+     * of what has already been auto-added, removing a flagged chore would hand
+     * it straight back on the next render — a fight that would last all day.
+     */
+    mockMyFlags = new Set(['gutters']);
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    // The record is written from `onSuccess`, the same place the day marker is
+    // — a failed insert must not leave the occurrence looking handled.
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    const options = mockAdd.mock.calls[0]?.[1] as { onSuccess: () => void };
+    options.onSuccess();
+
+    expect(mockMarkFlagsAutoPlanned).toHaveBeenCalledWith(mockToday, ['v1:gutters']);
+  });
+
+  it('does not add one it has already added today', async () => {
+    mockMyFlags = new Set(['gutters']);
+    mockAutoPlannedFlags = { on: mockToday, keys: ['v1:gutters'] };
+    mockView.mine = [item('gutters')];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    await screen.findByText('Start the day');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('ignores a record left over from yesterday', async () => {
+    // The key carries its own date, so a stale record can never match — but
+    // the day is compared anyway rather than relying on that.
+    mockMyFlags = new Set(['gutters']);
+    mockAutoPlannedFlags = { on: '2026-08-31', keys: ['v1:gutters'] };
+    mockView.mine = [item('gutters')];
     mockChores = [recurring('gutters')];
     renderView();
 

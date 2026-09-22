@@ -49,11 +49,29 @@ export interface RoutinePreference {
    * a chore that keeps coming back.
    */
   readonly autoPlannedOn: string | null;
+
+  /**
+   * Flagged occurrences already auto-added today, and the day they were added.
+   *
+   * `autoPlannedOn` cannot answer this. It is a whole-day marker: once the
+   * morning fill has run, the effect returns early for the rest of the day, so
+   * a chore flagged at two in the afternoon would not have reached the plan
+   * until tomorrow. Jake asked for the opposite — *"if things are flagged they
+   * should still automatically populate onto the plan"* — and a flag is most
+   * often raised precisely because something has just come up.
+   *
+   * Per occurrence rather than per day, because the marker is what makes "Take
+   * off today" stick. Without it, removing a flagged chore from your plan
+   * would hand it straight back on the next render, and the flag lasts until
+   * the work is done — so the fight would last all day.
+   */
+  readonly autoPlannedFlags: { readonly on: string; readonly keys: readonly string[] } | null;
 }
 
 export const DEFAULT_ROUTINE_PREFERENCE: RoutinePreference = {
   showOthers: true,
   autoPlannedOn: null,
+  autoPlannedFlags: null,
   /*
    * The plan, not the backlog.
    *
@@ -102,6 +120,7 @@ interface RoutineState {
   readonly setTodayMode: (mode: TodayMode) => void;
   readonly markCelebrated: (day: string) => void;
   readonly markAutoPlanned: (day: string) => void;
+  readonly markFlagsAutoPlanned: (day: string, keys: readonly string[]) => void;
   readonly queuePlanOnCreate: (choreId: string, queuedOn: string) => void;
   readonly clearPlanOnCreate: (choreIds: readonly string[]) => void;
   readonly hydrate: () => Promise<void>;
@@ -129,6 +148,19 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
 
   markAutoPlanned: (autoPlannedOn) => {
     const preference = { ...get().preference, autoPlannedOn };
+    set({ preference });
+    persist(preference);
+  },
+
+  markFlagsAutoPlanned: (on, keys) => {
+    const existing = get().preference.autoPlannedFlags ?? null;
+    // A new day starts the list over rather than growing it forever. Yesterday's
+    // keys can never match today's occurrences anyway — the key carries the date.
+    const carried = existing !== null && existing.on === on ? existing.keys : [];
+    const preference = {
+      ...get().preference,
+      autoPlannedFlags: { on, keys: [...new Set([...carried, ...keys])] },
+    };
     set({ preference });
     persist(preference);
   },
@@ -185,6 +217,20 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
             ...(typeof stored.showOthers === 'boolean' ? { showOthers: stored.showOthers } : {}),
             ...(typeof stored.autoPlannedOn === 'string'
               ? { autoPlannedOn: stored.autoPlannedOn }
+              : {}),
+            // Shape-checked rather than `typeof`, because this one is an
+            // object: a half-written blob would otherwise reach the effect as
+            // `{ on: undefined }` and match nothing while looking present.
+            ...(typeof stored.autoPlannedFlags?.on === 'string' &&
+            Array.isArray(stored.autoPlannedFlags.keys)
+              ? {
+                  autoPlannedFlags: {
+                    on: stored.autoPlannedFlags.on,
+                    keys: stored.autoPlannedFlags.keys.filter(
+                      (key): key is string => typeof key === 'string',
+                    ),
+                  },
+                }
               : {}),
             // Membership, not `typeof`: a stored mode from some future version
             // must fall back to the default rather than reaching a switch that
