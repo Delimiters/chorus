@@ -436,7 +436,7 @@ describe('the words on the screen', () => {
       mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: false };
       await renderScreen();
 
-      expect(screen.getByLabelText('Add the backlog too').props.value).toBe(false);
+      expect(screen.getByLabelText('Add overdue chores').props.value).toBe(false);
     });
 
     it('is on, now that the schedules are corrected and the backlog is clear', async () => {
@@ -445,13 +445,13 @@ describe('the words on the screen', () => {
       // leave autopopulate on for now."*
       await renderScreen();
 
-      expect(screen.getByLabelText('Add the backlog too').props.value).toBe(true);
+      expect(screen.getByLabelText('Add overdue chores').props.value).toBe(true);
     });
 
     it('writes the household setting when flipped', async () => {
       await renderScreen();
 
-      fireEvent(screen.getByLabelText('Add the backlog too'), 'valueChange', false);
+      fireEvent(screen.getByLabelText('Add overdue chores'), 'valueChange', false);
 
       expect(mockUpdate).toHaveBeenCalledWith({ autoPlan: false });
     });
@@ -461,9 +461,7 @@ describe('the words on the screen', () => {
       // with today's dishes would look like the switch was broken.
       await renderScreen();
 
-      expect(
-        screen.getByText(/what is due today and anything either of you has flagged/),
-      ).toBeOnTheScreen();
+      expect(screen.getByText(/always start with what is due today/)).toBeOnTheScreen();
     });
 
     it('describes what it actually adds, one-off tasks included', async () => {
@@ -475,7 +473,7 @@ describe('the words on the screen', () => {
        */
       await renderScreen();
 
-      expect(screen.getByText(/one-time tasks included/)).toBeOnTheScreen();
+      expect(screen.getByText(/still late from earlier days/)).toBeOnTheScreen();
     });
   });
 });

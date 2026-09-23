@@ -482,15 +482,38 @@ export function PlanScreen({
    * Empty groups draw nothing: a "One-time tasks" heading over no rows is a
    * statement that there is work you cannot see.
    */
-  const groupsFor = (section: ReturnType<typeof sectionsFor>) => {
+  const groupsFor = (section: ReturnType<typeof sectionsFor>, ownerId?: string) => {
     const pick = (predicate: (planned: (typeof section.active)[number]) => boolean) => ({
       ...section,
       active: section.active.filter(predicate),
       sunk: section.sunk.filter(predicate),
     });
 
+    /*
+     * Somebody else's turn, specifically — not shared work, which is both
+     * people's and belongs in either section.
+     */
+    const isTheirTurn = (planned: (typeof section.active)[number]) =>
+      planned.item.assignee.kind === 'member' && planned.item.assignee.memberId !== ownerId;
+
+    /*
+     * Flagged *and* yours to do.
+     *
+     * Jake: *"I didn't realize there was a flagged section for each person when
+     * I was instructing you. If something is assigned specifically to one
+     * person and is flagged it should only show up in their flagged section. I
+     * can still see it if I want to scroll down to the other person's flagged
+     * section for stuff that isn't assigned to me."*
+     *
+     * Flags are shared and stay shared — this changes where a flagged row is
+     * *hoisted*, not who can see or lift it. The Flagged group means "before
+     * everything else on this list", and a chore that is Emily's turn is not
+     * before everything else on Jake's. It still shows, in whichever kind
+     * group it belongs to, and it leads Emily's section where it does mean
+     * that.
+     */
     const isFlagged = (planned: (typeof section.active)[number]) =>
-      anyFlags.has(planned.item.choreId);
+      anyFlags.has(planned.item.choreId) && !isTheirTurn(planned);
 
     /*
      * Work carried over from an earlier day. Jake: *"Maybe also split the daily
@@ -546,8 +569,8 @@ export function PlanScreen({
   };
 
   /** How many groups have anything in them — one needs no heading to tell it apart. */
-  const filledGroups = (section: ReturnType<typeof sectionsFor>): number =>
-    groupsFor(section).filter((g) => g.data.active.length + g.data.sunk.length > 0).length;
+  const filledGroups = (section: ReturnType<typeof sectionsFor>, ownerId?: string): number =>
+    groupsFor(section, ownerId).filter((g) => g.data.active.length + g.data.sunk.length > 0).length;
 
   /**
    * Whether both *kinds* have unflagged work, which is what the order control
@@ -561,8 +584,10 @@ export function PlanScreen({
    * elsewhere, and the flagged group actively manufactures the case by
    * emptying a kind.
    */
-  const bothKinds = (section: ReturnType<typeof sectionsFor>): boolean => {
-    const kinds = groupsFor(section).filter((g) => g.key !== 'flagged' && g.key !== 'pastDue');
+  const bothKinds = (section: ReturnType<typeof sectionsFor>, ownerId?: string): boolean => {
+    const kinds = groupsFor(section, ownerId).filter(
+      (g) => g.key !== 'flagged' && g.key !== 'pastDue',
+    );
     return kinds.every((g) => g.data.active.length + g.data.sunk.length > 0);
   };
 
@@ -593,7 +618,7 @@ export function PlanScreen({
    * there is nothing for the preference to decide and a tap changes nothing
    * visible.
    */
-  const orderAction = bothKinds(mySections)
+  const orderAction = bothKinds(mySections, myOwnerId)
     ? {
         label: groupOrder === 'chores' ? '⇅ Tasks first' : '⇅ Chores first',
         accessibilityLabel:
@@ -606,9 +631,9 @@ export function PlanScreen({
     section: ReturnType<typeof sectionsFor>,
     ownerId: string | undefined,
   ): React.ReactNode => {
-    const groups = groupsFor(section);
+    const groups = groupsFor(section, ownerId);
     // One group needs no heading: there is nothing to tell it apart from.
-    const labelled = filledGroups(section) > 1;
+    const labelled = filledGroups(section, ownerId) > 1;
 
     return (
       <>

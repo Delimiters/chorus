@@ -184,12 +184,12 @@ export function SettingsScreen() {
             doing this" on one phone and "the app put this here" on the other.
           */}
           {row(
-            'Add the backlog too',
-            'Adds the backlog to both plans each morning — anything still late from earlier days, one-time tasks included, however old. Off by default: your plan starts with what is due today and anything either of you has flagged.',
+            'Add overdue chores',
+            'Both plans always start with what is due today, plus anything either of you has flagged. Turn this on to add what is still late from earlier days as well — one-time tasks included, however old.',
             <Switch
               value={autoPlan}
               onValueChange={(value) => updateHousehold.mutate({ autoPlan: value })}
-              accessibilityLabel="Add the backlog too"
+              accessibilityLabel="Add overdue chores"
             />,
           )}
 
