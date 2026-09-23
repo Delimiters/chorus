@@ -1681,6 +1681,28 @@ describe('today’s work against the backlog', () => {
     expect(headings()).not.toContain('Past due');
   });
 
+  it('counts a chore as late by the same rule the row is drawn with', () => {
+    /*
+     * Since lateness stopped resetting on every recurrence, a daily chore
+     * ignored for nine days has `dueOn` of *today* and nine days of
+     * accumulated lateness. The first version of this group tested `dueOn <
+     * today`, which filed that row — drawn with the overdue outline, reading
+     * "9d late" — under the heading "Chores".
+     *
+     * `agenda.ts` records the identical bug being fixed once already for the
+     * Today headings. One definition of late, or the heading argues with the
+     * number on the row beneath it.
+     */
+    mockRecurring = new Set(['dishes', 'trash']);
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    // A second, genuinely-today chore, because a day with one group needs no
+    // headings at all — the assertion would be about an unlabelled list.
+    const late = { ...item('dishes', 'Dishes'), daysOverdue: 9 } as AgendaItem;
+    renderScreen([late, item('trash', 'Trash')]);
+
+    expect(headings()).toContain('Past due');
+  });
+
   it('says nothing about a backlog when there is none', () => {
     // An empty "Past due" heading would report a debt the household does not
     // have, which is the opposite of reassuring.

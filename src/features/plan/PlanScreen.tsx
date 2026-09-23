@@ -506,9 +506,18 @@ export function PlanScreen({
      * is how the old auto-fill made the screen unreadable. Flagged work still
      * outranks both — a flag is somebody saying "this one, before the rest",
      * and that holds whether or not it is also late.
+     *
+     * The test is `status === 'overdue' || daysOverdue > 0`, which is what
+     * `splitByUrgency` and `ChoreRow` both use, and **not** `dueOn < today`,
+     * which is what this first shipped as. Since lateness stopped resetting on
+     * every recurrence, a daily chore ignored for nine days has `dueOn` of
+     * today and nine days of accumulated lateness — so the `dueOn` test filed
+     * a row drawn with the overdue outline and reading "9d late" under the
+     * heading "Chores". `agenda.ts` records the identical bug being fixed once
+     * already; one definition of late, or the heading argues with the row.
      */
     const isPastDue = (planned: (typeof section.active)[number]) =>
-      !isFlagged(planned) && planned.item.dueOn < today;
+      !isFlagged(planned) && (planned.item.status === 'overdue' || planned.item.daysOverdue > 0);
 
     const isToday = (planned: (typeof section.active)[number]) =>
       !isFlagged(planned) && !isPastDue(planned);

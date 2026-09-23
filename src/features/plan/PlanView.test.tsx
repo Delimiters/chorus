@@ -1347,3 +1347,56 @@ describe('flagging something already on your plan', () => {
     expect(mockMarkFlagsAutoPlanned).toHaveBeenCalledWith(mockToday, ['v1:gutters']);
   });
 });
+
+describe('marking the day done when the setting is off', () => {
+  /*
+   * A review found that reverting either `firstRunToday` guard to
+   * `wantsEverything && firstRunToday` passed the entire suite — every
+   * assertion about `markAutoPlanned` lived in a describe with the setting on.
+   *
+   * The mutation is severe in exactly the configuration Jake and Emily run.
+   * With the setting off and the day never marked, `firstRunToday` stays true
+   * forever and the effect re-adds today's work on every render after you
+   * remove it: "Take off today" becomes a button you fight all day.
+   */
+  beforeEach(() => {
+    mockAutoPlan = false;
+  });
+
+  it('marks the day after filling it with today’s work', async () => {
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalled());
+    const options = mockAdd.mock.calls[0]?.[1] as { onSuccess: () => void };
+    options.onSuccess();
+
+    expect(mockMarkAutoPlanned).toHaveBeenCalledWith(mockToday);
+  });
+
+  it('marks it even on a day with nothing to add', async () => {
+    /*
+     * The branch that matters most: with nothing owed today the effect returns
+     * early, and if it returned without marking, every later render would run
+     * the whole fill again.
+     */
+    mockView.mine = [
+      item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
+    ];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    await waitFor(() => expect(mockMarkAutoPlanned).toHaveBeenCalledWith(mockToday));
+  });
+
+  it('does not mark it again once the day is already marked', async () => {
+    mockAutoPlannedOn = mockToday;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    expect(mockMarkAutoPlanned).not.toHaveBeenCalled();
+  });
+});

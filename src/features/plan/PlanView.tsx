@@ -587,11 +587,16 @@ export function PlanView() {
      * long way round — filtering `due` — on the theory that the bulk fill might
      * carry a flagged chore the flagged branch had missed.
      *
-     * It cannot. `bulk` is either empty or the whole of `dueToday`, and
-     * `flagged` is a subset of `dueToday`, so anything flagged that `bulk`
-     * carries is either in `flagged` already or was recorded earlier today.
-     * Reverting the longer form to this one changed no test, which is how the
-     * claim was found to be empty rather than merely untested.
+     * It cannot. Both `bulk` and `flagged` are subsets of `dueToday` — `bulk`
+     * is `baseline`, which is `dueToday` itself or its due-today part — so
+     * anything flagged that `bulk` carries is either in `flagged` already or
+     * was recorded earlier today. Reverting the longer form to this one
+     * changed no test, which is how the claim was found to be empty rather
+     * than merely untested.
+     *
+     * The earlier wording said `bulk` was "either empty or the whole of
+     * `dueToday`". True until the baseline narrowed to today's work; the
+     * conclusion survives the correction, the premise did not.
      */
     const flaggedKeys = flagged.map((item) => item.occurrenceKey);
 

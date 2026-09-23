@@ -56,6 +56,15 @@ interface Props {
   weekStartsOn: Weekday;
   onClose: () => void;
   onToggleComplete: (item: AgendaItem) => void;
+  /**
+   * Whether this occurrence can be moved or skipped at all.
+   *
+   * False for an undated chore. Both actions write a `chore_exceptions` row
+   * keyed by occurrence, and nothing reads one back for a chore whose rule
+   * produces no occurrences — so they would write, change nothing, and report
+   * success on the second tap via the unique constraint.
+   */
+  canSchedule?: boolean;
   onSkip: (item: AgendaItem) => void;
   onReschedule: (item: AgendaItem, movedTo: CivilDate) => void;
   onClearException: (item: AgendaItem) => void;
@@ -69,6 +78,7 @@ export function OccurrenceSheet({
   error = null,
   onClose,
   onToggleComplete,
+  canSchedule = true,
   onSkip,
   onReschedule,
   onClearException,
@@ -182,7 +192,7 @@ export function OccurrenceSheet({
             />
           )}
 
-          {skipped || item.rescheduled ? (
+          {!canSchedule ? null : skipped || item.rescheduled ? (
             <SheetAction
               label={skipped ? 'Un-skip it' : 'Put it back'}
               hint={

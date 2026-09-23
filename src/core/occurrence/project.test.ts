@@ -476,8 +476,8 @@ describe('a chore carrying an old showFrom', () => {
    * did — that a chore could be made `due` a week before its deadline by a
    * per-chore setting.
    *
-   * It was replaced by one rule for the whole list: late, due within thirty
-   * days, or undated, with a toggle for everything rather than a knob on each
+   * It was replaced by one rule for the whole list: late, or due within thirty
+   * days, with a toggle for everything rather than a knob on each
    * chore. Forty-five stored chores still carry the field, so what matters now
    * is that they load and behave like any other dated chore. See
    * docs/DECISIONS.md.

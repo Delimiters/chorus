@@ -1380,7 +1380,7 @@ describe('chores with no date at all', () => {
     expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
   });
 
-  it('drops one out of the section once it is done', async () => {
+  it('drops one finished on an earlier day', async () => {
     // Otherwise the section is a permanent list of everything undated the
     // household has ever had, which is the Chores library, not a to-do list.
     mockChores = [...ALL_CHORES.map((c) => ({ ...c })), undated('loft', 'Clear the loft') as never];
@@ -1389,6 +1389,38 @@ describe('chores with no date at all', () => {
 
     const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
     expect(headers).not.toContain('Someday');
+  });
+
+  it('keeps one ticked today, so it can be un-ticked', async () => {
+    /*
+     * The first version dropped every completed row on the reasoning that they
+     * "fall through to the Done section". They cannot: Done is built from
+     * `view.done`, which comes from projected occurrences, and an unscheduled
+     * chore projects none. So ticking one made it vanish — no held row, no Done
+     * row, and undo only from a toast that clears after five seconds.
+     *
+     * That is the disappearing-row complaint this screen already has machinery
+     * for, reintroduced for the one row type the machinery cannot reach.
+     */
+    mockChores = [...ALL_CHORES.map((c) => ({ ...c })), undated('loft', 'Clear the loft') as never];
+    mockOneOffCompletions = [{ choreId: 'loft', completedOn: mockToday, completedBy: ME }];
+    await renderScreen();
+
+    expect(screen.getByText('Clear the loft')).toBeOnTheScreen();
+    expect(screen.getAllByRole('header').map((h) => String(h.props.children))).toContain('Someday');
+  });
+
+  it('does not count a struck-through row as work still to do', async () => {
+    // A heading reading "SOMEDAY 1" over a single ticked row counts the wrong
+    // thing — the same mistake the Done heading's comment guards against.
+    mockChores = [...ALL_CHORES.map((c) => ({ ...c })), undated('loft', 'Clear the loft') as never];
+    mockOneOffCompletions = [{ choreId: 'loft', completedOn: mockToday, completedBy: ME }];
+    await renderScreen();
+
+    const someday = screen
+      .getAllByRole('header')
+      .find((h) => String(h.props.children).startsWith('Someday'));
+    expect(String(someday?.props.children)).not.toMatch(/1/);
   });
 
   it('says nothing when the household has none', async () => {

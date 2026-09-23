@@ -18,7 +18,7 @@ Newest first.
 
 ---
 
-## 2026-09-23 — Undated chores are visible, and the plan fills with today's work
+## 2026-09-22 — Undated chores are visible, and the plan fills with today's work
 
 **Was:** an unscheduled ("Someday") chore expanded to no occurrences, so it had
 no row anywhere except the Chores library — and therefore no sheet, and

@@ -49,6 +49,7 @@ import { useTheme } from '@/design/theme';
 import { MIN_TARGET, space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
+import { SOMEDAY_PERIOD_KEY } from '@/core/recurrence/period';
 import { somedayAgenda } from '@/core/occurrence/someday';
 import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
 import { formatFlexibleWindow } from '@/features/common/format';
@@ -542,7 +543,8 @@ export function TodayScreen() {
   );
 
   /*
-   * Outstanding ones only, and never hidden by the scope toggle.
+   * Outstanding, plus anything finished today, and never hidden by the scope
+   * toggle.
    *
    * "Upcoming" means late, or due in the next thirty days — an undated chore is
    * neither, and being filtered on a date it does not have is how it came to be
@@ -554,13 +556,40 @@ export function TodayScreen() {
    * left off because the reasoning, not the arithmetic, is what keeps the
    * section visible if that date ever stops being today.
    *
-   * Completed ones fall through to the Done section below rather than sitting
-   * here struck through, which is where every other finished row on this screen
-   * goes.
+   * A row ticked here stays here, struck through, until tomorrow.
+   *
+   * The first version filtered every completed row out, under a comment
+   * claiming they "fall through to the Done section below". They cannot.
+   * `doneElsewhere` and `withHeld` both read `view.done`, which is built from
+   * projected occurrences — and an unscheduled chore projects none. So ticking
+   * one made it disappear outright: not held, not in Done, and undoable only
+   * from a toast that clears itself after five seconds.
+   *
+   * That is the exact complaint the `held` machinery above exists to answer —
+   * *"i accidentally checked something off and it disappeared"* — reintroduced
+   * for the one row type with no hold path. `someday.ts` even says so in its
+   * own docblock, and returns completed rows precisely so a caller can keep
+   * them; this caller threw them away.
+   *
+   * Bounded to today's completions rather than kept forever: the Someday list
+   * would otherwise grow into every undated chore the household has ever
+   * finished, which is the Chores library, not a to-do list. "Today" is the
+   * same bound the Done section uses.
    */
+  /**
+   * Whether the open sheet is an undated chore.
+   *
+   * Read off the period key rather than looked up in the chore list: the key
+   * is what `somedayAgenda` stamps, so the two cannot drift.
+   */
+  const openIsSomeday = open !== null && open.periodKey === SOMEDAY_PERIOD_KEY;
+
   const somedayOutstanding = useMemo(
-    () => matches(somedayItems.filter((item) => item.status !== 'completed')),
-    [somedayItems, matches],
+    () =>
+      matches(
+        somedayItems.filter((item) => item.status !== 'completed' || item.completedOn === today),
+      ),
+    [somedayItems, matches, today],
   );
 
   const mine = useMemo(
@@ -865,7 +894,12 @@ export function TodayScreen() {
         */}
         {somedayOutstanding.length > 0 ? (
           <>
-            <SectionHeader title="Someday" count={somedayOutstanding.length} />
+            <SectionHeader
+              title="Someday"
+              // Outstanding only. A count that includes rows already struck
+              // through reads as work still to do.
+              count={somedayOutstanding.filter((i) => i.status !== 'completed').length}
+            />
             <Stack gap={space.xs}>{somedayOutstanding.map(renderRow)}</Stack>
           </>
         ) : null}
@@ -913,6 +947,23 @@ export function TodayScreen() {
           ((skip.error ?? reschedule.error ?? clear.error ?? toggle.error) as Error | null)
             ?.message ?? null
         }
+        /*
+         * Moving and skipping are hidden on an undated chore, because they
+         * cannot work on one.
+         *
+         * Both write a `chore_exceptions` row keyed by occurrence, and nothing
+         * reads it back for a Someday row: `somedayAgenda` takes no exceptions
+         * argument, and the projector produces no occurrence for an
+         * unscheduled rule. The row would not move, would not grey out, and a
+         * second tap would hit the unique constraint — which the API maps to
+         * success. A button that does nothing and never says why.
+         *
+         * `useOccurrences.ts` records this exact bug being found and fixed for
+         * floating rows. Hiding the actions is the honest fix rather than
+         * making them work: there is no date on a Someday chore to skip *from*
+         * or move *to*.
+         */
+        canSchedule={!openIsSomeday}
         onSkip={(item) => skip.mutate(item)}
         onReschedule={(item, movedTo) => reschedule.mutate({ item, movedTo })}
         onClearException={(item) => clear.mutate(item)}
