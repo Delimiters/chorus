@@ -18,6 +18,48 @@ Newest first.
 
 ---
 
+## 2026-09-23 — Either phone fills both plans, and auto-fill is back on
+
+**Was:** the morning fill ran on *your* device for *your* day. A housemate who
+had not opened Chorus had no plan at all. `docs/DECISIONS.md` recorded this as
+raised and undecided — *"moving auto-planning server-side would make everyone's
+day exist every morning regardless of who opens the app. Raised with Jake, not
+decided."*
+
+**Now:** whichever phone opens the app first plans both people's days.
+
+**Why:** Jake, having asked before: *"I thought I asked to make it so that if
+either person opens the app it goes ahead and auto populates both people's
+daily plan? Seems like that still doesn't happen, if Emily hasn't opened the
+app today hers is just empty."* It is the same complaint that produced the
+housemate section in the first place — *"Did you push it? I don't see Emily's
+plan."*
+
+**Client-side, not server-side**, which is the other half of the open question.
+A scheduled job is the better answer and needs infrastructure this project does
+not have. This needs one more mutation, is idempotent by construction — it
+plans only what is outstanding and not already on their day — and is correct
+whenever either phone is opened, which in a two-person house is every day. If
+a day ever passes with neither phone opened, nobody was looking at the plan
+anyway.
+
+Its own device-local marker (`autoPlannedTheirsOn`) rather than sharing
+`autoPlannedOn`, because the two fills are separate writes that can succeed
+independently: one marker would let a successful fill of your own day mark the
+other as done and leave your housemate's empty all day.
+
+**And `auto_plan` is on again**, one day after shipping off. Jake: *"I still
+want you to add that don't autopopulate setting but I think we actually want to
+leave autopopulate on for now. Emily reviewed everything and got everything
+back onto a good schedule so we don't just have a million things overdue."*
+
+The switch was never really about whether filling is a good idea; it was about
+whether the thing being filled in was worth looking at. With the schedules
+corrected, it is. The setting stays — it is the escape hatch if the backlog
+ever builds again — and both the column default and the existing row flip.
+
+---
+
 ## 2026-09-22 — Undated chores are visible, and the plan fills with today's work
 
 **Was:** an unscheduled ("Someday") chore expanded to no occurrences, so it had

@@ -46,6 +46,9 @@ let mockAutoPlannedOn: string | null = null;
 /** Flagged occurrences already auto-added today, as the store would persist them. */
 let mockAutoPlannedFlags: { on: string; keys: string[] } | null = null;
 const mockMarkFlagsAutoPlanned = jest.fn();
+/** The housemate's day, filled by whichever phone opens the app first. */
+let mockAutoPlannedTheirsOn: string | null = null;
+const mockMarkTheirDayPlanned = jest.fn();
 let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
 
 let mockHorizon: AgendaItem[] = [];
@@ -104,12 +107,14 @@ jest.mock('@/stores/routineStore', () => ({
   useRoutinePreference: () => ({
     autoPlannedOn: mockAutoPlannedOn,
     autoPlannedFlags: mockAutoPlannedFlags,
+    autoPlannedTheirsOn: mockAutoPlannedTheirsOn,
     todayMode: 'plan',
   }),
   useRoutineStore: (selector: (s: unknown) => unknown) =>
     selector({
       markAutoPlanned: mockMarkAutoPlanned,
       markFlagsAutoPlanned: mockMarkFlagsAutoPlanned,
+      markTheirDayPlanned: mockMarkTheirDayPlanned,
       planOnCreate: mockPlanOnCreate,
       clearPlanOnCreate: mockClearPlanOnCreate,
       queuePlanOnCreate: jest.fn(),
@@ -176,13 +181,12 @@ jest.mock('@/data/hooks/useChores', () => ({
   useScheduleToday: () => ({ mutate: mockScheduleToday }),
 }));
 /*
- * Auto-fill is a household setting and it is off by default, so every test
- * that wants the plan to fill itself has to say so. A `let` rather than a
- * constant for exactly that reason — and the default here is `false`, matching
- * the column, so a test that forgets gets the shipped behaviour rather than a
- * convenient one.
+ * Auto-fill is a household setting. It shipped off, and went back on once the
+ * household's schedules were corrected and there was no longer a backlog to
+ * drown in — so the default here is `true`, matching the column, and a test
+ * that forgets to say gets the shipped behaviour rather than a convenient one.
  */
-let mockAutoPlan = false;
+let mockAutoPlan = true;
 /*
  * The household query's own loading state, which this harness could not
  * express at all — `useHousehold` always handed back a resolved object, so the
@@ -271,7 +275,7 @@ beforeEach(() => {
   mockProposeDay.mockClear();
   mockMyFlags = new Set();
   mockTheirFlags = new Set();
-  mockAutoPlan = false;
+  mockAutoPlan = true;
   mockHouseholdLoading = false;
   mockView = { mine: [], theirs: [], done: [], skipped: [], upcoming: [], floating: [] };
   mockChores = [];
@@ -283,6 +287,8 @@ beforeEach(() => {
   mockAutoPlannedOn = null;
   mockAutoPlannedFlags = null;
   mockMarkFlagsAutoPlanned.mockClear();
+  mockAutoPlannedTheirsOn = null;
+  mockMarkTheirDayPlanned.mockClear();
   mockPlanOnCreate = [];
   mockHorizon = [];
   mockScheduleToday.mockClear();
@@ -1398,5 +1404,103 @@ describe('marking the day done when the setting is off', () => {
 
     await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
     expect(mockMarkAutoPlanned).not.toHaveBeenCalled();
+  });
+});
+
+describe('whoever opens the app first fills both plans', () => {
+  /*
+   * Jake: *"I thought I asked to make it so that if either person opens the
+   * app it goes ahead and auto populates both people's daily plan? Seems like
+   * that still doesn't happen, if Emily hasn't opened the app today hers is
+   * just empty."*
+   *
+   * He had. docs/DECISIONS.md recorded it as raised and undecided — the fill
+   * ran on your device for your day, so a housemate who had not opened Chorus
+   * had no plan at all, which is not a decision they made.
+   */
+  const addsFor = (ownerId: string | undefined) =>
+    mockAdd.mock.calls
+      .filter((call) => call[2] === ownerId)
+      .flatMap((call) => (call[0] as { occurrenceKey: string }[]).map((i) => i.occurrenceKey));
+
+  beforeEach(() => {
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+  });
+
+  it('plans the housemate’s day when they have not opened the app', async () => {
+    mockView.mine = [item('litter')];
+    mockView.theirs = [item('bins', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } })];
+    mockChores = [recurring('litter'), recurring('bins')];
+    renderView();
+
+    // Written against *their* id, which is the whole point — `useAddToPlan`
+    // falls back to you when given `undefined`, so the owner is the assertion.
+    await waitFor(() => expect(addsFor(mockThem)).toEqual(['v1:bins']));
+    expect(addsFor(undefined)).toEqual(['v1:litter']);
+  });
+
+  it('does not plan work that is not theirs onto their day', async () => {
+    /*
+     * `autoPlannable` is asked about the housemate's id rather than trusting
+     * `view.theirs` to be pre-filtered. Putting your turn on their plan is the
+     * silent-reassignment defect this whole area exists to avoid.
+     */
+    mockView.theirs = [
+      item('bins', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
+      item('mine', { assignee: { kind: 'member', memberId: mockMe, turn: 0 } }),
+    ];
+    mockChores = [recurring('bins'), recurring('mine')];
+    renderView();
+
+    await waitFor(() => expect(addsFor(mockThem)).toEqual(['v1:bins']));
+  });
+
+  it('leaves alone what is already on their day', async () => {
+    // The second person's own run has to find the work planned and add
+    // nothing, or opening the app twice would double every row.
+    mockView.theirs = [item('bins', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } })];
+    mockChores = [recurring('bins')];
+    mockAllEntries = [
+      {
+        occurrenceKey: 'v1:bins',
+        choreId: 'bins',
+        plannedFor: mockToday,
+        position: 0,
+        userId: mockThem,
+      },
+    ] as never;
+    renderView();
+
+    await waitFor(() => expect(mockMarkTheirDayPlanned).toHaveBeenCalledWith(mockToday));
+    expect(addsFor(mockThem)).toEqual([]);
+  });
+
+  it('only fills their day once, so taking something off sticks', async () => {
+    mockAutoPlannedTheirsOn = mockToday;
+    mockView.theirs = [item('bins', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } })];
+    mockChores = [recurring('bins')];
+    renderView();
+
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    expect(addsFor(mockThem)).toEqual([]);
+  });
+
+  it('writes nobody’s day when there is no housemate', async () => {
+    /*
+     * `useAddToPlan(today, undefined)` falls back to *you*. A fill issued
+     * before the member list lands — or in a one-person household — would put
+     * the housemate's chores onto your own plan.
+     */
+    mockMembers = [{ userId: mockMe, displayName: 'Jake', accent: 'blue' }];
+    mockView.theirs = [item('bins')];
+    mockChores = [recurring('bins')];
+    renderView();
+
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    expect(mockMarkTheirDayPlanned).not.toHaveBeenCalled();
+    expect(addsFor(undefined)).toEqual([]);
   });
 });

@@ -16,7 +16,7 @@ import { useViewStore } from '@/stores/viewStore';
 import { SettingsScreen } from './SettingsScreen';
 
 const mockUpdate = jest.fn();
-let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: false };
+let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
 
 let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
 const mockSetGroupOrder = jest.fn();
@@ -93,7 +93,7 @@ async function renderScreen() {
 
 beforeEach(() => {
   mockUpdate.mockClear();
-  mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: false };
+  mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
   useReminderStore.setState({ policy: DEFAULT_POLICY });
   mockAvailable = true;
   mockMyGroupOrder = 'chores';
@@ -249,7 +249,7 @@ describe('when the phone and the household disagree about the time zone', () => 
   it('says nothing when they agree', async () => {
     mockHousehold = {
       weekStartsOn: 0,
-      autoPlan: false,
+      autoPlan: true,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
     await renderScreen();
@@ -432,25 +432,28 @@ describe('the words on the screen', () => {
      * two different answers would make the same row read as "I am doing this"
      * on one phone and "the app put this here" on the other.
      */
-    it('reflects the stored value rather than defaulting to on', async () => {
-      mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
-      await renderScreen();
-
-      expect(screen.getByLabelText('Add the backlog too').props.value).toBe(true);
-    });
-
-    it('is off when the household has not asked for it', async () => {
+    it('reflects the stored value rather than assuming the default', async () => {
+      mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: false };
       await renderScreen();
 
       expect(screen.getByLabelText('Add the backlog too').props.value).toBe(false);
     });
 
+    it('is on, now that the schedules are corrected and the backlog is clear', async () => {
+      // It shipped off, when the plan was filling with weeks of overdue work.
+      // Jake, once Emily had fixed the schedules: *"I think we actually want to
+      // leave autopopulate on for now."*
+      await renderScreen();
+
+      expect(screen.getByLabelText('Add the backlog too').props.value).toBe(true);
+    });
+
     it('writes the household setting when flipped', async () => {
       await renderScreen();
 
-      fireEvent(screen.getByLabelText('Add the backlog too'), 'valueChange', true);
+      fireEvent(screen.getByLabelText('Add the backlog too'), 'valueChange', false);
 
-      expect(mockUpdate).toHaveBeenCalledWith({ autoPlan: true });
+      expect(mockUpdate).toHaveBeenCalledWith({ autoPlan: false });
     });
 
     it('says what still lands with it off', async () => {
