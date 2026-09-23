@@ -513,8 +513,28 @@ export function PlanView() {
     // existed has no key at all, and `undefined !== null` is true.
     const alreadyFlagged = new Set(autoPlannedFlags?.on === today ? autoPlannedFlags.keys : []);
 
+    /*
+     * Today's work, not the backlog — which is the distinction Emily drew.
+     *
+     * *"have the my day autopopulate the flagged ones or the ones that are due
+     * that day specifically like it's time to do dishes or this event is
+     * happening this day."*
+     *
+     * Her "specifically" is the whole of it. What made the plan unreadable was
+     * never the dishes being due; it was the pile of things that had been late
+     * for weeks arriving alongside them. `dueOn === today` keeps the first and
+     * leaves the second to the "Add everything due or late" button.
+     *
+     * So the household setting now means "the backlog as well", rather than
+     * "fill the plan at all" — a narrowing of what it controls, not a change
+     * to whether it is honoured.
+     */
     const wantsEverything = household.data.autoPlan;
-    const bulk = wantsEverything && autoPlannedOn !== today ? dueToday : [];
+    const baseline = wantsEverything ? dueToday : dueToday.filter((i) => i.dueOn === today);
+
+    // Once a day, whichever baseline it is, so that taking something off sticks.
+    const firstRunToday = autoPlannedOn !== today;
+    const bulk = firstRunToday ? baseline : [];
 
     /*
      * Not an exception to "if I added it to the plan I'm doing it" — the
@@ -578,7 +598,7 @@ export function PlanView() {
     if (due.length === 0) {
       // Only the whole-day fill has a "nothing to do" state worth recording.
       // The flagged path has no day to mark — it is per occurrence.
-      if (wantsEverything && autoPlannedOn !== today) markAutoPlanned(today);
+      if (firstRunToday) markAutoPlanned(today);
       return;
     }
 
@@ -589,7 +609,7 @@ export function PlanView() {
       due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
       {
         onSuccess: () => {
-          if (wantsEverything) markAutoPlanned(today);
+          if (firstRunToday) markAutoPlanned(today);
           if (flaggedKeys.length > 0) markFlagsAutoPlanned(today, flaggedKeys);
         },
         onError: () => {

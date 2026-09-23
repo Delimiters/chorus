@@ -166,12 +166,13 @@ const item = (
   title: string,
   status = 'due',
   assignee: unknown = { kind: 'anyone' },
+  dueOn = TODAY,
 ): AgendaItem =>
   ({
     occurrenceKey: `v1:${id}`,
     choreId: id,
     choreTitle: title,
-    dueOn: TODAY,
+    dueOn,
     status,
     daysOverdue: 0,
     missedBefore: 0,
@@ -1618,5 +1619,75 @@ describe('what the housemate’s empty day says', () => {
     renderScreen([item('dishes', 'Dishes')], null, true);
 
     expect(screen.getByText(/fills up when they open the app/)).toBeOnTheScreen();
+  });
+});
+
+describe('today’s work against the backlog', () => {
+  /*
+   * Jake: *"Maybe also split the daily plan up by due today vs past due."*
+   *
+   * One group rather than a third axis crossed with the two kinds — that would
+   * turn three headings into six on a screen whose founding complaint was that
+   * it was overwhelming.
+   */
+  const LATE = civilDate('2026-08-20');
+
+  const headings = () => screen.getAllByRole('header').map((h) => String(h.props.children));
+
+  it('puts work carried over from an earlier day under its own heading', () => {
+    mockRecurring = new Set(['dishes', 'gutters']);
+    mockEntries = [entry('dishes', 1), entry('gutters', 2)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('gutters', 'Gutters', 'overdue', { kind: 'anyone' }, LATE),
+    ]);
+
+    expect(headings()).toContain('Past due');
+    expect(headings()).toContain('Chores');
+  });
+
+  it('leaves the backlog below today’s work, not above it', () => {
+    /*
+     * The plan answers "what am I doing today". The backlog is real and has to
+     * be visible, but leading with it is exactly how the old auto-fill made
+     * this screen unreadable.
+     */
+    mockRecurring = new Set(['dishes', 'gutters']);
+    mockEntries = [entry('dishes', 1), entry('gutters', 2)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('gutters', 'Gutters', 'overdue', { kind: 'anyone' }, LATE),
+    ]);
+
+    const order = headings();
+    expect(order.indexOf('Chores')).toBeLessThan(order.indexOf('Past due'));
+  });
+
+  it('keeps a flagged late chore with the flagged work', () => {
+    /*
+     * A flag is somebody saying "this one, before the rest", and that holds
+     * whether or not the thing is also late. Without this the flagged group
+     * would quietly empty out every time the flagged chore slipped a day.
+     */
+    mockRecurring = new Set(['dishes', 'gutters']);
+    mockMyFlags = new Set(['gutters']);
+    mockEntries = [entry('dishes', 1), entry('gutters', 2)];
+    renderScreen([
+      item('dishes', 'Dishes'),
+      item('gutters', 'Gutters', 'overdue', { kind: 'anyone' }, LATE),
+    ]);
+
+    expect(headings()).toContain('Flagged');
+    expect(headings()).not.toContain('Past due');
+  });
+
+  it('says nothing about a backlog when there is none', () => {
+    // An empty "Past due" heading would report a debt the household does not
+    // have, which is the opposite of reassuring.
+    mockRecurring = new Set(['dishes']);
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(headings()).not.toContain('Past due');
   });
 });

@@ -38,6 +38,7 @@ import { Toast } from '@/design/Toast';
 import { groupItems } from '@/core/occurrence/grouping';
 import { toPriority } from '@/core/chore/priority';
 import { useCategoryList } from '@/data/hooks/useCategories';
+import { useOneOffCompletions } from '@/data/hooks/useChores';
 import { useFlagsByChore, useToggleFlag } from '@/data/hooks/useFlags';
 import { flaggedFirst } from '@/core/chore/flag';
 import { toIconName } from '@/design/icons';
@@ -48,6 +49,7 @@ import { useTheme } from '@/design/theme';
 import { MIN_TARGET, space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
+import { somedayAgenda } from '@/core/occurrence/someday';
 import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
 import { formatFlexibleWindow } from '@/features/common/format';
 import { addDays } from '@/core/civil/date';
@@ -82,6 +84,7 @@ export function TodayScreen() {
   const { skip, reschedule, clear } = useOccurrenceActions();
   const [open, setOpen] = useState<AgendaItem | null>(null);
   const { view, chores, today, isLoading, error, unreadable, refetch } = useToday_View();
+  const oneOffCompletions = useOneOffCompletions();
   const categories = useCategoryList();
   const viewPref = useViewPreference();
   const setArrangement = useViewStore((s) => s.setArrangement);
@@ -394,6 +397,34 @@ export function TodayScreen() {
    * at the bottom — and two live checkboxes for one occurrence is worse than
    * the disappearing act it replaced.
    */
+  /**
+   * Chores with no date at all.
+   *
+   * Emily moved most of the house to "no date or just repeating" and found the
+   * undated half had nowhere to live: *"so if you take off the due date, you
+   * can't flag it — and it doesn't show up on upcoming."* Both were true. An
+   * unscheduled rule expands to no occurrences, so there was no row, no sheet,
+   * and no way to flag, read or tick one outside the Chores library.
+   *
+   * Built from `somedayAgenda` rather than here, so this screen and the Chores
+   * tab cannot disagree about what an undated chore is — in particular they
+   * share the occurrence key, which is what makes a tick in one place show up
+   * in the other.
+   */
+  const somedayItems = useMemo(
+    () =>
+      somedayAgenda(
+        chores.map((c) => ({ id: c.id, title: c.title, scheduleKind: c.schedule.rule.kind })),
+        (oneOffCompletions.data ?? []).map((c) => ({
+          choreId: c.choreId,
+          completedOn: c.completedOn,
+          completedBy: c.completedBy,
+        })),
+        today,
+      ),
+    [chores, oneOffCompletions.data, today],
+  );
+
   const doneElsewhere = useMemo(
     () => (held.size === 0 ? view.done : view.done.filter((d) => !held.has(d.occurrenceKey))),
     [held, view.done],
@@ -423,9 +454,12 @@ export function TodayScreen() {
    * What the list is for: what is coming, or everything.
    *
    * One rule for the whole list, replacing the per-chore "show on the Today
-   * tab" setting — late, due within thirty days, or undated. Jake: *"a hard and
-   * fast rule ... then maybe a smallish dropdown or toggle that switches
-   * between Upcoming and All."*
+   * tab" setting — late, or due within thirty days. Jake: *"a hard and fast
+   * rule ... then maybe a smallish dropdown or toggle that switches between
+   * Upcoming and All."*
+   *
+   * This said "or undated" for months and never did it. Undated chores have
+   * their own section below, deliberately outside this scope.
    *
    * "All" is not the master chore list: these rows are checkable and carry
    * their category, lateness, notes and steps. That is the difference worth
@@ -505,6 +539,28 @@ export function TodayScreen() {
       );
     },
     [query, choreMeta],
+  );
+
+  /*
+   * Outstanding ones only, and never hidden by the scope toggle.
+   *
+   * "Upcoming" means late, or due in the next thirty days — an undated chore is
+   * neither, and being filtered on a date it does not have is how it came to be
+   * invisible in the first place.
+   *
+   * Worth being exact: applying `withinHorizon` here would change nothing
+   * today, because an outstanding Someday row carries *today's* date and so
+   * passes any horizon. Measured — adding the filter reddens no test. It is
+   * left off because the reasoning, not the arithmetic, is what keeps the
+   * section visible if that date ever stops being today.
+   *
+   * Completed ones fall through to the Done section below rather than sitting
+   * here struck through, which is where every other finished row on this screen
+   * goes.
+   */
+  const somedayOutstanding = useMemo(
+    () => matches(somedayItems.filter((item) => item.status !== 'completed')),
+    [somedayItems, matches],
   );
 
   const mine = useMemo(
@@ -788,6 +844,29 @@ export function TodayScreen() {
           <>
             <SectionHeader title={formatFlexibleWindow.sectionTitle} />
             <Stack gap={space.xs}>{floatingGroups.map(renderFloating)}</Stack>
+          </>
+        ) : null}
+
+        {/*
+          "Someday", which is what the Chores tab already calls these and what
+          Emily asked for — *"one more section on both tabs of the upcoming tab
+          that says something like 'Someday' or 'Unscheduled'"*. Two names for
+          one thing across two screens would be the worse answer.
+
+          Above Done and below everything dated, which is where Emily put it
+          when she described what she wanted — and it is the right place for a
+          different reason too: these are the only rows on the screen with no
+          deadline, so they sort after everything that has one, and before the
+          history at the bottom.
+
+          Never filtered by the scope toggle. "Upcoming" means late or due
+          within thirty days; an undated chore is neither, so every date-based
+          filter drops it, which is exactly how it became invisible.
+        */}
+        {somedayOutstanding.length > 0 ? (
+          <>
+            <SectionHeader title="Someday" count={somedayOutstanding.length} />
+            <Stack gap={space.xs}>{somedayOutstanding.map(renderRow)}</Stack>
           </>
         ) : null}
 

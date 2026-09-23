@@ -900,9 +900,27 @@ describe('the plan starts empty unless the household asked otherwise', () => {
     mockChores = [recurring('litter'), recurring('gutters')];
   };
 
-  it('adds nothing when the setting is off', async () => {
+  it('adds what is due today and leaves the backlog alone', async () => {
+    /*
+     * Emily: *"autopopulate the flagged ones or the ones that are due that day
+     * specifically."* The fixture is one of each — the litter is due today,
+     * the gutters have been late since July — so the assertion separates
+     * "today's work" from "everything outstanding", which is the distinction
+     * the whole change rests on.
+     */
     mockAutoPlan = false;
     dueAndLate();
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:litter']));
+  });
+
+  it('adds nothing at all when there is no work owed today', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [
+      item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
+    ];
+    mockChores = [recurring('gutters')];
     renderView();
 
     /*
@@ -944,10 +962,28 @@ describe('the plan starts empty unless the household asked otherwise', () => {
     // The count is in the label because the reason the plan no longer fills
     // itself is that it got too big — being told it is two before you tap is
     // the point of the control.
+    /*
+     * Two, because this harness's `mockAdd` does not write back into
+     * `mockEntries` — so the auto-fill's rows never become "planned" and the
+     * count still sees both. In the app the litter would already be on the
+     * plan and the button would read (1).
+     *
+     * Said plainly rather than tuned to a number that looks right: what this
+     * pins is that the count is the due-or-late set minus what is planned, and
+     * "what is planned" is exactly what the harness holds still.
+     */
     const button = await screen.findByText('Add everything due or late (2)');
     fireEvent.press(button);
 
-    await waitFor(() => expect(addedKeys().sort()).toEqual(['v1:gutters', 'v1:litter']));
+    /*
+     * The press's own call, not the running total. The auto-fill has already
+     * added the litter in this harness and `mockEntries` never learns about
+     * it, so a cumulative assertion would see it twice — an artefact of the
+     * fixture, not of the button.
+     */
+    await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(2));
+    const pressed = mockAdd.mock.calls.at(-1)?.[0] as { occurrenceKey: string }[];
+    expect(pressed.map((i) => i.occurrenceKey).sort()).toEqual(['v1:gutters', 'v1:litter']);
   });
 
   it('hides the button when there is nothing due or late', async () => {
@@ -994,10 +1030,14 @@ describe('what the bulk-add button counts', () => {
      * `gutters` is Emily's turn: adding it to Jake's day would reassign her
      * work with nothing on screen saying so.
      */
-    mockView.mine = [item('litter')];
+    // Both overdue, so neither fills itself in and the button is the only
+    // thing adding anything — otherwise the auto-fill's rows would be mixed
+    // into the assertion below.
+    const late = { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 } as const;
+    mockView.mine = [item('litter', late)];
     mockView.theirs = [
-      item('litter'),
-      item('gutters', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
+      item('litter', late),
+      item('gutters', { ...late, assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
     ];
     mockChores = [recurring('litter'), recurring('gutters')];
     renderView();
@@ -1078,15 +1118,21 @@ describe('flagged work lands by itself even when nothing else does', () => {
     mockAutoPlan = false;
   });
 
+  /*
+   * Late, not due today — which is now load-bearing rather than incidental.
+   * Work due today fills the plan by itself, so a fixture of two chores due
+   * today cannot show that *flagging* is what put one of them there. Both
+   * being late means the flag is the only difference left.
+   */
+  const LATE = { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 } as const;
+
   it('adds the flagged one and leaves the rest alone', async () => {
     /*
-     * Both chores are due today and identical in every other way, so the only
-     * thing that can separate them is the flag. A fixture with just the
-     * flagged chore would pass against "add everything", which is the rule
-     * this is meant to rule out.
+     * Identical in every way except the flag, so the assertion cannot pass
+     * against "add everything" — which is the rule it exists to rule out.
      */
     mockMyFlags = new Set(['gutters']);
-    mockView.mine = [item('litter'), item('gutters')];
+    mockView.mine = [item('litter', LATE), item('gutters', LATE)];
     mockChores = [recurring('litter'), recurring('gutters')];
     renderView();
 
@@ -1098,7 +1144,7 @@ describe('flagged work lands by itself even when nothing else does', () => {
     // doing, and it would be a strange kind of shared if it reached only her
     // plan.
     mockTheirFlags = new Set(['gutters']);
-    mockView.mine = [item('litter'), item('gutters')];
+    mockView.mine = [item('litter', LATE), item('gutters', LATE)];
     mockChores = [recurring('litter'), recurring('gutters')];
     renderView();
 

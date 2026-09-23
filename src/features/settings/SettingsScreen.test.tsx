@@ -436,30 +436,31 @@ describe('the words on the screen', () => {
       mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
       await renderScreen();
 
-      expect(screen.getByLabelText('Fill the plan automatically').props.value).toBe(true);
+      expect(screen.getByLabelText('Add the backlog too').props.value).toBe(true);
     });
 
     it('is off when the household has not asked for it', async () => {
       await renderScreen();
 
-      expect(screen.getByLabelText('Fill the plan automatically').props.value).toBe(false);
+      expect(screen.getByLabelText('Add the backlog too').props.value).toBe(false);
     });
 
     it('writes the household setting when flipped', async () => {
       await renderScreen();
 
-      fireEvent(screen.getByLabelText('Fill the plan automatically'), 'valueChange', true);
+      fireEvent(screen.getByLabelText('Add the backlog too'), 'valueChange', true);
 
       expect(mockUpdate).toHaveBeenCalledWith({ autoPlan: true });
     });
 
-    it('says that flagged work lands either way', async () => {
-      // The carve-out is invisible otherwise: somebody reading "off" would
-      // reasonably expect nothing at all to be added, and then be surprised
-      // every time their housemate flags something.
+    it('says what still lands with it off', async () => {
+      // "Off" would otherwise read as "nothing is added", and the plan filling
+      // with today's dishes would look like the switch was broken.
       await renderScreen();
 
-      expect(screen.getByText(/Flagged work still lands on the plan either way/)).toBeOnTheScreen();
+      expect(
+        screen.getByText(/what is due today and anything either of you has flagged/),
+      ).toBeOnTheScreen();
     });
 
     it('describes what it actually adds, one-off tasks included', async () => {
@@ -471,7 +472,7 @@ describe('the words on the screen', () => {
        */
       await renderScreen();
 
-      expect(screen.getByText(/one-time tasks as well as chores/)).toBeOnTheScreen();
+      expect(screen.getByText(/one-time tasks included/)).toBeOnTheScreen();
     });
   });
 });

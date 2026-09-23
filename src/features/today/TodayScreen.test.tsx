@@ -301,6 +301,17 @@ const mockToggleFlag = jest.fn();
  * offered "Flag it".
  */
 let mockFlagsByChore: Map<string, readonly string[]> = new Map();
+/*
+ * Completions for undated chores, which the Someday section reads to tell a
+ * cleared loft from an uncleared one. Mocked because this screen had no reason
+ * to touch `useChores` before and the harness has no `QueryClient`.
+ */
+let mockOneOffCompletions: { choreId: string; completedOn: string; completedBy: string | null }[] =
+  [];
+jest.mock('@/data/hooks/useChores', () => ({
+  useOneOffCompletions: () => ({ data: mockOneOffCompletions }),
+}));
+
 jest.mock('@/data/hooks/useFlags', () => ({
   useFlagsByChore: () => mockFlagsByChore,
   useToggleFlag: () => ({ mutate: mockToggleFlag }),
@@ -343,6 +354,7 @@ beforeEach(() => {
   mockFlagsByChore = new Map();
   mockToggleFlag.mockClear();
   mockChores = ALL_CHORES.map((c) => ({ ...c }));
+  mockOneOffCompletions = [];
   mockToggle.mockClear();
   mockRefetch.mockClear();
   mockSkip.mockClear();
@@ -1302,5 +1314,89 @@ describe('the sheet on a chore your housemate flagged', () => {
 
     expect(screen.getByRole('button', { name: /^Flag it$/ })).toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Unflag it' })).toBeNull();
+  });
+});
+
+describe('chores with no date at all', () => {
+  /*
+   * Emily moved most of the house to "no date or just repeating" and found the
+   * undated half had nowhere to live: *"so if you take off the due date, you
+   * can't flag it — and it doesn't show up on upcoming."*
+   *
+   * Both were true. An unscheduled rule expands to nothing, so there was no
+   * row, and with no row there is no sheet — which is the only way to flag
+   * anything. The screen's own docblock claimed the list was "late, due within
+   * thirty days, or undated"; it never included the third.
+   */
+  const undated = (id: string, title: string) => ({
+    id,
+    title,
+    priority: 'normal',
+    schedule: {
+      rule: { kind: 'unscheduled' },
+      startsOn: d('2026-01-01'),
+      endsOn: null,
+      timesOfDay: [],
+    },
+    assignment: { kind: 'anyone' },
+    archived: false,
+  });
+
+  it('gives them a section of their own', async () => {
+    mockChores = [...ALL_CHORES.map((c) => ({ ...c })), undated('loft', 'Clear the loft') as never];
+    renderScreen();
+
+    expect(await screen.findByRole('header', { name: /Someday/ })).toBeOnTheScreen();
+    expect(screen.getByText('Clear the loft')).toBeOnTheScreen();
+  });
+
+  it('shows them under All as well as Upcoming', async () => {
+    /*
+     * Emily: *"one more section on both tabs of the upcoming tab"*.
+     *
+     * This asserts the requirement, not the mechanism, and the difference is
+     * worth stating: an outstanding Someday row carries today's date, so it
+     * would survive the horizon filter anyway. Adding that filter back reddens
+     * nothing. What is pinned here is that both tabs show the section — which
+     * is what was asked for and what was missing.
+     */
+    mockChores = [...ALL_CHORES.map((c) => ({ ...c })), undated('loft', 'Clear the loft') as never];
+    renderScreen();
+
+    await screen.findByText('Clear the loft');
+    fireEvent.press(screen.getByRole('tab', { name: 'All' }));
+
+    expect(screen.getByText('Clear the loft')).toBeOnTheScreen();
+  });
+
+  it('opens a sheet, which is the only way to flag one', async () => {
+    mockChores = [...ALL_CHORES.map((c) => ({ ...c })), undated('loft', 'Clear the loft') as never];
+    renderScreen();
+
+    fireEvent.press(await screen.findByText('Clear the loft'));
+
+    // The flag action, reachable at last. Not merely "a sheet opened": the
+    // thing Emily could not do was flag it.
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+  });
+
+  it('drops one out of the section once it is done', async () => {
+    // Otherwise the section is a permanent list of everything undated the
+    // household has ever had, which is the Chores library, not a to-do list.
+    mockChores = [...ALL_CHORES.map((c) => ({ ...c })), undated('loft', 'Clear the loft') as never];
+    mockOneOffCompletions = [{ choreId: 'loft', completedOn: '2026-07-29', completedBy: ME }];
+    await renderScreen();
+
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    expect(headers).not.toContain('Someday');
+  });
+
+  it('says nothing when the household has none', async () => {
+    // An empty heading is worse than no heading: it implies the household has
+    // undated work and that it is all finished.
+    await renderScreen();
+
+    const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
+    expect(headers).not.toContain('Someday');
   });
 });

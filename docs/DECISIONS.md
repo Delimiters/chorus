@@ -18,6 +18,47 @@ Newest first.
 
 ---
 
+## 2026-09-23 — Undated chores are visible, and the plan fills with today's work
+
+**Was:** an unscheduled ("Someday") chore expanded to no occurrences, so it had
+no row anywhere except the Chores library — and therefore no sheet, and
+therefore no way to flag it. The Upcoming tab's own docblock claimed the list
+was "late, due within thirty days, **or undated**". It never included the third.
+
+**Now:** a "Someday" section on Upcoming, outside the scope toggle because
+there is no date to filter on, built from `core/occurrence/someday.ts` so it
+shares an occurrence key with the Chores tab and a tick in one place shows in
+the other.
+
+**Why:** Emily moved the house to no-date and repeating chores and the undated
+half vanished. *"so if you take off the due date, you can't flag it — and it
+doesn't show up on upcoming."* Both true.
+
+**Also, and this narrows a decision from the day before.** The plan now fills
+with what is due **today**, plus anything flagged — not the backlog. Emily:
+*"have the my day autopopulate the flagged ones or the ones that are due that
+day specifically like it's time to do dishes or this event is happening this
+day."* Her "specifically" is the point: what made the plan unreadable was never
+the dishes being due, it was weeks of late work arriving beside them.
+
+So `households.auto_plan` changed meaning rather than changing sides. It used
+to be "fill the plan at all"; it is now "**add the backlog too**", and the
+setting is labelled that way. Yesterday's entry below says nothing fills the
+plan by default; that held for about a day.
+
+**And the plan is grouped by when, not only by kind.** Jake: *"Maybe also split
+the daily plan up by due today vs past due."* "Past due" is one group below
+today's work rather than a third axis crossed with Chores and One-time tasks —
+that would have turned three headings into six on a screen whose founding
+complaint was that it was overwhelming. Flagged work still leads, late or not:
+a flag means "this one, before the rest".
+
+**What it costs:** flagging an undated chore marks it but does not put it on
+the plan, because it is not due or late and never will be. If that turns out to
+be surprising, the fix is to let the flagged path take undated work too.
+
+---
+
 ## 2026-09-22 — The plan starts empty, and auto-fill is an opt-in household setting
 
 **Was:** everything due or late was added to each person's plan automatically
