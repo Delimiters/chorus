@@ -110,9 +110,10 @@ export function SettingsScreen() {
   const myRoutineCount = routineItems.data?.items.filter((i) => i.ownerId === userId).length ?? 0;
 
   const weekStartsOn = String(household.data?.weekStartsOn ?? 0);
-  // Defaults to off while the household is still loading, which is also the
-  // stored default — the switch never flashes on and then turns itself off.
-  const autoPlan = household.data?.autoPlan ?? false;
+  // Follows the column's default while the household is still loading, so the
+  // switch does not flash the wrong way and correct itself a frame later. It
+  // was left at `false` when the default flipped, which is exactly that flash.
+  const autoPlan = household.data?.autoPlan ?? true;
   const timeZone = household.data?.timeZone ?? 'UTC';
 
   /** The device's zone, for the "this looks wrong" case below. */

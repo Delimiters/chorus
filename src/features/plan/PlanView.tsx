@@ -462,6 +462,18 @@ export function PlanView() {
    * Idempotent by construction: it plans only what is outstanding and not
    * already on their day, so the second person's own run finds the work there
    * and adds nothing.
+   *
+   * ── Two limits worth knowing ──────────────────────────────────────────
+   *
+   * A flag raised *after* this has run does not reach their day until they
+   * open the app themselves. Your own day keeps a per-occurrence record for
+   * exactly this case; theirs has only a day-level marker, and reusing the
+   * per-occurrence one would conflate the two plans, since shared work has the
+   * same occurrence key on both.
+   *
+   * And with more than two people this fills only the earliest-joined other
+   * member. The app is two-person by design; a third would need a loop and a
+   * marker per person rather than a single flag.
    */
   const theirInFlight = useRef(false);
   const theirFailedFor = useRef<CivilDate | null>(null);
@@ -479,14 +491,43 @@ export function PlanView() {
     );
 
     /*
-     * Their outstanding work, judged against *their* id.
+     * Only ever fills an *empty* day, never tops one up.
      *
-     * `view.theirs` is already their side of the split, but `autoPlannable`
-     * is asked about `housemateId` anyway — shared "anyone" work belongs to
-     * both of you and lands on both days, and passing the wrong id here is
-     * how it would quietly land on only one.
+     * The marker is device-local, and that is not enough on its own for a day
+     * that is not yours. Emily opens at seven, her own fill runs, she takes
+     * the mopping off at half past. Jake opens at nine for the first time
+     * today: his `autoPlannedTheirsOn` is null, the row is gone from
+     * `allEntries`, and without this he would put the mopping straight back.
+     * "Take off today" is the button this app keeps accidentally breaking.
+     *
+     * Emptiness is the honest signal for what Jake actually asked for — *"if
+     * Emily hasn't opened the app today hers is just empty"* — and it cannot
+     * be confused with a day she has curated. The one case it gets wrong is a
+     * day she deliberately cleared to nothing, which refills; a day with one
+     * row left on it does not.
      */
-    const theirDue = autoPlannable(view.theirs, {
+    if (theirPlanned.size > 0) {
+      markTheirDayPlanned(today);
+      return;
+    }
+
+    /*
+     * Both sides of the split, filtered by `belongsTo` against *their* id.
+     *
+     * Not `view.theirs`, which is the obvious choice and the wrong one:
+     * `isMine` in `buildTodayView` counts `kind: 'anyone'` as *yours*, so
+     * shared work is always in `view.mine` and can never appear in
+     * `view.theirs` on either phone. Sourcing from `theirs` alone meant the
+     * housemate's auto-filled day got their own assigned chores and none of
+     * the shared ones — exactly the category Jake named when he asked for this
+     * behaviour: *"any chore assigned to 'Anyone' or 'Everyone does' to appear
+     * automatically in the daily plan."*
+     *
+     * `belongsTo` is then what decides, and it is true for `anyone` and for
+     * their own member turns, false for yours. That is the same rule your own
+     * fill uses, asked about a different person.
+     */
+    const theirDue = autoPlannable([...view.mine, ...view.theirs], {
       userId: housemateId,
       on: today,
       planned: theirPlanned,
@@ -528,6 +569,7 @@ export function PlanView() {
     autoPlannedTheirsOn,
     today,
     allEntries,
+    view.mine,
     view.theirs,
     householdFlags,
     addForThem,
@@ -875,7 +917,9 @@ export function PlanView() {
           setPicking(true);
         }}
         proposal={proposal}
-        autoPlan={household.data?.autoPlan ?? false}
+        // The column's default, so the housemate's empty-day sentence does not
+        // say the wrong thing for the frame before the query lands.
+        autoPlan={household.data?.autoPlan ?? true}
         dueOrLateCount={dueOrLate.length}
         onAddAllDue={() =>
           add.mutate(dueOrLate.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
