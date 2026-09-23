@@ -87,12 +87,30 @@ export interface ProjectedOccurrence extends Occurrence {
 }
 
 /** Everything the projector needs. All of it is plain data. */
+/** Somebody took one occurrence that the rotation gave to the other person. */
+export interface TurnOverrideInput {
+  readonly occurrenceKey: string;
+  /** Whose it is instead. */
+  readonly userId: string;
+}
+
 export interface ProjectionInput {
   readonly chores: readonly ChoreInput[];
   readonly completions: readonly CompletionInput[];
   readonly exceptions: readonly ExceptionInput[];
   /** Current household roster, used to fan out `everyone` chores. */
   readonly memberIds: readonly string[];
+  /**
+   * Per-occurrence turn overrides — "actually, this one's mine".
+   *
+   * A deviation from the rotation, never an edit to it: the rotation stays a
+   * pure function of the date (invariant 4), and this is applied on top. Take
+   * the override away and the rotation answers again.
+   *
+   * Optional because every existing caller predates it and an absent list must
+   * mean "no overrides" rather than a type error at forty call sites.
+   */
+  readonly turns?: readonly TurnOverrideInput[];
   /** Household-local today. The engine never reads a clock. */
   readonly today: CivilDate;
 }

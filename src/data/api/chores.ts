@@ -9,7 +9,12 @@ import { safeParseSchedule } from '@/core/recurrence/schema';
 import type { Schedule } from '@/core/recurrence/types';
 import { safeParseAssignment } from '@/core/rotation/schema';
 import type { Assignment } from '@/core/rotation/types';
-import type { ChoreInput, CompletionInput, ExceptionInput } from '@/core/occurrence/types';
+import type {
+  ChoreInput,
+  CompletionInput,
+  ExceptionInput,
+  TurnOverrideInput,
+} from '@/core/occurrence/types';
 import type { CivilDate } from '@/core/civil/types';
 import { toPriority, type Priority } from '@/core/chore/priority';
 import type { Json } from '../database.types';
@@ -590,4 +595,68 @@ export async function scheduleChoreForDay(choreId: string, dueOn: string): Promi
   if ((updated ?? []).length === 0) {
     throw new Error('That chore could not be updated.');
   }
+}
+
+/**
+ * Turn overrides — "actually, this one's mine".
+ *
+ * Unbounded by date, unlike completions and exceptions: there is one row per
+ * occurrence and a household accumulates them at the rate somebody taps the
+ * button, which is nothing like the rate chores recur. Filtering by date would
+ * need `due_on` on the table, which is a copy of something the occurrence key
+ * already encodes.
+ */
+export async function listTurnOverrides(
+  householdId: string,
+): Promise<readonly TurnOverrideInput[]> {
+  const { data, error } = await supabase
+    .from('chore_turns')
+    .select('occurrence_key, user_id')
+    .eq('household_id', householdId);
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    occurrenceKey: row.occurrence_key,
+    userId: row.user_id,
+  }));
+}
+
+/**
+ * Take an occurrence, or give it back.
+ *
+ * `userId === null` deletes the override, which is how the rotation gets the
+ * turn back — the engine applies what is there and nothing when it is gone, so
+ * removal is the whole of "put it back".
+ *
+ * Upserted on `(chore_id, occurrence_key)` rather than inserted: tapping two
+ * names in a row is the ordinary way to use this, and the second tap must
+ * replace the first rather than raise 23505.
+ */
+export async function setTurnOverride(input: {
+  householdId: string;
+  choreId: string;
+  occurrenceKey: string;
+  userId: string | null;
+  createdBy: string;
+}): Promise<void> {
+  if (input.userId === null) {
+    const { error } = await supabase
+      .from('chore_turns')
+      .delete()
+      .eq('chore_id', input.choreId)
+      .eq('occurrence_key', input.occurrenceKey);
+    if (error) fail(error);
+    return;
+  }
+
+  const { error } = await supabase.from('chore_turns').upsert(
+    {
+      household_id: input.householdId,
+      chore_id: input.choreId,
+      occurrence_key: input.occurrenceKey,
+      user_id: input.userId,
+      created_by: input.createdBy,
+    },
+    { onConflict: 'chore_id,occurrence_key' },
+  );
+  if (error) fail(error);
 }

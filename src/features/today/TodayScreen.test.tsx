@@ -223,6 +223,8 @@ let mockLoading = false;
 let mockSteps: Map<string, { id: string; title: string }[]> = new Map();
 let mockTicks: Map<string, Set<string>> = new Map();
 const mockToggleSubtask = jest.fn();
+/** "Actually, this one's mine." */
+const mockSetTurn = jest.fn();
 
 jest.mock('@/data/hooks/useSubtasks', () => ({
   useSubtasksFor: () => [],
@@ -243,6 +245,7 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     refetch: mockRefetch,
   }),
   useToggleCompletion: () => ({ mutate: mockToggle }),
+  useSetTurn: () => ({ mutate: mockSetTurn }),
   useOccurrenceActions: () => ({
     skip: { mutate: mockSkip },
     reschedule: { mutate: mockReschedule },
@@ -1546,5 +1549,92 @@ describe('the sheet as a mini chore view', () => {
     await openDishes();
 
     expect(await screen.findByTestId('chore-detail')).toBeOnTheScreen();
+  });
+});
+
+describe('changing whose turn it is, in one tap', () => {
+  /*
+   * Jake: *"We also need a way to just one tap change who's turn it is. Like
+   * oh actually this is going to be my turn this time."*
+   *
+   * One tap is the request, so a control that opens a picker and then asks you
+   * to confirm has already lost.
+   */
+  beforeEach(() => {
+    mockSetTurn.mockClear();
+  });
+
+  const openDishes = async () => {
+    await renderScreen();
+    fireEvent.press(screen.getByText('Dishes'));
+  };
+
+  it('gives the occurrence to whoever you tap', async () => {
+    await openDishes();
+    const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
+
+    fireEvent.press(await screen.findByLabelText('Give it to Sam'));
+
+    expect(mockSetTurn).toHaveBeenCalledWith({
+      choreId: 'dishes',
+      occurrenceKey: key,
+      userId: THEM,
+    });
+  });
+
+  it('puts it back on the rotation', async () => {
+    /*
+     * `null` clears the override, and clearing is the whole of "put it back":
+     * the engine applies what is stored and the rotation answers when nothing
+     * is. A separate "clear" verb would imply the rotation had been edited.
+     */
+    await openDishes();
+
+    fireEvent.press(await screen.findByText('Rotation'));
+
+    expect(mockSetTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ choreId: 'dishes', userId: null }),
+    );
+  });
+
+  it('is not offered on an undated chore, where it would do nothing', async () => {
+    /*
+     * A Someday chore has no projected occurrence, so an override would be
+     * written and never read back — the silent no-op this screen has already
+     * shipped twice, on floating rows and then on Someday rows.
+     */
+    mockChores = [
+      ...ALL_CHORES.map((c) => ({ ...c })),
+      {
+        id: 'loft',
+        title: 'Clear the loft',
+        priority: 'normal',
+        schedule: {
+          rule: { kind: 'unscheduled' },
+          startsOn: d('2026-01-01'),
+          endsOn: null,
+          timesOfDay: [],
+        },
+        assignment: { kind: 'anyone' },
+        archived: false,
+      } as never,
+    ];
+    await renderScreen();
+    fireEvent.press(screen.getByText('Clear the loft'));
+
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+    expect(screen.queryByText('Rotation')).toBeNull();
+  });
+
+  it('is not offered on a chore everyone does separately', async () => {
+    // One job each: reassigning a slot would hand two people the same copy and
+    // delete somebody's own. The projector refuses it, so the sheet must too.
+    for (const chore of mockChores as unknown as { id: string; assignment: unknown }[]) {
+      if (chore.id === 'dishes') chore.assignment = { kind: 'everyone' };
+    }
+    await openDishes();
+
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+    expect(screen.queryByText('Rotation')).toBeNull();
   });
 });

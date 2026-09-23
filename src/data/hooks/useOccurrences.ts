@@ -32,6 +32,8 @@ import {
   listCompletions,
   listCompletionsForChores,
   listExceptions,
+  listTurnOverrides,
+  setTurnOverride,
   listExceptionsForChores,
   listOneTimeChores,
   rescheduleOccurrence,
@@ -121,6 +123,15 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
         : () => listExceptions(householdId, window.start, window.end),
   });
 
+  /*
+   * "Actually, this one's mine." Unwindowed, so it does not refetch as the
+   * window slides — see `qk.turns`.
+   */
+  const turnsQuery = useQuery({
+    queryKey: qk.turns(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => listTurnOverrides(householdId),
+  });
+
   const members = useMembers();
 
   /**
@@ -180,13 +191,23 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
         completions,
         exceptions: (exceptionsQuery.data ?? []) as ExceptionInput[],
         memberIds: (members.data ?? []).map((m) => m.userId),
+        turns: turnsQuery.data ?? [],
         today,
       },
       calendar,
       window,
     );
     return projected;
-  }, [choresQuery.data, completions, exceptionsQuery.data, members.data, today, calendar, window]);
+  }, [
+    choresQuery.data,
+    completions,
+    exceptionsQuery.data,
+    turnsQuery.data,
+    members.data,
+    today,
+    calendar,
+    window,
+  ]);
 
   /**
    * Both views derive from the **projector's** output, not from each other.
@@ -574,4 +595,45 @@ export function useOccurrenceActions() {
   });
 
   return { skip, reschedule, clear };
+}
+
+/**
+ * "Actually, this one's mine."
+ *
+ * Jake: *"We also need a way to just one tap change who's turn it is."*
+ *
+ * `userId === null` clears the override, which is the whole of "put it back":
+ * the engine applies what is stored and the rotation answers when nothing is.
+ *
+ * Not optimistic. The rotation's own answer is derived by the projector from
+ * chores and dates, so an optimistic patch would have to re-derive it here to
+ * know what the row should look like — a second copy of the rotation, which is
+ * the mistake invariant 4 exists to prevent. A turn change is one tap in a
+ * sheet that stays open, so the refetch is not felt.
+ */
+export function useSetTurn() {
+  const householdId = useActiveHouseholdId();
+  const userId = useUserId();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: {
+      choreId: string;
+      occurrenceKey: string;
+      userId: string | null;
+    }) => {
+      if (householdId === null || userId === null) throw new Error('Please sign in again.');
+      await setTurnOverride({
+        householdId,
+        choreId: input.choreId,
+        occurrenceKey: input.occurrenceKey,
+        userId: input.userId,
+        createdBy: userId,
+      });
+    },
+    onSettled: async () => {
+      if (householdId === null) return;
+      await queryClient.invalidateQueries({ queryKey: qk.household(householdId) });
+    },
+  });
 }

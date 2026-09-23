@@ -17,7 +17,7 @@
  */
 
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 import { addDays } from '@/core/civil/date';
 import type { CivilDate, Weekday } from '@/core/civil/types';
@@ -25,7 +25,8 @@ import type { AgendaItem } from '@/core/occurrence/agenda';
 import { Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { Sheet, SheetAction } from '@/design/Sheet';
-import { space } from '@/design/tokens';
+import { useColors } from '@/design/theme';
+import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { ChoreDetail } from '@/features/common/ChoreDetail';
 import { DateField } from '@/features/common/DateField';
 import { formatDayShort } from '@/features/common/format';
@@ -65,6 +66,20 @@ interface Props {
   scheduleLabel?: string | null;
   /** Whose turn, when it is somebody's in particular. */
   turnLabel?: string | null;
+  /**
+   * Whose turn this one is, and the people it could be instead.
+   *
+   * Jake: *"We also need a way to just one tap change who's turn it is. Like
+   * oh actually this is going to be my turn this time."*
+   *
+   * Absent means the control is not offered, and there are two real reasons
+   * for that rather than one: an undated chore produces no occurrence for the
+   * engine to apply an override to, and an `everyone` chore is one job *each*
+   * — reassigning a slot would hand two people the same copy and delete
+   * somebody's own. Both would be buttons that write and change nothing.
+   */
+  turnMembers?: readonly { readonly userId: string; readonly displayName: string }[];
+  onSetTurn?: (userId: string | null) => void;
   /** Whether anyone in the house has flagged this chore, and how to change it. */
   flagged?: boolean;
   onToggleFlag?: (choreId: string) => void;
@@ -119,6 +134,8 @@ export function OccurrenceSheet({
   category = null,
   scheduleLabel = null,
   turnLabel = null,
+  turnMembers = [],
+  onSetTurn,
 }: Props) {
   const [moving, setMoving] = useState(false);
   const [movedTo, setMovedTo] = useState<CivilDate>(today);
@@ -197,6 +214,41 @@ export function OccurrenceSheet({
         </View>
       ) : (
         <View style={{ gap: 2 }}>
+          {/*
+            Whose turn, as a row of names rather than a menu.
+            
+            One tap is the whole request, so anything that opens a picker and
+            then asks you to confirm has already lost. The names sit above the
+            verbs because this one says what the chore *is* — the rest of the
+            sheet does things to it.
+
+            "Rotation" is the way back rather than a separate "clear" action:
+            the override is a deviation, and removing it is not an undo so much
+            as choosing the original answer again.
+          */}
+          {onSetTurn === undefined || turnMembers.length < 2 ? null : (
+            <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm, gap: space.xs }}>
+              <Txt variant="label" tone="faint">
+                WHOSE TURN
+              </Txt>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
+                {turnMembers.map((member) => (
+                  <TurnChip
+                    key={member.userId}
+                    label={member.displayName}
+                    selected={turnLabel === member.displayName}
+                    onPress={() => onSetTurn(member.userId)}
+                  />
+                ))}
+                <TurnChip
+                  label="Rotation"
+                  selected={turnLabel === null}
+                  onPress={() => onSetTurn(null)}
+                />
+              </View>
+            </View>
+          )}
+
           {onToggleFlag === undefined ? null : (
             <SheetAction
               label={flagged ? 'Unflag it' : 'Flag it'}
@@ -297,5 +349,45 @@ export function OccurrenceSheet({
         </View>
       )}
     </Sheet>
+  );
+}
+
+/**
+ * One name in the "whose turn" row.
+ *
+ * `MIN_TARGET` as a real minimum height rather than `hitSlop`: a 34pt control
+ * with generous slop has been shipped four times in this app and caught four
+ * times by `tapTargets.test.ts`, which is why that test names the offenders.
+ */
+function TurnChip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={selected ? `${label}, current turn` : `Give it to ${label}`}
+      onPress={onPress}
+      style={{
+        minHeight: MIN_TARGET,
+        justifyContent: 'center',
+        paddingHorizontal: space.md,
+        borderRadius: radius.pill,
+        borderWidth: 1,
+        borderColor: selected ? colors.inkA : colors.rule,
+        backgroundColor: selected ? colors.inkASoft : 'transparent',
+      }}
+    >
+      <Txt variant="body" {...(selected ? { tone: 'accent' as const } : {})}>
+        {label}
+      </Txt>
+    </Pressable>
   );
 }

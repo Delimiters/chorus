@@ -30,6 +30,7 @@ import { describeRule } from '@/core/recurrence/describe';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import {
   useOccurrenceActions,
+  useSetTurn,
   useToday_View,
   useToggleCompletion,
 } from '@/data/hooks/useOccurrences';
@@ -166,6 +167,7 @@ export function TodayScreen() {
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
   const toggleFlag = useToggleFlag(today);
   const toggle = useToggleCompletion();
+  const setTurn = useSetTurn();
   const [refreshing, setRefreshing] = useState(false);
 
   /**
@@ -584,6 +586,18 @@ export function TodayScreen() {
    */
   const openIsSomeday = open !== null && open.periodKey === SOMEDAY_PERIOD_KEY;
 
+  /**
+   * Whether "whose turn" can be changed on the open row.
+   *
+   * Both exclusions are about the override being *read back*: `somedayAgenda`
+   * rows have no projected occurrence, and the projector deliberately ignores
+   * overrides on an `everyone` fan-out because those are one job each.
+   */
+  const canChangeTurn =
+    open !== null &&
+    !openIsSomeday &&
+    chores.find((c) => c.id === open.choreId)?.assignment.kind !== 'everyone';
+
   const somedayOutstanding = useMemo(
     () =>
       matches(
@@ -963,6 +977,29 @@ export function TodayScreen() {
         }
         scheduleLabel={open === null ? null : (scheduleFor.get(open.choreId) ?? null)}
         turnLabel={open === null ? null : ownership(open.assignee).turnLabel}
+        /*
+         * Offered only where an override would actually be read back.
+         *
+         * An undated chore produces no occurrence for the engine to apply one
+         * to, and an `everyone` chore is one job each — the projector ignores
+         * overrides on both, so offering the control would write a row and
+         * change nothing. That is the silent no-op this screen has already
+         * shipped twice, on floating rows and on Someday rows.
+         */
+        turnMembers={canChangeTurn ? (members.data ?? []) : []}
+        {...(canChangeTurn
+          ? {
+              onSetTurn: (who: string | null) => {
+                if (open !== null) {
+                  setTurn.mutate({
+                    choreId: open.choreId,
+                    occurrenceKey: open.occurrenceKey,
+                    userId: who,
+                  });
+                }
+              },
+            }
+          : {})}
         flagged={open !== null && anyFlags.has(open.choreId)}
         onToggleFlag={(choreId) => toggleFlag.mutate(choreId)}
         onClose={() => setOpen(null)}

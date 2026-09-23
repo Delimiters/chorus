@@ -87,6 +87,16 @@ export const qk = {
     [...qk.completionsAll(householdId), from, to] as const,
 
   exceptionsAll: (householdId: string) => [...qk.household(householdId), 'exceptions'] as const,
+  /**
+   * Turn overrides, unbounded by date.
+   *
+   * One row per occurrence somebody has taken, which a household accumulates
+   * at the rate it taps a button — not at the rate chores recur. A windowed
+   * key would need `due_on` on the table, duplicating what the occurrence key
+   * already encodes.
+   */
+  turns: (householdId: string) => [...qk.household(householdId), 'turns'] as const,
+
   exceptions: (householdId: string, from: CivilDate, to: CivilDate) =>
     [...qk.exceptionsAll(householdId), from, to] as const,
 } as const;
