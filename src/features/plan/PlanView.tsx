@@ -19,11 +19,16 @@ import { useUserId } from '@/stores/sessionStore';
 import { isRecurring } from '@/core/chore/kind';
 import { useFlagsByChore } from '@/data/hooks/useFlags';
 import { useScheduleToday } from '@/data/hooks/useChores';
-import { useHousehold } from '@/data/hooks/useHousehold';
+import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { quantiseWindow, useOccurrences, useToday_View } from '@/data/hooks/useOccurrences';
-import { useAddToPlan, useMyPlanEntries, usePlanLoading } from '@/data/hooks/usePlan';
+import {
+  useAddToPlan,
+  useMyPlanEntries,
+  usePlanEntries,
+  usePlanLoading,
+} from '@/data/hooks/usePlan';
 import { ErrorState, LoadingState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
 import { PlanScreen } from './PlanScreen';
@@ -65,8 +70,25 @@ export function PlanView() {
    * `add`. Only the picker can be pointed elsewhere.
    */
   const addForPicked = useAddToPlan(today, pickingFor ?? undefined);
+
   const [picking, setPicking] = useState(false);
   const household = useHousehold();
+  const members = useMembers();
+
+  /**
+   * The housemate, and the whole household's plan rows.
+   *
+   * `undefined` covers both "living alone" and "members have not loaded", and
+   * both must mean "fill nobody else's day" — `useAddToPlan(today, undefined)`
+   * falls back to *you*, so a fill issued before members land would write your
+   * housemate's chores onto your own plan.
+   */
+  const housemateId = useMemo(
+    () => (members.data ?? []).find((m) => m.userId !== userId)?.userId,
+    [members.data, userId],
+  );
+  const allEntries = usePlanEntries(today);
+  const addForThem = useAddToPlan(today, housemateId);
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
   const horizon = useOccurrences(
     useMemo(
@@ -396,6 +418,8 @@ export function PlanView() {
    * today and a day-level marker would hold it until tomorrow.
    */
   const autoPlannedOn = useRoutinePreference().autoPlannedOn;
+  const autoPlannedTheirsOn = useRoutinePreference().autoPlannedTheirsOn;
+  const markTheirDayPlanned = useRoutineStore((s) => s.markTheirDayPlanned);
   const autoPlannedFlags = useRoutinePreference().autoPlannedFlags;
   const markAutoPlanned = useRoutineStore((s) => s.markAutoPlanned);
   const markFlagsAutoPlanned = useRoutineStore((s) => s.markFlagsAutoPlanned);
@@ -415,6 +439,143 @@ export function PlanView() {
    * `failedFor` exists because the obvious guard loops: on failure the cache
    * rolls back, `due` refills, and the effect resubmits forever.
    */
+  /**
+   * Whoever opens the app first fills *both* plans.
+   *
+   * Jake: *"I thought I asked to make it so that if either person opens the
+   * app it goes ahead and auto populates both people's daily plan? Seems like
+   * that still doesn't happen, if Emily hasn't opened the app today hers is
+   * just empty."*
+   *
+   * He had asked, and docs/DECISIONS.md recorded it as raised and undecided:
+   * the fill ran on *your* device for *your* day, so a housemate who had not
+   * opened Chorus had no plan at all — which is not a decision they made. It
+   * is the same complaint that produced the housemate section in the first
+   * place: *"Did you push it? I don't see Emily's plan."*
+   *
+   * Done from the client rather than server-side, which is the other half of
+   * that open question. A scheduled job would be the better answer and needs
+   * infrastructure this project does not have; this needs one more mutation
+   * and is correct whenever either phone is opened, which in a two-person
+   * house is every day.
+   *
+   * Idempotent by construction: it plans only what is outstanding and not
+   * already on their day, so the second person's own run finds the work there
+   * and adds nothing.
+   *
+   * ── Two limits worth knowing ──────────────────────────────────────────
+   *
+   * A flag raised *after* this has run does not reach their day until they
+   * open the app themselves. Your own day keeps a per-occurrence record for
+   * exactly this case; theirs has only a day-level marker, and reusing the
+   * per-occurrence one would conflate the two plans, since shared work has the
+   * same occurrence key on both.
+   *
+   * And with more than two people this fills only the earliest-joined other
+   * member. The app is two-person by design; a third would need a loop and a
+   * marker per person rather than a single flag.
+   */
+  const theirInFlight = useRef(false);
+  const theirFailedFor = useRef<CivilDate | null>(null);
+
+  useEffect(() => {
+    if (household.data == null || housemateId === undefined) return;
+    if (isLoading || entriesLoading) return;
+    if (autoPlannedTheirsOn === today) return;
+    if (theirInFlight.current || theirFailedFor.current === today) return;
+
+    const theirPlanned = new Set(
+      allEntries
+        .filter((e) => e.userId === housemateId && e.plannedFor === today)
+        .map((e) => e.occurrenceKey),
+    );
+
+    /*
+     * Only ever fills an *empty* day, never tops one up.
+     *
+     * The marker is device-local, and that is not enough on its own for a day
+     * that is not yours. Emily opens at seven, her own fill runs, she takes
+     * the mopping off at half past. Jake opens at nine for the first time
+     * today: his `autoPlannedTheirsOn` is null, the row is gone from
+     * `allEntries`, and without this he would put the mopping straight back.
+     * "Take off today" is the button this app keeps accidentally breaking.
+     *
+     * Emptiness is the honest signal for what Jake actually asked for — *"if
+     * Emily hasn't opened the app today hers is just empty"* — and it cannot
+     * be confused with a day she has curated. The one case it gets wrong is a
+     * day she deliberately cleared to nothing, which refills; a day with one
+     * row left on it does not.
+     */
+    if (theirPlanned.size > 0) {
+      markTheirDayPlanned(today);
+      return;
+    }
+
+    /*
+     * Both sides of the split, filtered by `belongsTo` against *their* id.
+     *
+     * Not `view.theirs`, which is the obvious choice and the wrong one:
+     * `isMine` in `buildTodayView` counts `kind: 'anyone'` as *yours*, so
+     * shared work is always in `view.mine` and can never appear in
+     * `view.theirs` on either phone. Sourcing from `theirs` alone meant the
+     * housemate's auto-filled day got their own assigned chores and none of
+     * the shared ones — exactly the category Jake named when he asked for this
+     * behaviour: *"any chore assigned to 'Anyone' or 'Everyone does' to appear
+     * automatically in the daily plan."*
+     *
+     * `belongsTo` is then what decides, and it is true for `anyone` and for
+     * their own member turns, false for yours. That is the same rule your own
+     * fill uses, asked about a different person.
+     */
+    const theirDue = autoPlannable([...view.mine, ...view.theirs], {
+      userId: housemateId,
+      on: today,
+      planned: theirPlanned,
+    });
+
+    // The same rule their own device would apply, or the two would disagree
+    // about what their morning looks like depending on who opened first.
+    const theirBaseline = household.data.autoPlan
+      ? theirDue
+      : theirDue.filter((i) => i.dueOn === today);
+    const theirFlagged = theirDue.filter((item) => householdFlags.has(item.choreId));
+
+    const keys = new Set(theirBaseline.map((i) => i.occurrenceKey));
+    const due = [...theirBaseline, ...theirFlagged.filter((i) => !keys.has(i.occurrenceKey))];
+
+    if (due.length === 0) {
+      markTheirDayPlanned(today);
+      return;
+    }
+
+    theirInFlight.current = true;
+    addForThem.mutate(
+      due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+      {
+        onSuccess: () => markTheirDayPlanned(today),
+        onError: () => {
+          theirFailedFor.current = today;
+        },
+        onSettled: () => {
+          theirInFlight.current = false;
+        },
+      },
+    );
+  }, [
+    household.data,
+    housemateId,
+    isLoading,
+    entriesLoading,
+    autoPlannedTheirsOn,
+    today,
+    allEntries,
+    view.mine,
+    view.theirs,
+    householdFlags,
+    addForThem,
+    markTheirDayPlanned,
+  ]);
+
   const inFlight = useRef(false);
   const failedFor = useRef<CivilDate | null>(null);
 
@@ -513,8 +674,28 @@ export function PlanView() {
     // existed has no key at all, and `undefined !== null` is true.
     const alreadyFlagged = new Set(autoPlannedFlags?.on === today ? autoPlannedFlags.keys : []);
 
+    /*
+     * Today's work, not the backlog — which is the distinction Emily drew.
+     *
+     * *"have the my day autopopulate the flagged ones or the ones that are due
+     * that day specifically like it's time to do dishes or this event is
+     * happening this day."*
+     *
+     * Her "specifically" is the whole of it. What made the plan unreadable was
+     * never the dishes being due; it was the pile of things that had been late
+     * for weeks arriving alongside them. `dueOn === today` keeps the first and
+     * leaves the second to the "Add everything due or late" button.
+     *
+     * So the household setting now means "the backlog as well", rather than
+     * "fill the plan at all" — a narrowing of what it controls, not a change
+     * to whether it is honoured.
+     */
     const wantsEverything = household.data.autoPlan;
-    const bulk = wantsEverything && autoPlannedOn !== today ? dueToday : [];
+    const baseline = wantsEverything ? dueToday : dueToday.filter((i) => i.dueOn === today);
+
+    // Once a day, whichever baseline it is, so that taking something off sticks.
+    const firstRunToday = autoPlannedOn !== today;
+    const bulk = firstRunToday ? baseline : [];
 
     /*
      * Not an exception to "if I added it to the plan I'm doing it" — the
@@ -567,18 +748,23 @@ export function PlanView() {
      * long way round — filtering `due` — on the theory that the bulk fill might
      * carry a flagged chore the flagged branch had missed.
      *
-     * It cannot. `bulk` is either empty or the whole of `dueToday`, and
-     * `flagged` is a subset of `dueToday`, so anything flagged that `bulk`
-     * carries is either in `flagged` already or was recorded earlier today.
-     * Reverting the longer form to this one changed no test, which is how the
-     * claim was found to be empty rather than merely untested.
+     * It cannot. Both `bulk` and `flagged` are subsets of `dueToday` — `bulk`
+     * is `baseline`, which is `dueToday` itself or its due-today part — so
+     * anything flagged that `bulk` carries is either in `flagged` already or
+     * was recorded earlier today. Reverting the longer form to this one
+     * changed no test, which is how the claim was found to be empty rather
+     * than merely untested.
+     *
+     * The earlier wording said `bulk` was "either empty or the whole of
+     * `dueToday`". True until the baseline narrowed to today's work; the
+     * conclusion survives the correction, the premise did not.
      */
     const flaggedKeys = flagged.map((item) => item.occurrenceKey);
 
     if (due.length === 0) {
       // Only the whole-day fill has a "nothing to do" state worth recording.
       // The flagged path has no day to mark — it is per occurrence.
-      if (wantsEverything && autoPlannedOn !== today) markAutoPlanned(today);
+      if (firstRunToday) markAutoPlanned(today);
       return;
     }
 
@@ -589,7 +775,7 @@ export function PlanView() {
       due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
       {
         onSuccess: () => {
-          if (wantsEverything) markAutoPlanned(today);
+          if (firstRunToday) markAutoPlanned(today);
           if (flaggedKeys.length > 0) markFlagsAutoPlanned(today, flaggedKeys);
         },
         onError: () => {
@@ -731,7 +917,9 @@ export function PlanView() {
           setPicking(true);
         }}
         proposal={proposal}
-        autoPlan={household.data?.autoPlan ?? false}
+        // The column's default, so the housemate's empty-day sentence does not
+        // say the wrong thing for the frame before the query lands.
+        autoPlan={household.data?.autoPlan ?? true}
         dueOrLateCount={dueOrLate.length}
         onAddAllDue={() =>
           add.mutate(dueOrLate.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))

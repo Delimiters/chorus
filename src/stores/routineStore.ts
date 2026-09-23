@@ -66,12 +66,27 @@ export interface RoutinePreference {
    * the work is done — so the fight would last all day.
    */
   readonly autoPlannedFlags: { readonly on: string; readonly keys: readonly string[] } | null;
+
+  /**
+   * The last day this device filled the *housemate's* plan.
+   *
+   * Its own marker rather than sharing `autoPlannedOn`, because the two fills
+   * are separate writes that can succeed independently: one marker would let a
+   * successful fill of your own day mark the other as done and leave your
+   * housemate's empty for the rest of the day.
+   *
+   * Still device-local, and that is fine. Whoever opens the app first fills
+   * both plans; the second person's own run then finds the work already
+   * planned and adds nothing.
+   */
+  readonly autoPlannedTheirsOn: string | null;
 }
 
 export const DEFAULT_ROUTINE_PREFERENCE: RoutinePreference = {
   showOthers: true,
   autoPlannedOn: null,
   autoPlannedFlags: null,
+  autoPlannedTheirsOn: null,
   /*
    * The plan, not the backlog.
    *
@@ -121,6 +136,7 @@ interface RoutineState {
   readonly markCelebrated: (day: string) => void;
   readonly markAutoPlanned: (day: string) => void;
   readonly markFlagsAutoPlanned: (day: string, keys: readonly string[]) => void;
+  readonly markTheirDayPlanned: (day: string) => void;
   readonly queuePlanOnCreate: (choreId: string, queuedOn: string) => void;
   readonly clearPlanOnCreate: (choreIds: readonly string[]) => void;
   readonly hydrate: () => Promise<void>;
@@ -148,6 +164,12 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
 
   markAutoPlanned: (autoPlannedOn) => {
     const preference = { ...get().preference, autoPlannedOn };
+    set({ preference });
+    persist(preference);
+  },
+
+  markTheirDayPlanned: (autoPlannedTheirsOn) => {
+    const preference = { ...get().preference, autoPlannedTheirsOn };
     set({ preference });
     persist(preference);
   },
@@ -217,6 +239,9 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
             ...(typeof stored.showOthers === 'boolean' ? { showOthers: stored.showOthers } : {}),
             ...(typeof stored.autoPlannedOn === 'string'
               ? { autoPlannedOn: stored.autoPlannedOn }
+              : {}),
+            ...(typeof stored.autoPlannedTheirsOn === 'string'
+              ? { autoPlannedTheirsOn: stored.autoPlannedTheirsOn }
               : {}),
             // Shape-checked rather than `typeof`, because this one is an
             // object: a half-written blob would otherwise reach the effect as

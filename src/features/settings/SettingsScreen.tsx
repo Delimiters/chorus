@@ -110,9 +110,10 @@ export function SettingsScreen() {
   const myRoutineCount = routineItems.data?.items.filter((i) => i.ownerId === userId).length ?? 0;
 
   const weekStartsOn = String(household.data?.weekStartsOn ?? 0);
-  // Defaults to off while the household is still loading, which is also the
-  // stored default — the switch never flashes on and then turns itself off.
-  const autoPlan = household.data?.autoPlan ?? false;
+  // Follows the column's default while the household is still loading, so the
+  // switch does not flash the wrong way and correct itself a frame later. It
+  // was left at `false` when the default flipped, which is exactly that flash.
+  const autoPlan = household.data?.autoPlan ?? true;
   const timeZone = household.data?.timeZone ?? 'UTC';
 
   /** The device's zone, for the "this looks wrong" case below. */
@@ -183,12 +184,12 @@ export function SettingsScreen() {
             doing this" on one phone and "the app put this here" on the other.
           */}
           {row(
-            'Fill the plan automatically',
-            'Adds everything due or late to both plans each morning — one-time tasks as well as chores, however old. Off by default. Flagged work still lands on the plan either way: a flag is one of you saying it needs doing.',
+            'Add the backlog too',
+            'Adds the backlog to both plans each morning — anything still late from earlier days, one-time tasks included, however old. Off by default: your plan starts with what is due today and anything either of you has flagged.',
             <Switch
               value={autoPlan}
               onValueChange={(value) => updateHousehold.mutate({ autoPlan: value })}
-              accessibilityLabel="Fill the plan automatically"
+              accessibilityLabel="Add the backlog too"
             />,
           )}
 

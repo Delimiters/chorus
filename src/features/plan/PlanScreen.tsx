@@ -483,15 +483,49 @@ export function PlanScreen({
    * statement that there is work you cannot see.
    */
   const groupsFor = (section: ReturnType<typeof sectionsFor>) => {
-    const only = (predicate: (choreId: string) => boolean) => ({
+    const pick = (predicate: (planned: (typeof section.active)[number]) => boolean) => ({
       ...section,
-      active: section.active.filter((p) => predicate(p.item.choreId)),
-      sunk: section.sunk.filter((p) => predicate(p.item.choreId)),
+      active: section.active.filter(predicate),
+      sunk: section.sunk.filter(predicate),
     });
 
-    const flagged = only((id) => anyFlags.has(id));
-    const chores = only((id) => !anyFlags.has(id) && recurringChoreIds.has(id));
-    const oneOff = only((id) => !anyFlags.has(id) && !recurringChoreIds.has(id));
+    const isFlagged = (planned: (typeof section.active)[number]) =>
+      anyFlags.has(planned.item.choreId);
+
+    /*
+     * Work carried over from an earlier day. Jake: *"Maybe also split the daily
+     * plan up by due today vs past due."*
+     *
+     * Its own group rather than a third axis crossed with the two kinds, which
+     * would turn three headings into six on a screen whose founding complaint
+     * was that it was overwhelming. Being late is the more useful cut than
+     * being a chore or a task once something has already slipped.
+     *
+     * Below today's work, not above it. The plan answers "what am I doing
+     * today"; the backlog is real and has to be visible, but leading with it
+     * is how the old auto-fill made the screen unreadable. Flagged work still
+     * outranks both — a flag is somebody saying "this one, before the rest",
+     * and that holds whether or not it is also late.
+     *
+     * The test is `status === 'overdue' || daysOverdue > 0`, which is what
+     * `splitByUrgency` and `ChoreRow` both use, and **not** `dueOn < today`,
+     * which is what this first shipped as. Since lateness stopped resetting on
+     * every recurrence, a daily chore ignored for nine days has `dueOn` of
+     * today and nine days of accumulated lateness — so the `dueOn` test filed
+     * a row drawn with the overdue outline and reading "9d late" under the
+     * heading "Chores". `agenda.ts` records the identical bug being fixed once
+     * already; one definition of late, or the heading argues with the row.
+     */
+    const isPastDue = (planned: (typeof section.active)[number]) =>
+      !isFlagged(planned) && (planned.item.status === 'overdue' || planned.item.daysOverdue > 0);
+
+    const isToday = (planned: (typeof section.active)[number]) =>
+      !isFlagged(planned) && !isPastDue(planned);
+
+    const flagged = pick(isFlagged);
+    const pastDue = pick(isPastDue);
+    const chores = pick((p) => isToday(p) && recurringChoreIds.has(p.item.choreId));
+    const oneOff = pick((p) => isToday(p) && !recurringChoreIds.has(p.item.choreId));
 
     const byKind =
       groupOrder === 'chores'
@@ -504,7 +538,11 @@ export function PlanScreen({
             { key: 'chores' as const, title: 'Chores', data: chores },
           ];
 
-    return [{ key: 'flagged' as const, title: 'Flagged', data: flagged }, ...byKind];
+    return [
+      { key: 'flagged' as const, title: 'Flagged', data: flagged },
+      ...byKind,
+      { key: 'pastDue' as const, title: 'Past due', data: pastDue },
+    ];
   };
 
   /** How many groups have anything in them — one needs no heading to tell it apart. */
@@ -515,8 +553,8 @@ export function PlanScreen({
    * Whether both *kinds* have unflagged work, which is what the order control
    * decides between.
    *
-   * Deliberately not `filledGroups(section) > 1`, which counts the flagged
-   * group too. A day of one flagged chore and three plain ones has two groups
+   * Deliberately not `filledGroups(section) > 1`, which counts the flagged and
+   * past-due groups too. A day of one flagged chore and three plain ones has two groups
    * and only one kind: the control would render, and tapping it would swap two
    * entries of which one is empty — no visible change, and a label that has
    * flipped. That is the toggle-that-looks-broken this file argues against
@@ -524,7 +562,7 @@ export function PlanScreen({
    * emptying a kind.
    */
   const bothKinds = (section: ReturnType<typeof sectionsFor>): boolean => {
-    const kinds = groupsFor(section).filter((g) => g.key !== 'flagged');
+    const kinds = groupsFor(section).filter((g) => g.key !== 'flagged' && g.key !== 'pastDue');
     return kinds.every((g) => g.data.active.length + g.data.sunk.length > 0);
   };
 

@@ -18,6 +18,89 @@ Newest first.
 
 ---
 
+## 2026-09-23 — Either phone fills both plans, and auto-fill is back on
+
+**Was:** the morning fill ran on *your* device for *your* day. A housemate who
+had not opened Chorus had no plan at all. `docs/DECISIONS.md` recorded this as
+raised and undecided — *"moving auto-planning server-side would make everyone's
+day exist every morning regardless of who opens the app. Raised with Jake, not
+decided."*
+
+**Now:** whichever phone opens the app first plans both people's days.
+
+**Why:** Jake, having asked before: *"I thought I asked to make it so that if
+either person opens the app it goes ahead and auto populates both people's
+daily plan? Seems like that still doesn't happen, if Emily hasn't opened the
+app today hers is just empty."* It is the same complaint that produced the
+housemate section in the first place — *"Did you push it? I don't see Emily's
+plan."*
+
+**Client-side, not server-side**, which is the other half of the open question.
+A scheduled job is the better answer and needs infrastructure this project does
+not have. This needs one more mutation, is idempotent by construction — it
+plans only what is outstanding and not already on their day — and is correct
+whenever either phone is opened, which in a two-person house is every day. If
+a day ever passes with neither phone opened, nobody was looking at the plan
+anyway.
+
+Its own device-local marker (`autoPlannedTheirsOn`) rather than sharing
+`autoPlannedOn`, because the two fills are separate writes that can succeed
+independently: one marker would let a successful fill of your own day mark the
+other as done and leave your housemate's empty all day.
+
+**And `auto_plan` is on again**, one day after shipping off. Jake: *"I still
+want you to add that don't autopopulate setting but I think we actually want to
+leave autopopulate on for now. Emily reviewed everything and got everything
+back onto a good schedule so we don't just have a million things overdue."*
+
+The switch was never really about whether filling is a good idea; it was about
+whether the thing being filled in was worth looking at. With the schedules
+corrected, it is. The setting stays — it is the escape hatch if the backlog
+ever builds again — and both the column default and the existing row flip.
+
+---
+
+## 2026-09-22 — Undated chores are visible, and the plan fills with today's work
+
+**Was:** an unscheduled ("Someday") chore expanded to no occurrences, so it had
+no row anywhere except the Chores library — and therefore no sheet, and
+therefore no way to flag it. The Upcoming tab's own docblock claimed the list
+was "late, due within thirty days, **or undated**". It never included the third.
+
+**Now:** a "Someday" section on Upcoming, outside the scope toggle because
+there is no date to filter on, built from `core/occurrence/someday.ts` so it
+shares an occurrence key with the Chores tab and a tick in one place shows in
+the other.
+
+**Why:** Emily moved the house to no-date and repeating chores and the undated
+half vanished. *"so if you take off the due date, you can't flag it — and it
+doesn't show up on upcoming."* Both true.
+
+**Also, and this narrows a decision from the day before.** The plan now fills
+with what is due **today**, plus anything flagged — not the backlog. Emily:
+*"have the my day autopopulate the flagged ones or the ones that are due that
+day specifically like it's time to do dishes or this event is happening this
+day."* Her "specifically" is the point: what made the plan unreadable was never
+the dishes being due, it was weeks of late work arriving beside them.
+
+So `households.auto_plan` changed meaning rather than changing sides. It used
+to be "fill the plan at all"; it is now "**add the backlog too**", and the
+setting is labelled that way. Yesterday's entry below says nothing fills the
+plan by default; that held for about a day.
+
+**And the plan is grouped by when, not only by kind.** Jake: *"Maybe also split
+the daily plan up by due today vs past due."* "Past due" is one group below
+today's work rather than a third axis crossed with Chores and One-time tasks —
+that would have turned three headings into six on a screen whose founding
+complaint was that it was overwhelming. Flagged work still leads, late or not:
+a flag means "this one, before the rest".
+
+**What it costs:** flagging an undated chore marks it but does not put it on
+the plan, because it is not due or late and never will be. If that turns out to
+be surprising, the fix is to let the flagged path take undated work too.
+
+---
+
 ## 2026-09-22 — The plan starts empty, and auto-fill is an opt-in household setting
 
 **Was:** everything due or late was added to each person's plan automatically

@@ -38,6 +38,7 @@ import { Toast } from '@/design/Toast';
 import { groupItems } from '@/core/occurrence/grouping';
 import { toPriority } from '@/core/chore/priority';
 import { useCategoryList } from '@/data/hooks/useCategories';
+import { useOneOffCompletions } from '@/data/hooks/useChores';
 import { useFlagsByChore, useToggleFlag } from '@/data/hooks/useFlags';
 import { flaggedFirst } from '@/core/chore/flag';
 import { toIconName } from '@/design/icons';
@@ -48,6 +49,8 @@ import { useTheme } from '@/design/theme';
 import { MIN_TARGET, space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 import { EmptyToday } from './EmptyToday';
+import { SOMEDAY_PERIOD_KEY } from '@/core/recurrence/period';
+import { somedayAgenda } from '@/core/occurrence/someday';
 import { OccurrenceSheet } from '@/features/common/OccurrenceSheet';
 import { formatFlexibleWindow } from '@/features/common/format';
 import { addDays } from '@/core/civil/date';
@@ -82,6 +85,7 @@ export function TodayScreen() {
   const { skip, reschedule, clear } = useOccurrenceActions();
   const [open, setOpen] = useState<AgendaItem | null>(null);
   const { view, chores, today, isLoading, error, unreadable, refetch } = useToday_View();
+  const oneOffCompletions = useOneOffCompletions();
   const categories = useCategoryList();
   const viewPref = useViewPreference();
   const setArrangement = useViewStore((s) => s.setArrangement);
@@ -394,6 +398,34 @@ export function TodayScreen() {
    * at the bottom — and two live checkboxes for one occurrence is worse than
    * the disappearing act it replaced.
    */
+  /**
+   * Chores with no date at all.
+   *
+   * Emily moved most of the house to "no date or just repeating" and found the
+   * undated half had nowhere to live: *"so if you take off the due date, you
+   * can't flag it — and it doesn't show up on upcoming."* Both were true. An
+   * unscheduled rule expands to no occurrences, so there was no row, no sheet,
+   * and no way to flag, read or tick one outside the Chores library.
+   *
+   * Built from `somedayAgenda` rather than here, so this screen and the Chores
+   * tab cannot disagree about what an undated chore is — in particular they
+   * share the occurrence key, which is what makes a tick in one place show up
+   * in the other.
+   */
+  const somedayItems = useMemo(
+    () =>
+      somedayAgenda(
+        chores.map((c) => ({ id: c.id, title: c.title, scheduleKind: c.schedule.rule.kind })),
+        (oneOffCompletions.data ?? []).map((c) => ({
+          choreId: c.choreId,
+          completedOn: c.completedOn,
+          completedBy: c.completedBy,
+        })),
+        today,
+      ),
+    [chores, oneOffCompletions.data, today],
+  );
+
   const doneElsewhere = useMemo(
     () => (held.size === 0 ? view.done : view.done.filter((d) => !held.has(d.occurrenceKey))),
     [held, view.done],
@@ -423,9 +455,12 @@ export function TodayScreen() {
    * What the list is for: what is coming, or everything.
    *
    * One rule for the whole list, replacing the per-chore "show on the Today
-   * tab" setting — late, due within thirty days, or undated. Jake: *"a hard and
-   * fast rule ... then maybe a smallish dropdown or toggle that switches
-   * between Upcoming and All."*
+   * tab" setting — late, or due within thirty days. Jake: *"a hard and fast
+   * rule ... then maybe a smallish dropdown or toggle that switches between
+   * Upcoming and All."*
+   *
+   * This said "or undated" for months and never did it. Undated chores have
+   * their own section below, deliberately outside this scope.
    *
    * "All" is not the master chore list: these rows are checkable and carry
    * their category, lateness, notes and steps. That is the difference worth
@@ -505,6 +540,56 @@ export function TodayScreen() {
       );
     },
     [query, choreMeta],
+  );
+
+  /*
+   * Outstanding, plus anything finished today, and never hidden by the scope
+   * toggle.
+   *
+   * "Upcoming" means late, or due in the next thirty days — an undated chore is
+   * neither, and being filtered on a date it does not have is how it came to be
+   * invisible in the first place.
+   *
+   * Worth being exact: applying `withinHorizon` here would change nothing
+   * today, because an outstanding Someday row carries *today's* date and so
+   * passes any horizon. Measured — adding the filter reddens no test. It is
+   * left off because the reasoning, not the arithmetic, is what keeps the
+   * section visible if that date ever stops being today.
+   *
+   * A row ticked here stays here, struck through, until tomorrow.
+   *
+   * The first version filtered every completed row out, under a comment
+   * claiming they "fall through to the Done section below". They cannot.
+   * `doneElsewhere` and `withHeld` both read `view.done`, which is built from
+   * projected occurrences — and an unscheduled chore projects none. So ticking
+   * one made it disappear outright: not held, not in Done, and undoable only
+   * from a toast that clears itself after five seconds.
+   *
+   * That is the exact complaint the `held` machinery above exists to answer —
+   * *"i accidentally checked something off and it disappeared"* — reintroduced
+   * for the one row type with no hold path. `someday.ts` even says so in its
+   * own docblock, and returns completed rows precisely so a caller can keep
+   * them; this caller threw them away.
+   *
+   * Bounded to today's completions rather than kept forever: the Someday list
+   * would otherwise grow into every undated chore the household has ever
+   * finished, which is the Chores library, not a to-do list. "Today" is the
+   * same bound the Done section uses.
+   */
+  /**
+   * Whether the open sheet is an undated chore.
+   *
+   * Read off the period key rather than looked up in the chore list: the key
+   * is what `somedayAgenda` stamps, so the two cannot drift.
+   */
+  const openIsSomeday = open !== null && open.periodKey === SOMEDAY_PERIOD_KEY;
+
+  const somedayOutstanding = useMemo(
+    () =>
+      matches(
+        somedayItems.filter((item) => item.status !== 'completed' || item.completedOn === today),
+      ),
+    [somedayItems, matches, today],
   );
 
   const mine = useMemo(
@@ -791,6 +876,34 @@ export function TodayScreen() {
           </>
         ) : null}
 
+        {/*
+          "Someday", which is what the Chores tab already calls these and what
+          Emily asked for — *"one more section on both tabs of the upcoming tab
+          that says something like 'Someday' or 'Unscheduled'"*. Two names for
+          one thing across two screens would be the worse answer.
+
+          Above Done and below everything dated, which is where Emily put it
+          when she described what she wanted — and it is the right place for a
+          different reason too: these are the only rows on the screen with no
+          deadline, so they sort after everything that has one, and before the
+          history at the bottom.
+
+          Never filtered by the scope toggle. "Upcoming" means late or due
+          within thirty days; an undated chore is neither, so every date-based
+          filter drops it, which is exactly how it became invisible.
+        */}
+        {somedayOutstanding.length > 0 ? (
+          <>
+            <SectionHeader
+              title="Someday"
+              // Outstanding only. A count that includes rows already struck
+              // through reads as work still to do.
+              count={somedayOutstanding.filter((i) => i.status !== 'completed').length}
+            />
+            <Stack gap={space.xs}>{somedayOutstanding.map(renderRow)}</Stack>
+          </>
+        ) : null}
+
         {doneElsewhere.length > 0 ? (
           <>
             {/* The count is of everything done, including what is pinned
@@ -834,6 +947,23 @@ export function TodayScreen() {
           ((skip.error ?? reschedule.error ?? clear.error ?? toggle.error) as Error | null)
             ?.message ?? null
         }
+        /*
+         * Moving and skipping are hidden on an undated chore, because they
+         * cannot work on one.
+         *
+         * Both write a `chore_exceptions` row keyed by occurrence, and nothing
+         * reads it back for a Someday row: `somedayAgenda` takes no exceptions
+         * argument, and the projector produces no occurrence for an
+         * unscheduled rule. The row would not move, would not grey out, and a
+         * second tap would hit the unique constraint — which the API maps to
+         * success. A button that does nothing and never says why.
+         *
+         * `useOccurrences.ts` records this exact bug being found and fixed for
+         * floating rows. Hiding the actions is the honest fix rather than
+         * making them work: there is no date on a Someday chore to skip *from*
+         * or move *to*.
+         */
+        canSchedule={!openIsSomeday}
         onSkip={(item) => skip.mutate(item)}
         onReschedule={(item, movedTo) => reschedule.mutate({ item, movedTo })}
         onClearException={(item) => clear.mutate(item)}

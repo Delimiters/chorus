@@ -411,9 +411,14 @@ export function useToday_View() {
    * enough when a chore only appeared on its own day — a per-chore `showFrom`
    * was what pulled anything else in.
    *
-   * That is gone, replaced by one rule: late, due within thirty days, or
-   * undated. Thirty days from *any* day of the week needs six weeks from the
-   * week's start, so this is the window that rule requires rather than a guess.
+   * That is gone, replaced by one rule: late, or due within thirty days.
+   * Thirty days from *any* day of the week needs six weeks from the week's
+   * start, so this is the window that rule requires rather than a guess.
+   *
+   * The rule said "or undated" here and in two other places for months and
+   * never did it — an unscheduled chore expands to nothing, so it reached none
+   * of these lists. Undated work now has its own section on Upcoming, built
+   * outside this window because it has no date to be inside one.
    */
   const window = useMemo(() => quantiseWindow(today, weekStartsOn, 2, 6), [today, weekStartsOn]);
 
