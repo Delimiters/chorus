@@ -26,8 +26,12 @@ import { Txt } from '@/design/components';
 import { FieldGroup } from '@/design/controls';
 import { Sheet, SheetAction } from '@/design/Sheet';
 import { space } from '@/design/tokens';
+import { ChoreDetail } from '@/features/common/ChoreDetail';
 import { DateField } from '@/features/common/DateField';
 import { formatDayShort } from '@/features/common/format';
+
+/** One shared empty set, so an untouched chore does not allocate per render. */
+const EMPTY_TICKS: ReadonlySet<string> = new Set();
 
 interface Props {
   item: AgendaItem | null;
@@ -40,6 +44,27 @@ interface Props {
   onAddToRoutine?: ((item: AgendaItem) => void) | undefined;
   /** True when this chore is already in the signed-in person's routine. */
   inRoutine?: boolean;
+  /**
+   * What the chore *is*, as opposed to what you can do to it.
+   *
+   * Jake: *"when you click a chore and the little menu comes out from the
+   * bottom that can really just be like a mini chore view, you see the notes
+   * and steps and any details you might want to see at a glance and then below
+   * that you have the buttons to flag or edit or what have you."*
+   *
+   * Passed in rather than fetched here: both callers already assemble exactly
+   * this for the row they render, and a sheet that fetched its own would show
+   * something subtly different from the row it opened from.
+   */
+  notes?: string | null;
+  subtasks?: readonly { readonly id: string; readonly title: string }[];
+  tickedSubtasks?: ReadonlySet<string>;
+  onToggleSubtask?: (subtaskId: string, ticked: boolean) => void;
+  category?: { readonly name: string; readonly ink: string | null } | null;
+  /** "Every Monday", "Twice a week" — the rule in words. */
+  scheduleLabel?: string | null;
+  /** Whose turn, when it is somebody's in particular. */
+  turnLabel?: string | null;
   /** Whether anyone in the house has flagged this chore, and how to change it. */
   flagged?: boolean;
   onToggleFlag?: (choreId: string) => void;
@@ -87,6 +112,13 @@ export function OccurrenceSheet({
   inRoutine = false,
   flagged = false,
   onToggleFlag,
+  notes = null,
+  subtasks = [],
+  tickedSubtasks,
+  onToggleSubtask,
+  category = null,
+  scheduleLabel = null,
+  turnLabel = null,
 }: Props) {
   const [moving, setMoving] = useState(false);
   const [movedTo, setMovedTo] = useState<CivilDate>(today);
@@ -109,6 +141,8 @@ export function OccurrenceSheet({
   const done = item.status === 'completed';
   const skipped = item.status === 'skipped';
 
+  const ticked = tickedSubtasks ?? EMPTY_TICKS;
+
   return (
     <Sheet
       visible
@@ -126,6 +160,18 @@ export function OccurrenceSheet({
             {error}
           </Txt>
         </View>
+      )}
+
+      {moving ? null : (
+        <ChoreDetail
+          notes={notes}
+          subtasks={subtasks}
+          ticked={ticked}
+          {...(onToggleSubtask === undefined ? {} : { onToggleSubtask })}
+          category={category}
+          scheduleLabel={scheduleLabel}
+          turnLabel={turnLabel}
+        />
       )}
 
       {moving ? (

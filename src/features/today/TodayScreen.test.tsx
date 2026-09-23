@@ -8,7 +8,7 @@
  */
 
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Linking, StyleSheet } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilDate } from '@/core/civil/types';
@@ -1430,5 +1430,121 @@ describe('chores with no date at all', () => {
 
     const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
     expect(headers).not.toContain('Someday');
+  });
+});
+
+describe('the sheet as a mini chore view', () => {
+  /*
+   * Jake: *"when you click a chore and the little menu comes out from the
+   * bottom that can really just be like a mini chore view, you see the notes
+   * and steps and any details you might want to see at a glance and then below
+   * that you have the buttons to flag or edit or what have you."*
+   *
+   * These render the screen and open the real sheet rather than testing
+   * `ChoreDetail` alone: a correct component reached through no wiring is the
+   * failure this repo has already shipped once, and the sheet is the caller.
+   */
+  beforeEach(() => {
+    mockSteps = new Map();
+    mockTicks = new Map();
+    mockToggleSubtask.mockClear();
+  });
+
+  const openDishes = async () => {
+    await renderScreen();
+    fireEvent.press(screen.getByText('Dishes'));
+  };
+
+  it('shows the note, which was the whole complaint', async () => {
+    for (const chore of mockChores as unknown as { id: string; notes: string | null }[]) {
+      if (chore.id === 'dishes') chore.notes = 'Use the good soap under the sink';
+    }
+    await openDishes();
+
+    expect(await screen.findByText(/Use the good soap under the sink/)).toBeOnTheScreen();
+  });
+
+  it('shows the steps, and ticks one against this occurrence', async () => {
+    mockSteps = new Map([
+      [
+        'dishes',
+        [
+          { id: 's1', title: 'Rinse' },
+          { id: 's2', title: 'Load the machine' },
+        ],
+      ],
+    ]);
+    const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
+    await openDishes();
+
+    expect(await screen.findByText('0 OF 2 STEPS')).toBeOnTheScreen();
+    fireEvent.press(screen.getByLabelText('Mark Rinse done'));
+
+    expect(mockToggleSubtask).toHaveBeenCalledWith({
+      subtaskId: 's1',
+      ticked: true,
+      occurrenceKey: key,
+    });
+  });
+
+  it('still offers the actions underneath', async () => {
+    // The detail is added *above* the buttons, not instead of them. An earlier
+    // arrangement that pushed them off would have been a silent regression.
+    for (const chore of mockChores as unknown as { id: string; notes: string | null }[]) {
+      if (chore.id === 'dishes') chore.notes = 'Something worth reading';
+    }
+    await openDishes();
+
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+    expect(screen.getByText('Skip it')).toBeOnTheScreen();
+  });
+
+  it('makes a link in a note tappable, which is the part that was asked for', async () => {
+    /*
+     * Jake: *"I still want the mini chore view with the working note links."*
+     * The core splitter is tested on its own; this is the wiring — without it,
+     * rendering the note as one plain string passes every test in this repo
+     * and the link is still grey text you have to retype.
+     */
+    for (const chore of mockChores as unknown as { id: string; notes: string | null }[]) {
+      if (chore.id === 'dishes') chore.notes = 'order from https://example.com/part-1234 today';
+    }
+    await openDishes();
+
+    const link = await screen.findByRole('link', { name: 'https://example.com/part-1234' });
+    expect(link).toBeOnTheScreen();
+    // The sentence around it survives as text rather than being swallowed.
+    expect(screen.getByText(/order from/)).toBeOnTheScreen();
+  });
+
+  it('opens the address when the link is tapped', async () => {
+    /*
+     * The tap itself, not just the styling. Removing the `openURL` call left
+     * every other assertion green — a link that looks like a link and does
+     * nothing is the dead-button shape this app keeps producing.
+     */
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    for (const chore of mockChores as unknown as { id: string; notes: string | null }[]) {
+      if (chore.id === 'dishes') chore.notes = 'see www.homedepot.com for the filters';
+    }
+    await openDishes();
+
+    fireEvent.press(await screen.findByRole('link', { name: 'www.homedepot.com' }));
+
+    // With a scheme bolted on: a URL opener handed a bare `www.` either
+    // refuses it or reads it as a file path.
+    expect(openURL).toHaveBeenCalledWith('https://www.homedepot.com');
+    openURL.mockRestore();
+  });
+
+  it('draws the detail block', async () => {
+    /*
+     * Always, on this screen: Today's sheet is handed a schedule line for
+     * every chore, so there is never nothing to say. The empty case is real
+     * on the *plan's* sheet, which carries no schedule, and is tested there.
+     */
+    await openDishes();
+
+    expect(await screen.findByTestId('chore-detail')).toBeOnTheScreen();
   });
 });

@@ -939,6 +939,30 @@ export function TodayScreen() {
         item={open}
         today={today}
         weekStartsOn={weekStartsOn}
+        /*
+         * The same detail the row shows, from the same sources — so the sheet
+         * is the row opened up rather than a second, subtly different view of
+         * the chore.
+         */
+        notes={open === null ? null : (choreMeta.get(open.choreId)?.notes ?? null)}
+        subtasks={open === null ? [] : (subtasksByChore.get(open.choreId) ?? [])}
+        tickedSubtasks={
+          open === null ? EMPTY_TICKS : (ticksByOccurrence.get(open.occurrenceKey) ?? EMPTY_TICKS)
+        }
+        onToggleSubtask={(subtaskId, ticked) => {
+          if (open !== null)
+            toggleSubtask.mutate({ subtaskId, ticked, occurrenceKey: open.occurrenceKey });
+        }}
+        category={
+          open === null
+            ? null
+            : (() => {
+                const found = categoryById.get(choreMeta.get(open.choreId)?.categoryId ?? '');
+                return found === undefined ? null : { name: found.name, ink: found.ink };
+              })()
+        }
+        scheduleLabel={open === null ? null : (scheduleFor.get(open.choreId) ?? null)}
+        turnLabel={open === null ? null : ownership(open.assignee).turnLabel}
         flagged={open !== null && anyFlags.has(open.choreId)}
         onToggleFlag={(choreId) => toggleFlag.mutate(choreId)}
         onClose={() => setOpen(null)}
