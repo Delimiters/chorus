@@ -1592,3 +1592,65 @@ describe('whoever opens the app first fills both plans', () => {
     expect(addsFor(undefined)).toEqual([]);
   });
 });
+
+describe('creating a chore with “add to today’s plan” ticked', () => {
+  /*
+   * `view.upcoming` is deliberately unfiltered by ownership — the picker
+   * offers everything — so this claimed a chore for *your* day whoever it was
+   * assigned to. Jake: *"it shouldn't autopopulate in your plan at all if it's
+   * assigned specifically to someone else. And then you can just see it on
+   * their plan if you need."*
+   */
+  const addsFor = (ownerId: string | undefined) =>
+    mockAdd.mock.calls
+      .filter((call) => call[2] === ownerId)
+      .flatMap((call) => (call[0] as { occurrenceKey: string }[]).map((i) => i.occurrenceKey));
+
+  beforeEach(() => {
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+    mockPlanOnCreate = [{ choreId: 'gift', queuedOn: mockToday }];
+  });
+
+  it('puts it on their day when it is their turn', async () => {
+    mockView.upcoming = [
+      item('gift', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
+    ];
+    mockChores = [recurring('gift')];
+    renderView();
+
+    await waitFor(() => expect(addsFor(mockThem)).toContain('v1:gift'));
+    expect(addsFor(undefined)).not.toContain('v1:gift');
+  });
+
+  it('puts it on your day when it is yours', async () => {
+    mockView.upcoming = [item('gift', { assignee: { kind: 'member', memberId: mockMe, turn: 0 } })];
+    mockChores = [recurring('gift')];
+    renderView();
+
+    await waitFor(() => expect(addsFor(undefined)).toContain('v1:gift'));
+  });
+
+  it('puts shared work on your day, since you are the one who asked', async () => {
+    // Not "theirs", not dropped. An `anyone` chore is yours as much as it is
+    // theirs, and you ticked the box.
+    mockView.upcoming = [item('gift')];
+    mockChores = [recurring('gift')];
+    renderView();
+
+    await waitFor(() => expect(addsFor(undefined)).toContain('v1:gift'));
+    expect(addsFor(mockThem)).not.toContain('v1:gift');
+  });
+
+  it('clears the queued intent either way, so it cannot fire again tomorrow', async () => {
+    mockView.upcoming = [
+      item('gift', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
+    ];
+    mockChores = [recurring('gift')];
+    renderView();
+
+    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['gift']));
+  });
+});

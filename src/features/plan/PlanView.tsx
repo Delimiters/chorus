@@ -14,7 +14,7 @@ import type { CivilDate } from '@/core/civil/types';
 import { splitByUrgency, type AgendaItem } from '@/core/occurrence/agenda';
 import { unfinishedBefore } from '@/core/plan/plan';
 import { proposeDay } from '@/core/plan/propose';
-import { autoPlannable } from '@/core/plan/autoplan';
+import { autoPlannable, belongsTo } from '@/core/plan/autoplan';
 import { useUserId } from '@/stores/sessionStore';
 import { isRecurring } from '@/core/chore/kind';
 import { useFlagsByChore } from '@/data/hooks/useFlags';
@@ -873,10 +873,39 @@ export function PlanView() {
     }
     const wanted = [...soonestPerChore.values()];
 
-    const settled = [...stale, ...wanted.map((i) => i.choreId)];
+    /*
+     * Onto the plan of whoever the chore is actually for.
+     *
+     * `view.upcoming` is deliberately unfiltered by ownership — the picker
+     * offers everything — so a chore created with "add to today's plan" ticked
+     * and assigned to your housemate landed on *your* day. Jake: *"it
+     * shouldn't autopopulate in your plan at all if it's assigned specifically
+     * to someone else. And then you can just see it on their plan if you
+     * need."*
+     *
+     * Routed rather than dropped: the tick is an explicit "this is for today",
+     * and the honest reading of "for today, and it's Emily's" is that it goes
+     * on Emily's today. Silently doing nothing would be the dead-button shape
+     * this screen keeps producing.
+     *
+     * Shared work still lands on yours, because it is yours as much as theirs
+     * and you are the one who asked for it.
+     */
+    const mine = wanted.filter((i) => belongsTo(i, userId ?? ''));
+    const forThem =
+      housemateId === undefined
+        ? []
+        : wanted.filter((i) => i.assignee.kind === 'member' && i.assignee.memberId === housemateId);
+
+    const settled = [...stale, ...[...mine, ...forThem].map((i) => i.choreId)];
     if (settled.length > 0) clearPlanOnCreate(settled);
-    if (wanted.length > 0) {
-      add.mutate(wanted.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
+    if (mine.length > 0) {
+      add.mutate(mine.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
+    }
+    if (forThem.length > 0) {
+      addForThem.mutate(
+        forThem.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+      );
     }
   }, [
     isLoading,
@@ -886,6 +915,9 @@ export function PlanView() {
     view.mine,
     view.upcoming,
     add,
+    addForThem,
+    housemateId,
+    userId,
     clearPlanOnCreate,
     entriesLoading,
   ]);

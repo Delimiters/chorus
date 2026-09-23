@@ -1713,3 +1713,60 @@ describe('today’s work against the backlog', () => {
     expect(headings()).not.toContain('Past due');
   });
 });
+
+describe('whose flagged section a flagged chore leads', () => {
+  /*
+   * Jake, once he noticed the plan has a Flagged group per person: *"If
+   * something is assigned specifically to one person and is flagged it should
+   * only show up in their flagged section. I can still see it if I want to
+   * scroll down to the other person's flagged section for stuff that isn't
+   * assigned to me."*
+   *
+   * Flags stay shared. This changes where a flagged row is *hoisted*, not who
+   * can see or lift it: "Flagged" means "before everything else on this list",
+   * and somebody else's turn is not before everything else on yours.
+   */
+  const headings = () => screen.getAllByRole('header').map((h) => String(h.props.children));
+
+  it('does not lead your day with a chore that is their turn', () => {
+    mockRecurring = new Set(['mail', 'dishes']);
+    mockMyFlags = new Set(['mail']);
+    mockEntries = [entry('mail', 1), entry('dishes', 2)];
+    renderScreen([
+      item('mail', 'Post', 'due', { kind: 'member', memberId: THEM, turn: 0 }),
+      item('dishes', 'Dishes'),
+    ]);
+
+    // Still on the list — it is on your plan and you can still act on it —
+    // just not hoisted above everything you are actually doing.
+    expect(screen.getByText('Post')).toBeOnTheScreen();
+    expect(headings()).not.toContain('Flagged');
+  });
+
+  it('still leads with a flagged chore that is your turn', () => {
+    mockRecurring = new Set(['mail', 'dishes']);
+    mockMyFlags = new Set(['mail']);
+    mockEntries = [entry('mail', 1), entry('dishes', 2)];
+    renderScreen([
+      item('mail', 'Post', 'due', { kind: 'member', memberId: ME, turn: 0 }),
+      item('dishes', 'Dishes'),
+    ]);
+
+    expect(headings()).toContain('Flagged');
+  });
+
+  it('still leads with flagged work that is nobody’s turn in particular', () => {
+    /*
+     * Shared work belongs to both of you, so it is "before everything else" on
+     * either list. Narrowing the rule to `memberId === ownerId` would have
+     * quietly dropped every `anyone` chore out of both Flagged sections — the
+     * same trap that made the housemate's auto-fill miss shared chores.
+     */
+    mockRecurring = new Set(['mail', 'dishes']);
+    mockMyFlags = new Set(['mail']);
+    mockEntries = [entry('mail', 1), entry('dishes', 2)];
+    renderScreen([item('mail', 'Post'), item('dishes', 'Dishes')]);
+
+    expect(headings()).toContain('Flagged');
+  });
+});
