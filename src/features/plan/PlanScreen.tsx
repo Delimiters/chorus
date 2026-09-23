@@ -1177,10 +1177,19 @@ export function PlanScreen({
              * describe. Whose turn it is, though, is worth saying — the plan
              * groups by whose *day* a row is on, which is not the same thing.
              */
+            /*
+             * Phrased as Today's sheet phrases it, not as a bare first name.
+             * `ChoreDetail` exists so the two sheets cannot read differently,
+             * and this passed "Emily" where the other passed "Emily's turn" —
+             * and showed your own name back to you on your own chore, which
+             * the row beside it deliberately does not.
+             */
             turnLabel={
-              removing.item.assignee.kind === 'member'
-                ? (nameById.get(removing.item.assignee.memberId) ?? null)
-                : null
+              removing.item.assignee.kind !== 'member'
+                ? null
+                : removing.item.assignee.memberId === userId
+                  ? 'Your turn'
+                  : `${nameById.get(removing.item.assignee.memberId) ?? 'Their'}'s turn`
             }
             onToggleSubtask={(subtaskId: string, ticked: boolean) =>
               toggleSubtask.mutate({

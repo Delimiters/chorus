@@ -79,6 +79,18 @@ interface Props {
    * somebody's own. Both would be buttons that write and change nothing.
    */
   turnMembers?: readonly { readonly userId: string; readonly displayName: string }[];
+  /**
+   * Whose turn it is *now* — an id, not a label.
+   *
+   * This compared `turnLabel` against a display name in its first version,
+   * and `turnLabel` is "Your turn" or "Sam's turn". So no chip was ever
+   * selected, the accessibility label was permanently "Give it to Sam", and
+   * tapping a name moved the highlight from "Rotation" to nothing at all —
+   * which reads as the tap having failed.
+   */
+  currentTurnUserId?: string | null;
+  /** True when a stored override, rather than the rotation, decided the above. */
+  hasTurnOverride?: boolean;
   onSetTurn?: (userId: string | null) => void;
   /** Whether anyone in the house has flagged this chore, and how to change it. */
   flagged?: boolean;
@@ -135,6 +147,8 @@ export function OccurrenceSheet({
   scheduleLabel = null,
   turnLabel = null,
   turnMembers = [],
+  currentTurnUserId = null,
+  hasTurnOverride = false,
   onSetTurn,
 }: Props) {
   const [moving, setMoving] = useState(false);
@@ -236,15 +250,23 @@ export function OccurrenceSheet({
                   <TurnChip
                     key={member.userId}
                     label={member.displayName}
-                    selected={turnLabel === member.displayName}
+                    selected={currentTurnUserId === member.userId}
                     onPress={() => onSetTurn(member.userId)}
                   />
                 ))}
-                <TurnChip
-                  label="Rotation"
-                  selected={turnLabel === null}
-                  onPress={() => onSetTurn(null)}
-                />
+                {/*
+                  An action, not a fourth name, and only when there is
+                  something to undo. Showing it beside the names with nothing
+                  overridden would ask "rotation or Sam?" — which are not
+                  alternatives, since the rotation's answer *is* somebody.
+                */}
+                {hasTurnOverride ? (
+                  <TurnChip
+                    label="Back to rotation"
+                    selected={false}
+                    onPress={() => onSetTurn(null)}
+                  />
+                ) : null}
               </View>
             </View>
           )}

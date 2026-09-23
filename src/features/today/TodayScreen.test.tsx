@@ -225,6 +225,7 @@ let mockTicks: Map<string, Set<string>> = new Map();
 const mockToggleSubtask = jest.fn();
 /** "Actually, this one's mine." */
 const mockSetTurn = jest.fn();
+let mockTurnOverrides = new Map<string, string>();
 
 jest.mock('@/data/hooks/useSubtasks', () => ({
   useSubtasksFor: () => [],
@@ -246,6 +247,7 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
   }),
   useToggleCompletion: () => ({ mutate: mockToggle }),
   useSetTurn: () => ({ mutate: mockSetTurn }),
+  useTurnOverrides: () => mockTurnOverrides,
   useOccurrenceActions: () => ({
     skip: { mutate: mockSkip },
     reschedule: { mutate: mockReschedule },
@@ -1562,6 +1564,7 @@ describe('changing whose turn it is, in one tap', () => {
    */
   beforeEach(() => {
     mockSetTurn.mockClear();
+    mockTurnOverrides = new Map();
   });
 
   const openDishes = async () => {
@@ -1588,13 +1591,50 @@ describe('changing whose turn it is, in one tap', () => {
      * the engine applies what is stored and the rotation answers when nothing
      * is. A separate "clear" verb would imply the rotation had been edited.
      */
+    const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
+    mockTurnOverrides = new Map([[key, ME]]);
     await openDishes();
 
-    fireEvent.press(await screen.findByText('Rotation'));
+    fireEvent.press(await screen.findByText('Back to rotation'));
 
     expect(mockSetTurn).toHaveBeenCalledWith(
       expect.objectContaining({ choreId: 'dishes', userId: null }),
     );
+  });
+
+  it('offers nothing to put back when the rotation already decided', async () => {
+    /*
+     * "Rotation or Sam?" are not alternatives — the rotation's answer *is*
+     * somebody. Offering it with nothing overridden asks a question with no
+     * meaning, and tapping it would write and delete nothing.
+     */
+    await openDishes();
+
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+    expect(screen.queryByText('Back to rotation')).toBeNull();
+  });
+
+  it('shows whose turn it is now, so tapping a name visibly lands', async () => {
+    /*
+     * This compared `turnLabel` — "Your turn", "Sam's turn" — against a bare
+     * display name, so no chip was ever selected: the label stayed "Give it to
+     * Sam" and tapping moved the highlight from somewhere to nowhere, which
+     * reads as a failed tap.
+     */
+    /*
+     * Set on the projected item, not on the chore: `mockView` is built in
+     * `beforeEach`, so mutating the chore afterwards leaves the view holding
+     * the original assignee — which is how the first version of this test
+     * "failed" against correct code.
+     */
+    (mockView as unknown as { mine: AgendaItem[] }).mine = mockView.mine.map((i) =>
+      i.choreId === 'dishes'
+        ? ({ ...i, assignee: { kind: 'member', memberId: ME, turn: 0 } } as AgendaItem)
+        : i,
+    );
+    await openDishes();
+
+    expect(await screen.findByLabelText('Jake, current turn')).toBeOnTheScreen();
   });
 
   it('is not offered on an undated chore, where it would do nothing', async () => {

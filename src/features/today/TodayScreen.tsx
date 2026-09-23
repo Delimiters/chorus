@@ -33,6 +33,7 @@ import {
   useSetTurn,
   useToday_View,
   useToggleCompletion,
+  useTurnOverrides,
 } from '@/data/hooks/useOccurrences';
 import { ChoreRow, FloatingRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
 import { Toast } from '@/design/Toast';
@@ -168,6 +169,7 @@ export function TodayScreen() {
   const toggleFlag = useToggleFlag(today);
   const toggle = useToggleCompletion();
   const setTurn = useSetTurn();
+  const turnOverrides = useTurnOverrides();
   const [refreshing, setRefreshing] = useState(false);
 
   /**
@@ -987,6 +989,10 @@ export function TodayScreen() {
          * shipped twice, on floating rows and on Someday rows.
          */
         turnMembers={canChangeTurn ? (members.data ?? []) : []}
+        currentTurnUserId={
+          open !== null && open.assignee.kind === 'member' ? open.assignee.memberId : null
+        }
+        hasTurnOverride={open !== null && turnOverrides.has(open.occurrenceKey)}
         {...(canChangeTurn
           ? {
               onSetTurn: (who: string | null) => {

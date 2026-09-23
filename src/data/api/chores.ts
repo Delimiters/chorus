@@ -600,19 +600,30 @@ export async function scheduleChoreForDay(choreId: string, dueOn: string): Promi
 /**
  * Turn overrides — "actually, this one's mine".
  *
- * Unbounded by date, unlike completions and exceptions: there is one row per
+ * Unbounded by *date*, unlike completions and exceptions: there is one row per
  * occurrence and a household accumulates them at the rate somebody taps the
  * button, which is nothing like the rate chores recur. Filtering by date would
  * need `due_on` on the table, which is a copy of something the occurrence key
  * already encodes.
+ *
+ * Bounded by count, though — see below.
  */
 export async function listTurnOverrides(
   householdId: string,
 ): Promise<readonly TurnOverrideInput[]> {
+  /*
+   * Ordered and capped, because PostgREST truncates at `max_rows` (1000) in
+   * *unspecified* order otherwise — the same hazard `listCompletionsForChores`
+   * documents. Rows accrue per tap and "Back to rotation" deletes them, so a
+   * two-person house will not come close; newest-first means the row lost to a
+   * cap is the oldest, which is the one whose occurrence is most likely gone.
+   */
   const { data, error } = await supabase
     .from('chore_turns')
     .select('occurrence_key, user_id')
-    .eq('household_id', householdId);
+    .eq('household_id', householdId)
+    .order('created_at', { ascending: false })
+    .limit(MAX_COMPLETIONS_PER_FETCH);
   if (error) fail(error);
   return (data ?? []).map((row) => ({
     occurrenceKey: row.occurrence_key,

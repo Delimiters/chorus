@@ -32,6 +32,24 @@ const PATTERN = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi;
  * because a Wikipedia URL really can end in one — `(disambiguation)`.
  */
 function trimTrailing(url: string): { url: string; rest: string } {
+  /*
+   * Counted once, then adjusted as characters come off.
+   *
+   * The first version re-scanned `url.slice(0, end)` twice per stripped
+   * character, which is quadratic in the length of a trailing bracket run.
+   * Measured on node: 92ms at 2,000 brackets, 5.2s at 20,000, 30s at 40,000 —
+   * bounded in practice only by the 2,000-character cap on a chore note, and
+   * `NoteText` calls this in a render body.
+   */
+  let parens = 0;
+  let squares = 0;
+  for (const char of url) {
+    if (char === '(') parens += 1;
+    else if (char === ')') parens -= 1;
+    else if (char === '[') squares += 1;
+    else if (char === ']') squares -= 1;
+  }
+
   let end = url.length;
   while (end > 0) {
     const char = url[end - 1] as string;
@@ -39,14 +57,17 @@ function trimTrailing(url: string): { url: string; rest: string } {
       end -= 1;
       continue;
     }
-    if (char === ')' || char === ']') {
-      const open = char === ')' ? '(' : '[';
-      const opens = [...url.slice(0, end)].filter((c) => c === open).length;
-      const closes = [...url.slice(0, end)].filter((c) => c === char).length;
-      if (closes > opens) {
-        end -= 1;
-        continue;
-      }
+    // Unbalanced closers only. A Wikipedia URL really can end in one —
+    // `/wiki/Mercury_(planet)` — so a blind strip gives a link that 404s.
+    if (char === ')' && parens < 0) {
+      parens += 1;
+      end -= 1;
+      continue;
+    }
+    if (char === ']' && squares < 0) {
+      squares += 1;
+      end -= 1;
+      continue;
     }
     break;
   }
@@ -72,8 +93,19 @@ export function noteSegments(note: string): readonly NoteSegment[] {
     const raw = match[0];
     const { url, rest } = trimTrailing(raw);
 
-    // A match that trims away to nothing is not a link — "www." on its own.
-    if (url.length === 0 || url === 'www.') continue;
+    /*
+     * A match that trims down to a scheme or a bare host with nothing after
+     * it is not an address: `www..`, `http://.`, `https://,`. The trimming
+     * above strips the punctuation and leaves `www`, `http://`, `https://` —
+     * none of which any opener can do anything with, and `www` in particular
+     * does not start with `www.`, so it would not even get a scheme.
+     *
+     * The first version tested `url === 'www.'`, which `trimTrailing` can
+     * never produce, and `url.length === 0`, which a match starting `h` or `w`
+     * cannot reach. Both were dead, and a blue underlined dead link is exactly
+     * the shape this file exists to avoid.
+     */
+    if (!/^(?:https?:\/\/|www\.)./i.test(url)) continue;
 
     if (start > cursor) segments.push({ kind: 'text', value: note.slice(cursor, start) });
     segments.push({

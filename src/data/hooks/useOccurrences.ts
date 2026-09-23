@@ -251,16 +251,31 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
      * omitting it from `isLoading` let the other three settle first, so rows
      * painted on grid dates, flashed as overdue, then jumped.
      */
+    /*
+     * Turn overrides and the roster are in here for the same reason the
+     * interval completions are, one paragraph up.
+     *
+     * A turns fetch that has not landed silently reverts every override to the
+     * rotation's answer — and `PlanView` does not merely *render* that answer,
+     * it writes plan rows from it, so a chore Emily took would be planned onto
+     * Jake's day and persisted. The roster matters for the same reason: the
+     * projector drops an override whose member is not in `memberIds`, and
+     * `memberIds` is `[]` until `useMembers` resolves, so every override
+     * disappears on the first paint.
+     */
     isLoading:
       choresQuery.isLoading ||
       completionsQuery.isLoading ||
       intervalCompletionsQuery.isLoading ||
-      exceptionsQuery.isLoading,
+      exceptionsQuery.isLoading ||
+      turnsQuery.isLoading ||
+      members.isLoading,
     error:
       (choresQuery.error as Error | null) ??
       (completionsQuery.error as Error | null) ??
       (intervalCompletionsQuery.error as Error | null) ??
-      (exceptionsQuery.error as Error | null),
+      (exceptionsQuery.error as Error | null) ??
+      (turnsQuery.error as Error | null),
     unreadable: choresQuery.data?.unreadable ?? [],
     refetch,
   };
@@ -636,4 +651,28 @@ export function useSetTurn() {
       await queryClient.invalidateQueries({ queryKey: qk.household(householdId) });
     },
   });
+}
+
+/**
+ * The stored turn overrides, so a screen can tell "Alice's turn" from
+ * "somebody gave this to Alice".
+ *
+ * The projected assignee cannot answer that: it is the rotation's answer with
+ * any override already layered on, which is exactly what makes it useful
+ * everywhere else. The sheet needs the distinction to know whether there is
+ * anything to put back.
+ *
+ * Shares `qk.turns`, so this costs no extra request — react-query serves it
+ * from the same cache entry `useOccurrences` already fills.
+ */
+export function useTurnOverrides(): ReadonlyMap<string, string> {
+  const householdId = useActiveHouseholdId();
+  const query = useQuery({
+    queryKey: qk.turns(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => listTurnOverrides(householdId),
+  });
+  return useMemo(
+    () => new Map((query.data ?? []).map((t) => [t.occurrenceKey, t.userId])),
+    [query.data],
+  );
 }
