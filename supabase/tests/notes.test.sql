@@ -19,7 +19,7 @@ create extension if not exists pgtap with schema extensions;
 -- tested by trying to lie about it.
 
 begin;
-select plan(11);
+select plan(13);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -172,6 +172,54 @@ select is(
   (select count(*)::int from public.household_notes),
   0,
   'but either housemate can delete a note once it is dealt with'
+);
+
+-- ═══ Two more, written after every count above ═════════════════════════════
+--
+-- Appended rather than woven in: the assertions above count rows, and a
+-- fixture note added earlier would have made three of them wrong for reasons
+-- that have nothing to do with what they test. Measured, not guessed — that is
+-- exactly what happened on the first attempt.
+select pg_temp.become('a1111111-1111-1111-1111-111111111111');
+
+/*
+ * `created_at` is stamped, not accepted.
+ *
+ * A review found this was the one column the trigger left client-writable on
+ * insert — a note could claim to have been written in 1999 — and that removing
+ * the pin broke no test, because nothing here mentioned the column. Nothing
+ * reads it yet, which is exactly when it is cheap to hold.
+ */
+insert into public.household_notes (id, household_id, body, created_by, created_at)
+values ('ae000000-0000-0000-0000-000000000009',
+        'ad000000-0000-0000-0000-00000000000a', 'backdated',
+        'a1111111-1111-1111-1111-111111111111', '1999-01-01');
+
+select ok(
+  (select created_at > '2020-01-01'::timestamptz from public.household_notes
+   where id = 'ae000000-0000-0000-0000-000000000009'),
+  'a note cannot claim to have been written in 1999'
+);
+
+/*
+ * Newest edit first, which `listNotes` depends on and one row cannot show:
+ * with a single note every ordering agrees.
+ */
+insert into public.household_notes (id, household_id, body, created_by)
+values ('ae000000-0000-0000-0000-00000000000a',
+        'ad000000-0000-0000-0000-00000000000a', 'written second',
+        'a1111111-1111-1111-1111-111111111111');
+
+update public.household_notes
+   set body = 'edited last'
+ where id = 'ae000000-0000-0000-0000-000000000009';
+
+select is(
+  (select id from public.household_notes
+    where household_id = 'ad000000-0000-0000-0000-00000000000a'
+    order by updated_at desc limit 1),
+  'ae000000-0000-0000-0000-000000000009'::uuid,
+  'the note edited most recently sorts first, not the one written last'
 );
 
 reset role;

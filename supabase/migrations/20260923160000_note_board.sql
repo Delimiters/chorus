@@ -63,6 +63,38 @@ security invoker
 set search_path = ''
 as $$
 begin
+  /*
+   * ── Postgres nulling an author is not an edit ─────────────────────────
+   *
+   * `created_by` and `updated_by` are `on delete set null`, so when somebody
+   * deletes their account Postgres issues `update household_notes set
+   * created_by = null` on its way through the cascade. The first version of
+   * this trigger treated that as a client edit: it pinned `created_by` back to
+   * the id Postgres had just cleared and stamped `updated_by` with the
+   * departing user, and both then failed the foreign key.
+   *
+   * The effect was that `delete_my_account()` — a shipped feature with its own
+   * pgTAP file — aborted with a raw Postgres error for any household that had
+   * a note and more than one member. Green everywhere, because that file's
+   * fixture has no notes.
+   *
+   * Recognised by shape rather than by guessing at the caller: an author
+   * column going to NULL while the note's own content is untouched. A client
+   * *can* reach this branch by nulling their own `created_by` and changing
+   * nothing else, which erases their attribution and nothing more — something
+   * they could already do by deleting the note. What it cannot do is smuggle
+   * an edit past the stamp, because the title and body must be unchanged.
+   */
+  if tg_op = 'UPDATE'
+     and new.title is not distinct from old.title
+     and new.body is not distinct from old.body
+     and new.household_id is not distinct from old.household_id
+     and ((old.created_by is not null and new.created_by is null)
+          or (old.updated_by is not null and new.updated_by is null))
+  then
+    return new;
+  end if;
+
   new.updated_at := now();
   new.updated_by := (select auth.uid());
 
@@ -76,6 +108,11 @@ begin
     new.created_by := old.created_by;
     new.created_at := old.created_at;
     new.household_id := old.household_id;
+  else
+    -- On insert too: the column was client-writable, so a note could claim to
+    -- have been written in 1999. Nothing reads it yet, which is exactly when
+    -- it is cheap to fix.
+    new.created_at := now();
   end if;
 
   return new;

@@ -51,6 +51,16 @@ so "you may edit this" would otherwise include "you may claim you wrote it".
 **Deleting asks first**, unlike most destructive actions here, which are
 undoable. A note has no undo and no completion history to reconstruct it from.
 
+**The stamping trigger has to recognise a referential null-out.** `created_by`
+and `updated_by` are `on delete set null`, so deleting an account makes
+Postgres issue `update household_notes set created_by = null` on its way
+through the cascade. The first version treated that as a client edit, pinned
+the id straight back, and failed the foreign key — so `delete_my_account()`
+aborted with a raw Postgres error for any household that had a note and more
+than one member. Every test was green, because the account-deletion fixture had
+no notes. The guard is now shaped on that: an author column going to NULL while
+the note's own content is untouched is not an edit.
+
 **What is missing:** notifications when somebody edits a note. Jake asked for
 them and said he would get the Apple developer account *"real quick"*; remote
 push needs APNs, which needs the paid Team ID, which has not arrived. Nothing

@@ -52,7 +52,15 @@ export function NotesScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
-      <BackBar onPress={() => router.back()} label="House" />
+      {/* A route fallback, not a bare `back()`: a cold start straight to
+          /notes has no history, and `back()` there does nothing at all. */}
+      <BackBar
+        onPress={() => {
+          if (router.canGoBack()) router.back();
+          else router.replace('/house');
+        }}
+        label="House"
+      />
       <ScrollView
         contentContainerStyle={{ padding: space.lg, paddingBottom: ADD_BUTTON_CLEARANCE }}
       >
@@ -96,7 +104,7 @@ export function NotesScreen() {
         )}
       </ScrollView>
 
-      <AddChoreButton onPress={() => router.push('/note/new')} ink={myInk} />
+      <AddChoreButton onPress={() => router.push('/note/new')} ink={myInk} label="Write a note" />
     </SafeAreaView>
   );
 }

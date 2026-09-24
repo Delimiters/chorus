@@ -55,8 +55,9 @@ export function NoteCard({
 
   /*
    * People paste a sentence and leave. With no title the first line of the
-   * body is promoted, so a card is never top-empty — and the preview drops to
-   * one line so the same text is not printed twice.
+   * body is promoted, so a card is never top-empty — and the preview starts
+   * from the *second* line, so the promoted text is not printed twice. (The
+   * line count below is a separate layout choice, not what de-duplicates.)
    */
   const heading = (title ?? '').trim();
   const [firstLine = '', ...rest] = trimmed.split('\n');

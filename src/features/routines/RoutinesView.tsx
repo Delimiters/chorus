@@ -285,7 +285,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
         ) : null}
       </ScrollViewContainer>
 
-      <AddChoreButton onPress={onAdd} ink={myInk} />
+      <AddChoreButton onPress={onAdd} ink={myInk} label="Add a routine" />
     </SafeAreaView>
   );
 }

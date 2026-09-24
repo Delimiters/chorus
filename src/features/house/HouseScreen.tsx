@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { addDays, startOfWeek } from '@/core/civil/date';
 import { listCompletions } from '@/data/api/chores';
 import { useSignOut } from '@/data/hooks/useAuth';
-import { useNoteList } from '@/data/hooks/useNotes';
+import { useNotes } from '@/data/hooks/useNotes';
 import {
   useActiveInvite,
   useCreateInvite,
@@ -51,7 +51,8 @@ export function HouseScreen() {
    * inside `NoteCard` so the card stays a pure presentation component that a
    * test can render without a household.
    */
-  const notes = useNoteList();
+  const notes = useNotes();
+  const noteList = notes.data ?? [];
   const noteEditorName = (id: string | null) => {
     if (id === null) return null;
     if (id === userId) return 'You';
@@ -114,14 +115,23 @@ export function HouseScreen() {
           cards is about one screen on an iPhone 14, so the member list still
           starts on the first scroll.
         */}
-        <SectionHeader title="Notes" count={notes.length} />
+        <SectionHeader title="Notes" count={noteList.length} />
         <Stack gap={space.xs}>
-          {notes.length === 0 ? (
+          {notes.error ? (
+            /*
+             * Said, not swallowed. `useNoteList` returned an empty array on
+             * failure, so a dropped connection rendered "Nothing written down
+             * yet" — a confident claim about a household that may have plenty.
+             */
+            <Txt variant="small" tone="danger" style={{ paddingHorizontal: space.sm }}>
+              The notes could not be loaded.
+            </Txt>
+          ) : noteList.length === 0 ? (
             <Txt variant="small" tone="faint" style={{ paddingHorizontal: space.sm }}>
               For the things that are not quite chores. Nothing written down yet.
             </Txt>
           ) : (
-            notes
+            noteList
               .slice(0, 3)
               .map((note) => (
                 <NoteCard
@@ -136,7 +146,7 @@ export function HouseScreen() {
               ))
           )}
           <Button
-            label={notes.length > 3 ? `All ${notes.length} notes` : 'Open the note board'}
+            label={noteList.length > 3 ? `All ${noteList.length} notes` : 'Open the note board'}
             variant="ghost"
             onPress={() => router.push('/notes')}
           />

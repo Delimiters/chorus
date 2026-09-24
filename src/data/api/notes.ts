@@ -14,8 +14,6 @@
  * verbs are household-wide. See 20260923160000_note_board.sql.
  */
 
-import type { CivilDate } from '@/core/civil/types';
-
 import { describeError, supabase } from '../supabase';
 
 export interface Note {
@@ -107,7 +105,13 @@ export async function updateNote(input: {
    * The same silent no-op cost this app a week on household settings.
    */
   if ((data ?? []).length === 0) {
-    throw new Error('That note could not be saved. Try signing out and back in.');
+    /*
+     * Two causes, and the common one is not an error worth alarming anybody
+     * about: the note was deleted on the other phone while this one had it
+     * open. The other is a policy refusal, which cannot happen for a member of
+     * the household and would be a bug rather than something to act on.
+     */
+    throw new Error('That note could not be saved — it may have been deleted.');
   }
 }
 
@@ -115,6 +119,3 @@ export async function deleteNote(id: string): Promise<void> {
   const { error } = await supabase.from('household_notes').delete().eq('id', id);
   if (error) fail(error);
 }
-
-/** Unused today, kept honest: the board shows dates, and dates are civil. */
-export type NoteDay = CivilDate;

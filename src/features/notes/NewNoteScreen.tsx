@@ -15,12 +15,18 @@ export function NewNoteScreen() {
       initialBody=""
       saving={create.isPending}
       error={(create.error as Error | null)?.message ?? null}
-      onBack={() => router.back()}
+      onBack={() => {
+        if (router.canGoBack()) router.back();
+        else router.replace('/notes');
+      }}
       onSave={(input) => {
         create.mutate(input, {
           // Back to the board, not into the note just written: you came here
           // to write it down, and the thing you wanted is now on the list.
-          onSuccess: () => router.back(),
+          onSuccess: () => {
+            if (router.canGoBack()) router.back();
+            else router.replace('/notes');
+          },
         });
       }}
     />

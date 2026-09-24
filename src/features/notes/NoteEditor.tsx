@@ -35,6 +35,13 @@ export interface NoteEditorProps {
   readonly onSave: (input: { title: string | null; body: string }) => void;
   readonly onDelete?: (() => void) | undefined;
   readonly onBack: () => void;
+  /**
+   * What the back bar says it returns to.
+   *
+   * The House tab pushes `/note/<id>` directly, so a hard-coded "Notes" was a
+   * small lie on the most common entry point.
+   */
+  readonly backLabel?: string;
 }
 
 export function NoteEditor({
@@ -47,6 +54,7 @@ export function NoteEditor({
   onSave,
   onDelete,
   onBack,
+  backLabel = 'Notes',
 }: NoteEditorProps) {
   const { colors } = useTheme();
   const [title, setTitle] = useState(initialTitle ?? '');
@@ -60,7 +68,7 @@ export function NoteEditor({
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
-      <BackBar onPress={onBack} label="Notes" />
+      <BackBar onPress={onBack} label={backLabel} />
       <ScrollView
         contentContainerStyle={{ padding: space.lg, gap: space.md }}
         keyboardShouldPersistTaps="handled"
