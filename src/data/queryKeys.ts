@@ -97,6 +97,9 @@ export const qk = {
    */
   turns: (householdId: string) => [...qk.household(householdId), 'turns'] as const,
 
+  /** The shared note board. One list, newest edit first. */
+  notes: (householdId: string) => [...qk.household(householdId), 'notes'] as const,
+
   exceptions: (householdId: string, from: CivilDate, to: CivilDate) =>
     [...qk.exceptionsAll(householdId), from, to] as const,
 } as const;

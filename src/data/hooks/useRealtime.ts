@@ -43,6 +43,9 @@ const TABLES = [
   // Whose turn one occurrence is. A change on one phone has to reach the other,
   // or the two disagree about who is doing the bins tonight.
   'chore_turns',
+  // The note board is the one place in the app two people might be typing at
+  // once; a stale copy is exactly what makes last-write-wins feel arbitrary.
+  'household_notes',
   'household_members',
   // Routine rows are mostly private, but a shared routine's state is exactly
   // what the other phone is rendering — a tick has to reach it. RLS decides

@@ -149,3 +149,37 @@ export function formatTimestampDay(iso: string | null): string | null {
   const month = MONTHS_LONG[at.getMonth()] as string;
   return `on ${day} ${month} ${at.getFullYear()}`;
 }
+
+/**
+ * How long ago a note was touched, in the words people use.
+ *
+ * "Emily edited this 2 minutes ago" is the whole of the note board's answer to
+ * two people typing at once, so it has to read like a sentence rather than a
+ * timestamp. Coarse on purpose: the difference between 40 and 50 minutes is
+ * not information, and "just now" covers the case that matters most — you are
+ * both looking at it right now.
+ *
+ * `Date` is fine here for the same reason `formatTimestampDay` gives: this
+ * file is presentation, and the engine's Date-free rule is about the schedule,
+ * not about a timestamp that is already fixed.
+ */
+export function formatSince(iso: string, now: Date = new Date()): string | null {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+
+  const seconds = Math.round((now.getTime() - at.getTime()) / 1000);
+  // A clock that is a little ahead is ordinary between two phones, and "in 3
+  // seconds" would be alarming about somebody's shopping list.
+  if (seconds < 60) return 'just now';
+
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+
+  return formatTimestampDay(iso);
+}

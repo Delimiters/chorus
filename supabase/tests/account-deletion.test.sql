@@ -10,7 +10,7 @@ create extension if not exists pgtap with schema extensions;
 -- housemate opens the stats and finds a hole where March used to be.
 
 begin;
-select plan(12);
+select plan(14);
 
 -- ── Fixture: one shared household, one solo household ─────────────────────
 insert into auth.users (id, email, raw_user_meta_data)
@@ -42,6 +42,19 @@ insert into public.chore_completions
 values ('da000000-0000-0000-0000-000000000001', 'dc000000-0000-0000-0000-000000000001',
         'v1:dishes:2026-03-01:0:-', '2026-03-01', '2026-03-01',
         'd1111111-1111-1111-1111-111111111111');
+
+/*
+ * A note in the shared household, which this fixture did not have.
+ *
+ * Its absence made the whole file vacuous about `household_notes`, and the
+ * note board's stamping trigger then broke account deletion outright: the
+ * `on delete set null` referential update was treated as a client edit, the
+ * author id was pinned straight back, and the foreign key refused it. Green
+ * everywhere, because nothing here had a note.
+ */
+insert into public.household_notes (id, household_id, title, body, created_by)
+values ('d0e00000-0000-0000-0000-000000000001', 'da000000-0000-0000-0000-000000000001',
+        'Boiler', 'Chase the landlord.', 'd1111111-1111-1111-1111-111111111111');
 
 create or replace function pg_temp.become(uid text) returns void
 language plpgsql as $$
@@ -99,6 +112,29 @@ select is(
    where occurrence_key = 'v1:dishes:2026-03-01:0:-'),
   1,
   'the completion survives, because it is Bob''s history too'
+);
+
+/*
+ * The note survives too, and unattributed rather than not at all.
+ *
+ * Deleting the account must not take the household's written-down things with
+ * it — the boiler still needs chasing — and the author columns are `on delete
+ * set null` precisely so the text outlives the person. Reaching this assertion
+ * at all is the test: before the stamping trigger was taught to recognise a
+ * referential null-out, `delete_my_account()` aborted here with a foreign key
+ * violation and none of the rows below existed to be counted.
+ */
+select is(
+  (select body from public.household_notes
+   where id = 'd0e00000-0000-0000-0000-000000000001'),
+  'Chase the landlord.',
+  'the note survives, because it is the household''s and not hers'
+);
+
+select ok(
+  (select created_by is null and updated_by is null from public.household_notes
+   where id = 'd0e00000-0000-0000-0000-000000000001'),
+  'with both author columns cleared rather than pointing at a deleted profile'
 );
 
 select is(

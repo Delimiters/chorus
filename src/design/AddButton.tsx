@@ -42,10 +42,18 @@ export const ADD_BUTTON_CLEARANCE = SIZE + BOTTOM_OFFSET + space.lg;
 export function AddChoreButton({
   onPress,
   ink = null,
+  label = 'Add a chore',
 }: {
   onPress: () => void;
   /** The signed-in member's accent, or null for the default near-black. */
   ink?: string | null;
+  /**
+   * What a screen reader says. The glyph is a bare `+`, so the label is the
+   * only thing that says *what* is being added — and this button now sits on
+   * the routines list and the note board as well, where "Add a chore" is
+   * simply the wrong sentence.
+   */
+  label?: string;
 }) {
   const { colors, isDark } = useTheme();
 
@@ -76,7 +84,7 @@ export function AddChoreButton({
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel="Add a chore"
+        accessibilityLabel={label}
         style={({ pressed }) => ({
           width: SIZE,
           height: SIZE,

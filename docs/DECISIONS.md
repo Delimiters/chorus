@@ -18,6 +18,54 @@ Newest first.
 
 ---
 
+## 2026-09-23 — A shared note board, on the House tab
+
+**Was:** nothing. Anything that was not yet a chore had nowhere to live, so it
+became a chore with no date, or it did not get written down.
+
+**Now:** `household_notes` — several notes, not one board, which is what Jake
+chose when asked. A "Notes" section on the House tab showing the three most
+recent, a full board at `/notes`, and a plain title-and-body editor.
+
+**Why:** *"Somewhere to kind of write stuff down that's not quite ready to be a
+task or isn't a task at all but we can check in on."*
+
+**A note has no checkbox, deliberately.** The moment it grows one it is a chore
+with worse ergonomics, and two ways to track the same work is how the two come
+to disagree. No due date, no assignee, no rotation.
+
+**Above "Who lives here", not below.** Everything else on that tab is reference
+material consulted rarely — the roster, the week's split, the invite code. The
+board is the one thing there you might open daily, and burying the only live
+content under two static blocks is the wrong way round.
+
+**Editing is last-write-wins, and the footer is the whole of the honesty about
+that.** Two people typing into one note is real in a two-person house;
+operational transform is absurd at this size. `updated_by` and `updated_at` are
+stamped by a trigger and never sent by the client, because a field the client
+could write would make "Emily edited this 2 minutes ago" decoration rather than
+a guarantee. Authorship and household are pinned in the same trigger: the
+update policy is household-wide by design, and a `with check` cannot see OLD,
+so "you may edit this" would otherwise include "you may claim you wrote it".
+
+**Deleting asks first**, unlike most destructive actions here, which are
+undoable. A note has no undo and no completion history to reconstruct it from.
+
+**The stamping trigger has to recognise a referential null-out.** `created_by`
+and `updated_by` are `on delete set null`, so deleting an account makes
+Postgres issue `update household_notes set created_by = null` on its way
+through the cascade. The first version treated that as a client edit, pinned
+the id straight back, and failed the foreign key — so `delete_my_account()`
+aborted with a raw Postgres error for any household that had a note and more
+than one member. Every test was green, because the account-deletion fixture had
+no notes. The guard is now shaped on that: an author column going to NULL while
+the note's own content is untouched is not an edit.
+
+**What is missing:** notifications when somebody edits a note. Jake asked for
+them and said he would get the Apple developer account *"real quick"*; remote
+push needs APNs, which needs the paid Team ID, which has not arrived. Nothing
+in the schema needs to change for it — the trigger already records who edited
+and when, which is the entire payload.
 ## 2026-09-23 — Whose turn is a stored deviation; the sheet reads a chore
 
 **Was:** the rotation was the only answer to "whose turn is this", and the row
