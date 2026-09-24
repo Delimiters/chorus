@@ -8,7 +8,7 @@
  */
 
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Linking, StyleSheet } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilDate } from '@/core/civil/types';
@@ -223,6 +223,9 @@ let mockLoading = false;
 let mockSteps: Map<string, { id: string; title: string }[]> = new Map();
 let mockTicks: Map<string, Set<string>> = new Map();
 const mockToggleSubtask = jest.fn();
+/** "Actually, this one's mine." */
+const mockSetTurn = jest.fn();
+let mockTurnOverrides = new Map<string, string>();
 
 jest.mock('@/data/hooks/useSubtasks', () => ({
   useSubtasksFor: () => [],
@@ -243,6 +246,8 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     refetch: mockRefetch,
   }),
   useToggleCompletion: () => ({ mutate: mockToggle }),
+  useSetTurn: () => ({ mutate: mockSetTurn }),
+  useTurnOverrides: () => mockTurnOverrides,
   useOccurrenceActions: () => ({
     skip: { mutate: mockSkip },
     reschedule: { mutate: mockReschedule },
@@ -1430,5 +1435,246 @@ describe('chores with no date at all', () => {
 
     const headers = screen.getAllByRole('header').map((h) => String(h.props.children));
     expect(headers).not.toContain('Someday');
+  });
+});
+
+describe('the sheet as a mini chore view', () => {
+  /*
+   * Jake: *"when you click a chore and the little menu comes out from the
+   * bottom that can really just be like a mini chore view, you see the notes
+   * and steps and any details you might want to see at a glance and then below
+   * that you have the buttons to flag or edit or what have you."*
+   *
+   * These render the screen and open the real sheet rather than testing
+   * `ChoreDetail` alone: a correct component reached through no wiring is the
+   * failure this repo has already shipped once, and the sheet is the caller.
+   */
+  beforeEach(() => {
+    mockSteps = new Map();
+    mockTicks = new Map();
+    mockToggleSubtask.mockClear();
+  });
+
+  const openDishes = async () => {
+    await renderScreen();
+    fireEvent.press(screen.getByText('Dishes'));
+  };
+
+  it('shows the note, which was the whole complaint', async () => {
+    for (const chore of mockChores as unknown as { id: string; notes: string | null }[]) {
+      if (chore.id === 'dishes') chore.notes = 'Use the good soap under the sink';
+    }
+    await openDishes();
+
+    expect(await screen.findByText(/Use the good soap under the sink/)).toBeOnTheScreen();
+  });
+
+  it('shows the steps, and ticks one against this occurrence', async () => {
+    mockSteps = new Map([
+      [
+        'dishes',
+        [
+          { id: 's1', title: 'Rinse' },
+          { id: 's2', title: 'Load the machine' },
+        ],
+      ],
+    ]);
+    const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
+    await openDishes();
+
+    expect(await screen.findByText('0 OF 2 STEPS')).toBeOnTheScreen();
+    fireEvent.press(screen.getByLabelText('Mark Rinse done'));
+
+    expect(mockToggleSubtask).toHaveBeenCalledWith({
+      subtaskId: 's1',
+      ticked: true,
+      occurrenceKey: key,
+    });
+  });
+
+  it('still offers the actions underneath', async () => {
+    // The detail is added *above* the buttons, not instead of them. An earlier
+    // arrangement that pushed them off would have been a silent regression.
+    for (const chore of mockChores as unknown as { id: string; notes: string | null }[]) {
+      if (chore.id === 'dishes') chore.notes = 'Something worth reading';
+    }
+    await openDishes();
+
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+    expect(screen.getByText('Skip it')).toBeOnTheScreen();
+  });
+
+  it('makes a link in a note tappable, which is the part that was asked for', async () => {
+    /*
+     * Jake: *"I still want the mini chore view with the working note links."*
+     * The core splitter is tested on its own; this is the wiring — without it,
+     * rendering the note as one plain string passes every test in this repo
+     * and the link is still grey text you have to retype.
+     */
+    for (const chore of mockChores as unknown as { id: string; notes: string | null }[]) {
+      if (chore.id === 'dishes') chore.notes = 'order from https://example.com/part-1234 today';
+    }
+    await openDishes();
+
+    const link = await screen.findByRole('link', { name: 'https://example.com/part-1234' });
+    expect(link).toBeOnTheScreen();
+    // The sentence around it survives as text rather than being swallowed.
+    expect(screen.getByText(/order from/)).toBeOnTheScreen();
+  });
+
+  it('opens the address when the link is tapped', async () => {
+    /*
+     * The tap itself, not just the styling. Removing the `openURL` call left
+     * every other assertion green — a link that looks like a link and does
+     * nothing is the dead-button shape this app keeps producing.
+     */
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    for (const chore of mockChores as unknown as { id: string; notes: string | null }[]) {
+      if (chore.id === 'dishes') chore.notes = 'see www.homedepot.com for the filters';
+    }
+    await openDishes();
+
+    fireEvent.press(await screen.findByRole('link', { name: 'www.homedepot.com' }));
+
+    // With a scheme bolted on: a URL opener handed a bare `www.` either
+    // refuses it or reads it as a file path.
+    expect(openURL).toHaveBeenCalledWith('https://www.homedepot.com');
+    openURL.mockRestore();
+  });
+
+  it('draws the detail block', async () => {
+    /*
+     * Always, on this screen: Today's sheet is handed a schedule line for
+     * every chore, so there is never nothing to say. The empty case is real
+     * on the *plan's* sheet, which carries no schedule, and is tested there.
+     */
+    await openDishes();
+
+    expect(await screen.findByTestId('chore-detail')).toBeOnTheScreen();
+  });
+});
+
+describe('changing whose turn it is, in one tap', () => {
+  /*
+   * Jake: *"We also need a way to just one tap change who's turn it is. Like
+   * oh actually this is going to be my turn this time."*
+   *
+   * One tap is the request, so a control that opens a picker and then asks you
+   * to confirm has already lost.
+   */
+  beforeEach(() => {
+    mockSetTurn.mockClear();
+    mockTurnOverrides = new Map();
+  });
+
+  const openDishes = async () => {
+    await renderScreen();
+    fireEvent.press(screen.getByText('Dishes'));
+  };
+
+  it('gives the occurrence to whoever you tap', async () => {
+    await openDishes();
+    const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
+
+    fireEvent.press(await screen.findByLabelText('Give it to Sam'));
+
+    expect(mockSetTurn).toHaveBeenCalledWith({
+      choreId: 'dishes',
+      occurrenceKey: key,
+      userId: THEM,
+    });
+  });
+
+  it('puts it back on the rotation', async () => {
+    /*
+     * `null` clears the override, and clearing is the whole of "put it back":
+     * the engine applies what is stored and the rotation answers when nothing
+     * is. A separate "clear" verb would imply the rotation had been edited.
+     */
+    const key = mockView.mine.find((i) => i.choreId === 'dishes')?.occurrenceKey as string;
+    mockTurnOverrides = new Map([[key, ME]]);
+    await openDishes();
+
+    fireEvent.press(await screen.findByText('Back to rotation'));
+
+    expect(mockSetTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ choreId: 'dishes', userId: null }),
+    );
+  });
+
+  it('offers nothing to put back when the rotation already decided', async () => {
+    /*
+     * "Rotation or Sam?" are not alternatives — the rotation's answer *is*
+     * somebody. Offering it with nothing overridden asks a question with no
+     * meaning, and tapping it would write and delete nothing.
+     */
+    await openDishes();
+
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+    expect(screen.queryByText('Back to rotation')).toBeNull();
+  });
+
+  it('shows whose turn it is now, so tapping a name visibly lands', async () => {
+    /*
+     * This compared `turnLabel` — "Your turn", "Sam's turn" — against a bare
+     * display name, so no chip was ever selected: the label stayed "Give it to
+     * Sam" and tapping moved the highlight from somewhere to nowhere, which
+     * reads as a failed tap.
+     */
+    /*
+     * Set on the projected item, not on the chore: `mockView` is built in
+     * `beforeEach`, so mutating the chore afterwards leaves the view holding
+     * the original assignee — which is how the first version of this test
+     * "failed" against correct code.
+     */
+    (mockView as unknown as { mine: AgendaItem[] }).mine = mockView.mine.map((i) =>
+      i.choreId === 'dishes'
+        ? ({ ...i, assignee: { kind: 'member', memberId: ME, turn: 0 } } as AgendaItem)
+        : i,
+    );
+    await openDishes();
+
+    expect(await screen.findByLabelText('Jake, current turn')).toBeOnTheScreen();
+  });
+
+  it('is not offered on an undated chore, where it would do nothing', async () => {
+    /*
+     * A Someday chore has no projected occurrence, so an override would be
+     * written and never read back — the silent no-op this screen has already
+     * shipped twice, on floating rows and then on Someday rows.
+     */
+    mockChores = [
+      ...ALL_CHORES.map((c) => ({ ...c })),
+      {
+        id: 'loft',
+        title: 'Clear the loft',
+        priority: 'normal',
+        schedule: {
+          rule: { kind: 'unscheduled' },
+          startsOn: d('2026-01-01'),
+          endsOn: null,
+          timesOfDay: [],
+        },
+        assignment: { kind: 'anyone' },
+        archived: false,
+      } as never,
+    ];
+    await renderScreen();
+    fireEvent.press(screen.getByText('Clear the loft'));
+
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+    expect(screen.queryByText('Rotation')).toBeNull();
+  });
+
+  it('is not offered on a chore everyone does separately', async () => {
+    // One job each: reassigning a slot would hand two people the same copy and
+    // delete somebody's own. The projector refuses it, so the sheet must too.
+    for (const chore of mockChores as unknown as { id: string; assignment: unknown }[]) {
+      if (chore.id === 'dishes') chore.assignment = { kind: 'everyone' };
+    }
+    await openDishes();
+
+    expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
+    expect(screen.queryByText('Rotation')).toBeNull();
   });
 });

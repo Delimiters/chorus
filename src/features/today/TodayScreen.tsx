@@ -30,8 +30,10 @@ import { describeRule } from '@/core/recurrence/describe';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import {
   useOccurrenceActions,
+  useSetTurn,
   useToday_View,
   useToggleCompletion,
+  useTurnOverrides,
 } from '@/data/hooks/useOccurrences';
 import { ChoreRow, FloatingRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
 import { Toast } from '@/design/Toast';
@@ -166,6 +168,8 @@ export function TodayScreen() {
   const anyFlags = useMemo(() => new Set(flagsByChore.keys()), [flagsByChore]);
   const toggleFlag = useToggleFlag(today);
   const toggle = useToggleCompletion();
+  const setTurn = useSetTurn();
+  const turnOverrides = useTurnOverrides();
   const [refreshing, setRefreshing] = useState(false);
 
   /**
@@ -584,6 +588,18 @@ export function TodayScreen() {
    */
   const openIsSomeday = open !== null && open.periodKey === SOMEDAY_PERIOD_KEY;
 
+  /**
+   * Whether "whose turn" can be changed on the open row.
+   *
+   * Both exclusions are about the override being *read back*: `somedayAgenda`
+   * rows have no projected occurrence, and the projector deliberately ignores
+   * overrides on an `everyone` fan-out because those are one job each.
+   */
+  const canChangeTurn =
+    open !== null &&
+    !openIsSomeday &&
+    chores.find((c) => c.id === open.choreId)?.assignment.kind !== 'everyone';
+
   const somedayOutstanding = useMemo(
     () =>
       matches(
@@ -939,6 +955,57 @@ export function TodayScreen() {
         item={open}
         today={today}
         weekStartsOn={weekStartsOn}
+        /*
+         * The same detail the row shows, from the same sources — so the sheet
+         * is the row opened up rather than a second, subtly different view of
+         * the chore.
+         */
+        notes={open === null ? null : (choreMeta.get(open.choreId)?.notes ?? null)}
+        subtasks={open === null ? [] : (subtasksByChore.get(open.choreId) ?? [])}
+        tickedSubtasks={
+          open === null ? EMPTY_TICKS : (ticksByOccurrence.get(open.occurrenceKey) ?? EMPTY_TICKS)
+        }
+        onToggleSubtask={(subtaskId, ticked) => {
+          if (open !== null)
+            toggleSubtask.mutate({ subtaskId, ticked, occurrenceKey: open.occurrenceKey });
+        }}
+        category={
+          open === null
+            ? null
+            : (() => {
+                const found = categoryById.get(choreMeta.get(open.choreId)?.categoryId ?? '');
+                return found === undefined ? null : { name: found.name, ink: found.ink };
+              })()
+        }
+        scheduleLabel={open === null ? null : (scheduleFor.get(open.choreId) ?? null)}
+        turnLabel={open === null ? null : ownership(open.assignee).turnLabel}
+        /*
+         * Offered only where an override would actually be read back.
+         *
+         * An undated chore produces no occurrence for the engine to apply one
+         * to, and an `everyone` chore is one job each — the projector ignores
+         * overrides on both, so offering the control would write a row and
+         * change nothing. That is the silent no-op this screen has already
+         * shipped twice, on floating rows and on Someday rows.
+         */
+        turnMembers={canChangeTurn ? (members.data ?? []) : []}
+        currentTurnUserId={
+          open !== null && open.assignee.kind === 'member' ? open.assignee.memberId : null
+        }
+        hasTurnOverride={open !== null && turnOverrides.has(open.occurrenceKey)}
+        {...(canChangeTurn
+          ? {
+              onSetTurn: (who: string | null) => {
+                if (open !== null) {
+                  setTurn.mutate({
+                    choreId: open.choreId,
+                    occurrenceKey: open.occurrenceKey,
+                    userId: who,
+                  });
+                }
+              },
+            }
+          : {})}
         flagged={open !== null && anyFlags.has(open.choreId)}
         onToggleFlag={(choreId) => toggleFlag.mutate(choreId)}
         onClose={() => setOpen(null)}

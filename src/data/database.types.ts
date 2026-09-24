@@ -321,6 +321,65 @@ export type Database = {
           },
         ]
       }
+      chore_turns: {
+        Row: {
+          chore_id: string
+          created_at: string
+          created_by: string | null
+          household_id: string
+          id: string
+          occurrence_key: string
+          user_id: string
+        }
+        Insert: {
+          chore_id: string
+          created_at?: string
+          created_by?: string | null
+          household_id: string
+          id?: string
+          occurrence_key: string
+          user_id: string
+        }
+        Update: {
+          chore_id?: string
+          created_at?: string
+          created_by?: string | null
+          household_id?: string
+          id?: string
+          occurrence_key?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chore_turns_chore_id_fkey"
+            columns: ["chore_id"]
+            isOneToOne: false
+            referencedRelation: "chores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_turns_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_turns_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chore_turns_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chores: {
         Row: {
           archived_at: string | null

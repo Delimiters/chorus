@@ -27,6 +27,7 @@ import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ChoreRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
+import { ChoreDetail } from '@/features/common/ChoreDetail';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { DragList } from '@/design/DragList';
 import { positionBetween } from '@/core/plan/reorder';
@@ -1152,6 +1153,53 @@ export function PlanScreen({
         title={removing?.item.choreTitle ?? ''}
         subtitle="On today's plan"
       >
+        {/*
+          The same mini-chore block Today's sheet grew, for the same reason:
+          *"you see the notes and steps and any details you might want to see
+          at a glance and then below that you have the buttons."* This sheet
+          opens from the row you are actually working through, so it is if
+          anything the more useful of the two.
+        */}
+        {removing === null ? null : (
+          <ChoreDetail
+            notes={choreMeta.get(removing.item.choreId)?.notes ?? null}
+            subtasks={subtasksByChore.get(removing.item.choreId) ?? []}
+            ticked={ticksByOccurrence.get(removing.item.occurrenceKey) ?? EMPTY_TICKS}
+            category={(() => {
+              const found = categoryById.get(
+                choreMeta.get(removing.item.choreId)?.categoryId ?? '',
+              );
+              return found === undefined ? null : { name: found.name, ink: found.ink };
+            })()}
+            /*
+             * No schedule line here, unlike Today's sheet: this screen's
+             * `chores` prop is the lighter shape and carries no rule to
+             * describe. Whose turn it is, though, is worth saying — the plan
+             * groups by whose *day* a row is on, which is not the same thing.
+             */
+            /*
+             * Phrased as Today's sheet phrases it, not as a bare first name.
+             * `ChoreDetail` exists so the two sheets cannot read differently,
+             * and this passed "Emily" where the other passed "Emily's turn" —
+             * and showed your own name back to you on your own chore, which
+             * the row beside it deliberately does not.
+             */
+            turnLabel={
+              removing.item.assignee.kind !== 'member'
+                ? null
+                : removing.item.assignee.memberId === userId
+                  ? 'Your turn'
+                  : `${nameById.get(removing.item.assignee.memberId) ?? 'Their'}'s turn`
+            }
+            onToggleSubtask={(subtaskId: string, ticked: boolean) =>
+              toggleSubtask.mutate({
+                subtaskId,
+                ticked,
+                occurrenceKey: removing.item.occurrenceKey,
+              })
+            }
+          />
+        )}
         <View style={{ gap: 2 }}>
           <SheetAction
             label="Take off today"

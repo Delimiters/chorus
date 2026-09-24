@@ -18,6 +18,70 @@ Newest first.
 
 ---
 
+## 2026-09-23 — Whose turn is a stored deviation; the sheet reads a chore
+
+**Was:** the rotation was the only answer to "whose turn is this", and the row
+sheet was a list of verbs — you could not see a chore's note or steps without
+opening its editor.
+
+**Now:** `chore_turns` records a per-occurrence override, and both sheets open
+with the chore's category, schedule, turn, note and steps above the actions.
+Notes have working links.
+
+**Why the override is a table and not a column:** invariant 4 — rotation is a
+pure function of the date, never a stored pointer, and an unfinished rotation
+must still advance. So the rotation is not edited; a *deviation from it* is
+recorded, exactly as completions and skips are. Remove the row and the
+rotation answers again. The previous attempt at this app died on storing the
+pointer. Not a third `exception_kind` either: `chore_exceptions` has a unique
+key per occurrence and a CHECK tying `moved_to` to the kind, so "skipped *and*
+reassigned" would be unrepresentable, and those are independent facts.
+
+**Not offered in two places**, both because the override would be written and
+never read back: an undated chore projects no occurrence, and an `everyone`
+chore is one job each, so reassigning a slot would hand two people the same
+copy. That silent no-op has shipped twice on this screen already.
+
+**What it costs:** an override is orphaned if the chore's schedule is edited or
+an interval re-anchors and the occurrence key changes — the same way a
+completion or a skip is, except that `anchor.ts` deliberately re-emits
+occurrences that carry an *exception* and has no equivalent for turns. A turn
+taken on a date that then stops existing vanishes silently. Worth knowing
+before anybody debugs it as a bug.
+
+---
+
+## 2026-09-23 — Flagged sections are per person, and "add to today" follows the assignment
+
+**Was:** a flagged chore led *your* Flagged section whoever it was assigned to,
+and "add to today's plan" on the chore form always claimed the chore for your
+own day.
+
+**Now:** a chore that is specifically the other person's turn is not hoisted
+into your Flagged group — it stays in its normal group, and leads theirs. And
+creating a chore with "add to today's plan" ticked puts it on the plan of
+whoever the chore is *for*.
+
+**Why:** Jake, on noticing the plan has a Flagged group per person: *"If
+something is assigned specifically to one person and is flagged it should only
+show up in their flagged section."* And: *"it shouldn't autopopulate in your
+plan at all if it's assigned specifically to someone else."*
+
+The auto-fill already refused that, twice over. The path that did not was the
+create form, which claims from `view.upcoming` — deliberately unfiltered by
+ownership, because the picker offers everything.
+
+**The test is `kind === 'member' && memberId !== ownerId`, not `memberId !==
+ownerId`.** Shared work has no `memberId`, so the looser version drops every
+`anyone` chore out of both Flagged sections. Measured: it reddens three tests.
+
+**Also**, the auto-plan setting was called "Add the backlog too". Jake: *"Any
+human sees 'Add the backlog too' and has no clue what the heck you're talking
+about."* It is now "Add overdue chores", and the hint leads with what happens
+regardless of the switch.
+
+---
+
 ## 2026-09-23 — Either phone fills both plans, and auto-fill is back on
 
 **Was:** the morning fill ran on *your* device for *your* day. A housemate who

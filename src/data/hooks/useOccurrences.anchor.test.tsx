@@ -72,7 +72,7 @@ jest.mock('@/stores/sessionStore', () => ({
 
 jest.mock('./useHousehold', () => ({
   useHousehold: () => ({ data: { timeZone: 'UTC', weekStartsOn: 1 } }),
-  useMembers: () => ({ data: [{ userId: 'user-me' }] }),
+  useMembers: () => ({ data: [{ userId: 'user-me' }], isLoading: false }),
 }));
 
 jest.mock('../today', () => ({ useToday: () => '2026-09-28' }));

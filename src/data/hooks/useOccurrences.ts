@@ -32,6 +32,8 @@ import {
   listCompletions,
   listCompletionsForChores,
   listExceptions,
+  listTurnOverrides,
+  setTurnOverride,
   listExceptionsForChores,
   listOneTimeChores,
   rescheduleOccurrence,
@@ -121,6 +123,15 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
         : () => listExceptions(householdId, window.start, window.end),
   });
 
+  /*
+   * "Actually, this one's mine." Unwindowed, so it does not refetch as the
+   * window slides — see `qk.turns`.
+   */
+  const turnsQuery = useQuery({
+    queryKey: qk.turns(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => listTurnOverrides(householdId),
+  });
+
   const members = useMembers();
 
   /**
@@ -180,13 +191,23 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
         completions,
         exceptions: (exceptionsQuery.data ?? []) as ExceptionInput[],
         memberIds: (members.data ?? []).map((m) => m.userId),
+        turns: turnsQuery.data ?? [],
         today,
       },
       calendar,
       window,
     );
     return projected;
-  }, [choresQuery.data, completions, exceptionsQuery.data, members.data, today, calendar, window]);
+  }, [
+    choresQuery.data,
+    completions,
+    exceptionsQuery.data,
+    turnsQuery.data,
+    members.data,
+    today,
+    calendar,
+    window,
+  ]);
 
   /**
    * Both views derive from the **projector's** output, not from each other.
@@ -230,16 +251,31 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
      * omitting it from `isLoading` let the other three settle first, so rows
      * painted on grid dates, flashed as overdue, then jumped.
      */
+    /*
+     * Turn overrides and the roster are in here for the same reason the
+     * interval completions are, one paragraph up.
+     *
+     * A turns fetch that has not landed silently reverts every override to the
+     * rotation's answer — and `PlanView` does not merely *render* that answer,
+     * it writes plan rows from it, so a chore Emily took would be planned onto
+     * Jake's day and persisted. The roster matters for the same reason: the
+     * projector drops an override whose member is not in `memberIds`, and
+     * `memberIds` is `[]` until `useMembers` resolves, so every override
+     * disappears on the first paint.
+     */
     isLoading:
       choresQuery.isLoading ||
       completionsQuery.isLoading ||
       intervalCompletionsQuery.isLoading ||
-      exceptionsQuery.isLoading,
+      exceptionsQuery.isLoading ||
+      turnsQuery.isLoading ||
+      members.isLoading,
     error:
       (choresQuery.error as Error | null) ??
       (completionsQuery.error as Error | null) ??
       (intervalCompletionsQuery.error as Error | null) ??
-      (exceptionsQuery.error as Error | null),
+      (exceptionsQuery.error as Error | null) ??
+      (turnsQuery.error as Error | null),
     unreadable: choresQuery.data?.unreadable ?? [],
     refetch,
   };
@@ -574,4 +610,69 @@ export function useOccurrenceActions() {
   });
 
   return { skip, reschedule, clear };
+}
+
+/**
+ * "Actually, this one's mine."
+ *
+ * Jake: *"We also need a way to just one tap change who's turn it is."*
+ *
+ * `userId === null` clears the override, which is the whole of "put it back":
+ * the engine applies what is stored and the rotation answers when nothing is.
+ *
+ * Not optimistic. The rotation's own answer is derived by the projector from
+ * chores and dates, so an optimistic patch would have to re-derive it here to
+ * know what the row should look like — a second copy of the rotation, which is
+ * the mistake invariant 4 exists to prevent. A turn change is one tap in a
+ * sheet that stays open, so the refetch is not felt.
+ */
+export function useSetTurn() {
+  const householdId = useActiveHouseholdId();
+  const userId = useUserId();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: {
+      choreId: string;
+      occurrenceKey: string;
+      userId: string | null;
+    }) => {
+      if (householdId === null || userId === null) throw new Error('Please sign in again.');
+      await setTurnOverride({
+        householdId,
+        choreId: input.choreId,
+        occurrenceKey: input.occurrenceKey,
+        userId: input.userId,
+        createdBy: userId,
+      });
+    },
+    onSettled: async () => {
+      if (householdId === null) return;
+      await queryClient.invalidateQueries({ queryKey: qk.household(householdId) });
+    },
+  });
+}
+
+/**
+ * The stored turn overrides, so a screen can tell "Alice's turn" from
+ * "somebody gave this to Alice".
+ *
+ * The projected assignee cannot answer that: it is the rotation's answer with
+ * any override already layered on, which is exactly what makes it useful
+ * everywhere else. The sheet needs the distinction to know whether there is
+ * anything to put back.
+ *
+ * Shares `qk.turns`, so this costs no extra request — react-query serves it
+ * from the same cache entry `useOccurrences` already fills.
+ */
+export function useTurnOverrides(): ReadonlyMap<string, string> {
+  const householdId = useActiveHouseholdId();
+  const query = useQuery({
+    queryKey: qk.turns(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => listTurnOverrides(householdId),
+  });
+  return useMemo(
+    () => new Map((query.data ?? []).map((t) => [t.occurrenceKey, t.userId])),
+    [query.data],
+  );
 }

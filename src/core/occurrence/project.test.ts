@@ -536,3 +536,119 @@ describe('a chore carrying an old showFrom', () => {
     expect(occ?.dueOn).toBe(deadline);
   });
 });
+
+describe('taking one occurrence off the rotation', () => {
+  /*
+   * Jake: *"We also need a way to just one tap change who's turn it is. Like
+   * oh actually this is going to be my turn this time."*
+   *
+   * A deviation recorded on top of the rotation, never an edit to it — the
+   * rotation stays a pure function of the date (invariant 4), and the previous
+   * attempt at this app died on storing a pointer instead.
+   */
+  const rotating: Assignment = {
+    kind: 'rotate',
+    cadence: { unit: 'occurrence', every: 1 },
+    segments: [{ effectiveFrom: d('2026-01-05'), memberIds: ['alice', 'bob'], offset: 0 }],
+  };
+
+  const turnsOn = (window = WEEK) =>
+    project({ chores: [chore({ assignment: rotating })] }, window).map((o) => ({
+      key: o.occurrenceKey,
+      who: o.assignee.kind === 'member' ? o.assignee.memberId : o.assignee.kind,
+    }));
+
+  it('hands that one to whoever took it', () => {
+    const base = turnsOn();
+    const theirs = base.find((o) => o.who === 'bob');
+    expect(theirs).toBeDefined();
+
+    const result = project({
+      chores: [chore({ assignment: rotating })],
+      turns: [{ occurrenceKey: theirs?.key as string, userId: 'alice' }],
+    });
+
+    const changed = result.find((o) => o.occurrenceKey === theirs?.key);
+    expect(changed?.assignee).toEqual({ kind: 'member', memberId: 'alice', turn: 0 });
+  });
+
+  it('leaves every other occurrence on the rotation', () => {
+    /*
+     * The property that makes this a deviation rather than an edit. If taking
+     * Tuesday shifted Wednesday, the rotation would have been rewritten — the
+     * exact failure invariant 4 exists to prevent.
+     */
+    const base = turnsOn();
+    const theirs = base.find((o) => o.who === 'bob');
+
+    const after = project({
+      chores: [chore({ assignment: rotating })],
+      turns: [{ occurrenceKey: theirs?.key as string, userId: 'alice' }],
+    }).map((o) => ({
+      key: o.occurrenceKey,
+      who: o.assignee.kind === 'member' ? o.assignee.memberId : o.assignee.kind,
+    }));
+
+    for (const original of base) {
+      if (original.key === theirs?.key) continue;
+      expect(after.find((o) => o.key === original.key)?.who).toBe(original.who);
+    }
+  });
+
+  it('gives the turn back when the override goes', () => {
+    // Removing the row must restore the original answer exactly, or "put it
+    // back" would be a button that leaves the chore somewhere else again.
+    const base = turnsOn();
+    const theirs = base.find((o) => o.who === 'bob');
+
+    const restored = project({ chores: [chore({ assignment: rotating })] });
+    expect(restored.find((o) => o.occurrenceKey === theirs?.key)?.assignee).toEqual(
+      expect.objectContaining({ memberId: 'bob' }),
+    );
+  });
+
+  it('ignores an override naming somebody who has left', () => {
+    // `memberIds` is the roster. Honouring a departed member would put the
+    // turn on nobody, which reads as a chore that cannot be done.
+    const base = turnsOn();
+    const theirs = base.find((o) => o.who === 'bob');
+
+    const result = project({
+      chores: [chore({ assignment: rotating })],
+      turns: [{ occurrenceKey: theirs?.key as string, userId: 'carol' }],
+    });
+
+    expect(result.find((o) => o.occurrenceKey === theirs?.key)?.assignee).toEqual(
+      expect.objectContaining({ memberId: 'bob' }),
+    );
+  });
+
+  it('does not touch an `everyone` fan-out', () => {
+    /*
+     * Those are one job *each*, so the two occurrences differ only by subject.
+     * Reassigning one slot would give two people the same copy and silently
+     * delete somebody's own.
+     */
+    const everyone: Assignment = { kind: 'everyone' };
+    const fanned = project({ chores: [chore({ assignment: everyone })] });
+    const first = fanned[0];
+    expect(first).toBeDefined();
+
+    const result = project({
+      chores: [chore({ assignment: everyone })],
+      turns: [{ occurrenceKey: first?.occurrenceKey as string, userId: 'bob' }],
+    });
+
+    expect(result.find((o) => o.occurrenceKey === first?.occurrenceKey)?.assignee).toEqual(
+      first?.assignee,
+    );
+  });
+
+  it('changes nothing at all when there are no overrides', () => {
+    // The vacuity guard: every assertion above would also pass against an
+    // implementation that ignored `turns` entirely if the baseline differed.
+    expect(project({ chores: [chore({ assignment: rotating })], turns: [] })).toEqual(
+      project({ chores: [chore({ assignment: rotating })] }),
+    );
+  });
+});

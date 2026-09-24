@@ -40,6 +40,9 @@ const TABLES = [
   'plan_entries',
   'chore_completions',
   'chore_exceptions',
+  // Whose turn one occurrence is. A change on one phone has to reach the other,
+  // or the two disagree about who is doing the bins tonight.
+  'chore_turns',
   'household_members',
   // Routine rows are mostly private, but a shared routine's state is exactly
   // what the other phone is rendering — a tick has to reach it. RLS decides

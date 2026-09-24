@@ -66,6 +66,12 @@ export function projectOccurrences(
 
   const completions = indexBy(input.completions, (c) => c.occurrenceKey);
 
+  /*
+   * "Actually, this one's mine." Applied over the rotation's answer, never
+   * instead of it — see `assignee` below, and 20260923140000.
+   */
+  const turns = new Map((input.turns ?? []).map((t) => [t.occurrenceKey, t.userId]));
+
   /**
    * Completions grouped by chore **and subject**, for the interval anchoring.
    *
@@ -190,7 +196,28 @@ export function projectOccurrences(
           // moving alice's Wednesday to the following Monday produced
           // bob/bob/alice instead of alice/bob/alice — bob twice in a row and
           // alice's turn silently gone. A reschedule moves *when*, never *whose*.
-          assignee: assigneeFor(occ, chore.assignment, cal, chore.schedule.startsOn),
+          /*
+           * The rotation's answer, then anyone who has since taken it.
+           *
+           * Layered rather than replaced: `assigneeFor` still runs, so the
+           * rotation keeps advancing underneath and removing the override puts
+           * the original turn back. Recording "whose" as a stored pointer is
+           * exactly what invariant 4 forbids, and what the previous attempt at
+           * this app died on.
+           *
+           * An override for somebody who has since left the household is
+           * ignored — `memberIds` is the roster, and naming a departed member
+           * would put a turn on nobody.
+           */
+          assignee: (() => {
+            const rotated = assigneeFor(occ, chore.assignment, cal, chore.schedule.startsOn);
+            const taken = turns.get(occ.occurrenceKey);
+            if (taken === undefined || !input.memberIds.includes(taken)) return rotated;
+            // Never over an `everyone` fan-out: those are one job *each*, and
+            // reassigning one slot would silently delete somebody's own copy.
+            if (chore.assignment.kind === 'everyone') return rotated;
+            return { kind: 'member', memberId: taken, turn: 0 } as const;
+          })(),
           completedOn: completion?.completedOn ?? null,
           completedBy: completion?.completedBy ?? null,
           daysLate: completion

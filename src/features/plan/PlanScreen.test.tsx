@@ -187,12 +187,15 @@ const entry = (id: string, position: number): PlanEntry => ({
   position,
 });
 
+/** Notes by chore id, so a test can give one something worth reading. */
+let mockChoreNotes = new Map<string, string>();
+
 const chore = (id: string, title: string) => ({
   id,
   title,
   categoryId: null,
   priority: 'normal',
-  notes: null,
+  notes: mockChoreNotes.get(id) ?? null,
   icon: null,
 });
 
@@ -251,6 +254,7 @@ beforeEach(() => {
   mockTheirTotal = 0;
   mockTheirEntries = [];
   mockSubtasks = new Map();
+  mockChoreNotes = new Map();
   mockRecurring = new Set(['dishes', 'trash', 'mail', 'bins', 'mopping', 'litter', 'gutters']);
   mockMyGroupOrder = 'chores';
   mockSetGroupOrder.mockClear();
@@ -1768,5 +1772,52 @@ describe('whose flagged section a flagged chore leads', () => {
     renderScreen([item('mail', 'Post'), item('dishes', 'Dishes')]);
 
     expect(headings()).toContain('Flagged');
+  });
+});
+
+describe('the plan’s row sheet as a mini chore view', () => {
+  /*
+   * The other half of *"you see the notes and steps and any details you might
+   * want to see at a glance and then below that you have the buttons"*. This
+   * sheet opens from the row you are actually working through, so it is if
+   * anything the more useful of the two.
+   *
+   * It is also where the empty case is real: unlike Today's sheet, this screen
+   * carries no schedule line, so a bare chore genuinely has nothing to show.
+   */
+  const openDishes = () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+    fireEvent.press(screen.getByText('Dishes'));
+  };
+
+  it('shows the note above the actions', () => {
+    mockChoreNotes = new Map([['dishes', 'Use the good soap under the sink']]);
+    openDishes();
+
+    expect(screen.getByText(/Use the good soap under the sink/)).toBeOnTheScreen();
+    // Still reachable underneath — the detail is added above the buttons, not
+    // in place of them.
+    expect(screen.getByText('Take off today')).toBeOnTheScreen();
+  });
+
+  it('shows the steps', () => {
+    mockSubtasks = new Map([['dishes', [{ id: 's1', title: 'Rinse' }]]]);
+    openDishes();
+
+    expect(screen.getByText('0 OF 1 STEPS')).toBeOnTheScreen();
+    expect(screen.getByText('Rinse')).toBeOnTheScreen();
+  });
+
+  it('adds no empty region for a chore with nothing to say', () => {
+    /*
+     * An empty block still draws its divider and pushes every action down the
+     * sheet, which is why the guard tests the contents rather than trusting
+     * the caller to pass nothing.
+     */
+    openDishes();
+
+    expect(screen.getByText('Take off today')).toBeOnTheScreen();
+    expect(screen.queryByTestId('chore-detail')).toBeNull();
   });
 });
