@@ -38,11 +38,28 @@ export const qk = {
   plan: (householdId: string, from: string, to: string) =>
     [...qk.household(householdId), 'plan', from, to] as const,
   planAll: (householdId: string) => [...qk.household(householdId), 'plan'] as const,
+  /**
+   * What has been taken off a plan on purpose.
+   *
+   * Its own key rather than folded into `plan`, because the two are written by
+   * different mutations and a removal must not invalidate the entries it just
+   * finished rewriting.
+   */
+  planDismissals: (householdId: string, from: string, to: string) =>
+    [...qk.household(householdId), 'plan-dismissals', from, to] as const,
   subtasks: (householdId: string) => [...qk.household(householdId), 'subtasks'] as const,
   /** Ticks for one occurrence; a new occurrence simply has none. */
   subtaskTicks: (householdId: string, occurrenceKey: string) =>
     [...qk.subtasks(householdId), 'ticks', occurrenceKey] as const,
   /** Ticks for everything on screen, sorted so the key is stable. */
+  /**
+   * Every "ticks for these occurrences" query, whatever list it was keyed by.
+   *
+   * The optimistic tick cannot know which lists are on screen, so it patches
+   * them by prefix rather than by exact key.
+   */
+  subtaskTicksForAll: (householdId: string) =>
+    [...qk.household(householdId), 'subtasks', 'ticks-for'] as const,
   subtaskTicksFor: (householdId: string, occurrenceKeys: readonly string[]) =>
     [...qk.subtasks(householdId), 'ticks-for', [...occurrenceKeys].sort()] as const,
   routines: (householdId: string) => [...qk.household(householdId), 'routines'] as const,
