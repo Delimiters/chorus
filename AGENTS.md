@@ -268,7 +268,18 @@ the input isn't vacuous.
   So on SDK 54 `eas build --local` works and consumes **no** EAS quota, which
   makes rule 6 non-binding there. It stays binding on SDK 57. Details and the
   code-signing caveat are in docs/RELEASE.md.
-- No Apple Developer account yet. Remote push notifications are therefore out of
-  v1 — local notifications only. Do not build APNs plumbing.
+- **Paid Apple Developer membership since 2026-09-24.** The individual
+  enrolment kept the *same* team id, `SY59JGZ44Y` — `DEVELOPMENT_TEAM` did not
+  change — but the team is no longer a "Personal Team", so two things that were
+  hard blocks are now merely work:
+  - **Installs no longer expire weekly.** The profile runs to 2027-09-25.
+  - **Remote push is grantable.** `plugins/without-push-entitlement.js` existed
+    only because Apple refuses `aps-environment` to a free team; it is deleted,
+    and a signed build now carries the entitlement. ADR-0005's deferral is
+    spent: the one thing local notifications structurally cannot do — tell you
+    your housemate did something — is reachable.
+
+  What is *not* done is sending. That needs an APNs key uploaded to the Expo
+  project, which is Jake's to create.
 - Local Postgres runs under Colima. **CI is the source of truth for DB tests** —
   a Colima hiccup must never block progress.

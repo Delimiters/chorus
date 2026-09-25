@@ -813,7 +813,14 @@ where nothing competes with it.
 - **Interval chores re-anchor to completion**, and the rule is window-
   independent. `src/core/occurrence/anchor.ts` documents the three separate bugs
   that came out of getting this wrong.
-- **The free Apple team's signing profile expires every 7 days**, and both phones
-  show "app is no longer available" when it does. The only fix is the $99
-  account. Deleting `~/Library/Developer/Xcode/UserData/Provisioning Profiles/`
-  and rebuilding mints a fresh week.
+- ~~**The free Apple team's signing profile expires every 7 days**~~ — true
+  until 2026-09-24, when the paid membership activated. Profiles now run a year
+  (currently to 2027-09-25). Kept here because the symptom, "app is no longer
+  available" on both phones at once, is distinctive and somebody hitting it
+  again should know it used to have this cause and no longer does.
+- **Signing in to Xcode mints a second development certificate**, and the
+  existing provisioning profile does not contain it. Builds then fail three
+  different ways — "No Accounts", "doesn't include signing certificate", and a
+  refusal to use an Xcode-managed profile manually — none of which name the
+  cause. Re-entering the Apple ID password in Xcode → Settings → Accounts is
+  the fix; nothing on the command line is.

@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 import { useBootstrapHousehold } from '@/data/hooks/useHousehold';
 import { useRealtimeHousehold } from '@/data/hooks/useRealtime';
 import { useReminderSync } from '@/data/hooks/useReminders';
+import { usePushRegistration } from '@/data/hooks/usePushRegistration';
 import { useReminderPolicy, useReminderStore } from '@/stores/reminderStore';
 import { LoadingState } from '@/design/components';
 import { useColors } from '@/design/theme';
@@ -52,6 +53,12 @@ export default function AppLayout() {
   const reminderPolicy = useReminderPolicy();
   useRealtimeHousehold();
   useReminderSync({ policy: reminderPolicy });
+  /*
+   * After `useReminderSync`, which is what asks for permission. This only
+   * reads the answer, so ordering it second means the first launch registers
+   * on the same pass that the prompt is granted rather than the next one.
+   */
+  usePushRegistration();
 
   if (status === 'loading') return <LoadingState />;
   if (status === 'signedOut') return <Redirect href="/sign-in" />;
