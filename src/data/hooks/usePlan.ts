@@ -16,7 +16,11 @@ import {
   addToPlan,
   listPlanEntries,
   movePlanEntry,
+  dismissFromPlan,
+  listPlanDismissals,
   removeFromPlan,
+  undismissFromPlan,
+  type PlanDismissalRow,
   type PlanEntryRow,
 } from '../api/plan';
 import { qk } from '../queryKeys';
@@ -270,6 +274,19 @@ export function useAddToPlan(today: CivilDate, ownerId?: string) {
           position: item.position,
         })),
       );
+      /*
+       * And take back any "I don't want this today".
+       *
+       * Putting something on the plan by hand is the opposite of having taken
+       * it off, so the record has to go — otherwise removing it a second time
+       * and expecting it back tomorrow would work, while the fill in between
+       * would quietly skip it.
+       */
+      await undismissFromPlan({
+        userId,
+        occurrenceKeys: planned.map((item) => item.occurrenceKey),
+        dismissedOn: today,
+      });
     },
 
     onMutate: async (planned) => {
@@ -303,6 +320,9 @@ export function useAddToPlan(today: CivilDate, ownerId?: string) {
     onSettled: () => {
       if (householdId === null) return;
       void queryClient.invalidateQueries({ queryKey: qk.planAll(householdId) });
+      void queryClient.invalidateQueries({
+        queryKey: qk.planDismissals(householdId, from, today),
+      });
     },
   });
 
@@ -315,6 +335,28 @@ export function useAddToPlan(today: CivilDate, ownerId?: string) {
     ) => mutation.mutate(decide(items), options),
   };
 }
+
+/**
+ * What has been taken off either plan, for the days in view.
+ *
+ * The fill reads this and skips anything in it, which is what lets the fill
+ * run on every render instead of once a day. Recording the *removals* rather
+ * than the fact that a fill happened is the whole of the idea — see
+ * 20260925090000_plan_dismissals.sql.
+ */
+export function usePlanDismissals(today: CivilDate): readonly PlanDismissalRow[] {
+  const householdId = useActiveHouseholdId();
+  const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
+
+  const query = useQuery({
+    queryKey: qk.planDismissals(householdId ?? '__none__', from, today),
+    queryFn: householdId === null ? skipToken : () => listPlanDismissals(householdId, from, today),
+  });
+
+  return query.data ?? EMPTY_DISMISSALS;
+}
+
+const EMPTY_DISMISSALS: readonly PlanDismissalRow[] = [];
 
 export function useRemoveFromPlan(today: CivilDate) {
   const householdId = useActiveHouseholdId();
@@ -331,8 +373,21 @@ export function useRemoveFromPlan(today: CivilDate) {
   return useMutation({
     mutationFn: async ({ occurrenceKey, ownerId }: PlanTarget) => {
       const owner = ownerId ?? userId;
-      if (owner === null) throw new Error('Please sign in again.');
+      if (owner === null || householdId === null) throw new Error('Please sign in again.');
       await removeFromPlan(owner, occurrenceKey, today);
+      /*
+       * And record that it was deliberate, so the fill does not hand it back.
+       *
+       * After the delete rather than before: if the delete fails the row is
+       * still on the plan, and a dismissal for something still planned would
+       * make the fill skip it forever after somebody removed it by hand later.
+       */
+      await dismissFromPlan({
+        householdId,
+        userId: owner,
+        occurrenceKey,
+        dismissedOn: today,
+      });
     },
 
     onMutate: async ({ occurrenceKey, ownerId }) => {
@@ -363,6 +418,9 @@ export function useRemoveFromPlan(today: CivilDate) {
     onSettled: () => {
       if (householdId === null) return;
       void queryClient.invalidateQueries({ queryKey: qk.planAll(householdId) });
+      void queryClient.invalidateQueries({
+        queryKey: qk.planDismissals(householdId, from, today),
+      });
     },
   });
 }

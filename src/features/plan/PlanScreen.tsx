@@ -27,6 +27,7 @@ import { Confetti } from '@/design/Confetti';
 import { celebrated, finished as finishedHaptic, tapped } from '@/design/haptics';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import { ChoreRow, SectionHeader, SubHeader } from '@/design/ChoreRow';
+import { Toast } from '@/design/Toast';
 import { ChoreDetail } from '@/features/common/ChoreDetail';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { DragList } from '@/design/DragList';
@@ -733,6 +734,14 @@ export function PlanScreen({
   const ticksByOccurrence = useSubtaskTicksFor(stepKeys);
   const toggleSubtask = useToggleSubtask(today as never);
 
+  /*
+   * Whichever of the three most recently failed. They cannot fail at once in
+   * any way a person would notice, and one message is easier to act on than a
+   * stack of them.
+   */
+  const mutationFailure =
+    ((toggle.error ?? remove.error ?? toggleSubtask.error) as Error | null)?.message ?? null;
+
   const renderRow = ({ item }: { item: AgendaItem }, ownerId: string | undefined) => {
     const meta = choreMeta.get(item.choreId);
     const category = categoryById.get(meta?.categoryId ?? '') ?? null;
@@ -1312,6 +1321,29 @@ export function PlanScreen({
           />
         </View>
       </Sheet>
+
+      {/*
+        Failures, said out loud.
+
+        Ticking a row, taking one off the day and ticking a step were all
+        silent on this screen: the mutation retries zero times, so one dropped
+        request is final — the row ticks optimistically, rolls back, and the
+        only feedback is a sheet closing. Jake: *"I don't want to be unsure if
+        I messed something up or if the app did."*
+
+        A toast rather than an inline message because the thing that failed may
+        have scrolled away, and there is no one place on this screen that
+        belongs to any of these three.
+      */}
+      <Toast
+        message={mutationFailure}
+        onDismiss={() => {
+          toggle.reset();
+          remove.reset();
+          toggleSubtask.reset();
+        }}
+        bottomInset={ADD_BUTTON_CLEARANCE}
+      />
     </SafeAreaView>
   );
 }

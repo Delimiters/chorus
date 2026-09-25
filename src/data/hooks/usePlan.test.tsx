@@ -44,9 +44,29 @@ const mockDeletes: { occurrenceKey: string; userId: string }[] = [];
  */
 let mockServer: PlanEntryRow[] = [];
 
+let mockDismissals: { userId: string; occurrenceKey: string; dismissedOn: string }[] = [];
+const mockDismissed: { occurrenceKey: string; userId: string }[] = [];
+const mockUndismissed: string[] = [];
+
 jest.mock('../api/plan', () => ({
   listPlanEntries: jest.fn(async () => mockServer),
   movePlanEntry: jest.fn(async () => {}),
+  /*
+   * The dismissal side. Adding and removing both touch it now — a removal
+   * records "I took this off on purpose" so the fill cannot hand it back, and
+   * an add takes that record away again.
+   *
+   * Present here because a factory missing a function the hook calls makes the
+   * mutation throw and roll back, which reads as a position bug rather than a
+   * mock that is shaped differently from the caller.
+   */
+  listPlanDismissals: jest.fn(async () => mockDismissals),
+  dismissFromPlan: jest.fn(async (input: { occurrenceKey: string; userId: string }) => {
+    mockDismissed.push(input);
+  }),
+  undismissFromPlan: jest.fn(async (input: { occurrenceKeys: readonly string[] }) => {
+    mockUndismissed.push(...input.occurrenceKeys);
+  }),
   addToPlan: jest.fn(
     async (entries: readonly (Written & { userId: string; choreId: string })[]) => {
       for (const entry of entries) {
@@ -119,6 +139,9 @@ const seed = (client: QueryClient, rows: PlanEntryRow[]) => {
 beforeEach(() => {
   mockWrites.length = 0;
   mockDeletes.length = 0;
+  mockDismissed.length = 0;
+  mockUndismissed.length = 0;
+  mockDismissals = [];
   mockServer = [];
 });
 
@@ -290,6 +313,56 @@ describe('taking something off the plan', () => {
         client.getQueryData<readonly PlanEntryRow[]>(qk.plan(HOUSE, FROM, TODAY)) ?? [];
       expect(cached.map((r) => r.userId)).toEqual([THEM]);
     });
+  });
+
+  it('records that it was deliberate, so the fill cannot hand it back', async () => {
+    /*
+     * The whole reason the fill can now run on every render. Without the
+     * record, the next pass sees the chore outstanding and unplanned and puts
+     * it straight back — "Take off today" as a button you fight all day.
+     */
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:a', 1)]);
+    const { result } = renderHook(() => useRemoveFromPlan(TODAY), { wrapper });
+
+    act(() => result.current.mutate({ occurrenceKey: 'v1:a' }));
+
+    await waitFor(() => expect(mockDismissed).toHaveLength(1));
+    expect(mockDismissed[0]).toMatchObject({
+      occurrenceKey: 'v1:a',
+      userId: ME,
+      dismissedOn: TODAY,
+    });
+  });
+
+  it('records it against whose day it came off, not who did it', async () => {
+    // Either housemate may edit either plan, so the row has to name the plan
+    // that is now missing the chore rather than the person who removed it.
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:a', 1, THEM)]);
+    const { result } = renderHook(() => useRemoveFromPlan(TODAY), { wrapper });
+
+    act(() => result.current.mutate({ occurrenceKey: 'v1:a', ownerId: THEM }));
+
+    await waitFor(() => expect(mockDismissed).toHaveLength(1));
+    expect(mockDismissed[0]?.userId).toBe(THEM);
+  });
+});
+
+describe('putting something back on the plan', () => {
+  it('takes back the "I do not want this today"', async () => {
+    /*
+     * Adding by hand is the opposite of having taken it off. Leaving the
+     * record behind is harmless while the entry exists and wrong the moment
+     * you remove it and expect it back — the fill would skip it silently.
+     */
+    const { client, wrapper } = harness();
+    seed(client, []);
+    const { result } = renderHook(() => useAddToPlan(TODAY), { wrapper });
+
+    act(() => result.current.mutate([{ occurrenceKey: 'v1:a', choreId: 'a' }]));
+
+    await waitFor(() => expect(mockUndismissed).toContain('v1:a'));
   });
 });
 

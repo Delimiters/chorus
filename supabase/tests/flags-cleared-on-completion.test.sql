@@ -15,7 +15,7 @@ create extension if not exists pgtap with schema extensions;
 -- other household.
 
 begin;
-select plan(8);
+select plan(10);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -149,6 +149,55 @@ select is(
    where household_id = 'fccc0000-0000-0000-0000-00000000000b'),
   1,
   'and the other household''s flag is still standing'
+);
+
+-- ═══ One job each is not one job ═══════════════════════════════════════════
+--
+-- An `everyone` chore fans out to one occurrence per person. Emily flags the
+-- laundry; Jake ticks *his* copy; hers is still outstanding, so her flag must
+-- survive. The trigger keys on `chore_id` — a flag is per chore, there is no
+-- occurrence column — which made one person's completion clear both.
+insert into public.chores (id, household_id, title, schedule, assignment, created_by)
+values ('fccc9999-9999-9999-9999-999999999994', 'fccc0000-0000-0000-0000-00000000000a',
+        'Laundry', '{"rule":{"kind":"daily","everyNDays":1},"startsOn":"2026-01-01"}',
+        '{"kind":"everyone"}', 'fccc1111-1111-1111-1111-111111111111');
+
+insert into public.chore_flags (household_id, chore_id, user_id, flagged_on)
+values ('fccc0000-0000-0000-0000-00000000000a', 'fccc9999-9999-9999-9999-999999999994',
+        'fccc1111-1111-1111-1111-111111111111', '2026-09-21');
+
+insert into public.chore_completions
+  (household_id, chore_id, occurrence_key, due_on, completed_on, completed_by)
+values ('fccc0000-0000-0000-0000-00000000000a', 'fccc9999-9999-9999-9999-999999999994',
+        'v1:laundry:2026-09-21:0:fccc2222-2222-2222-2222-222222222222',
+        '2026-09-21', '2026-09-21', 'fccc2222-2222-2222-2222-222222222222');
+
+select is(
+  (select count(*)::int from public.chore_flags
+   where chore_id = 'fccc9999-9999-9999-9999-999999999994'),
+  1,
+  'doing your own copy of an `everyone` chore leaves their flag alone'
+);
+
+-- And the ordinary case still clears, or the fix would have turned the feature
+-- off rather than narrowed it.
+-- On Dishes, whose flags the first completion already cleared, so this neither
+-- borrows nor consumes a flag another assertion below is counting on.
+insert into public.chore_flags (household_id, chore_id, user_id, flagged_on)
+values ('fccc0000-0000-0000-0000-00000000000a', 'fccc9999-9999-9999-9999-999999999991',
+        'fccc2222-2222-2222-2222-222222222222', '2026-09-23');
+
+insert into public.chore_completions
+  (household_id, chore_id, occurrence_key, due_on, completed_on, completed_by)
+values ('fccc0000-0000-0000-0000-00000000000a', 'fccc9999-9999-9999-9999-999999999991',
+        'v1:dishes:2026-09-23', '2026-09-23', '2026-09-23',
+        'fccc1111-1111-1111-1111-111111111111');
+
+select is(
+  (select count(*)::int from public.chore_flags
+   where chore_id = 'fccc9999-9999-9999-9999-999999999991'),
+  0,
+  'while an ordinary chore still clears its flags when it is done'
 );
 
 -- ═══ Skipping is not doing ═════════════════════════════════════════════════

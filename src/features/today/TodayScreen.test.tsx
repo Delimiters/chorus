@@ -192,6 +192,9 @@ function buildView(completions: CompletionInput[] = []) {
  * the mocked hook again and picks up the rebuilt view.
  */
 let liveCompletions: CompletionInput[] = [];
+const mockToggleReset = jest.fn();
+let mockToggleError: Error | null = null;
+
 const mockToggle = jest.fn(({ item, complete }: { item: AgendaItem; complete: boolean }) => {
   liveCompletions = complete
     ? [
@@ -245,7 +248,14 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     unreadable: [] as string[],
     refetch: mockRefetch,
   }),
-  useToggleCompletion: () => ({ mutate: mockToggle }),
+  // `reset` and `error` included because the screen now clears a failed tick
+  // when the toast is dismissed, and renders the failure — a mock missing them
+  // is a mock shaped differently from the real hook.
+  useToggleCompletion: () => ({
+    mutate: mockToggle,
+    reset: mockToggleReset,
+    error: mockToggleError,
+  }),
   useSetTurn: () => ({ mutate: mockSetTurn }),
   useTurnOverrides: () => mockTurnOverrides,
   useOccurrenceActions: () => ({
@@ -360,6 +370,8 @@ beforeEach(() => {
   mockToggleFlag.mockClear();
   mockChores = ALL_CHORES.map((c) => ({ ...c }));
   mockOneOffCompletions = [];
+  mockToggleError = null;
+  mockToggleReset.mockClear();
   mockToggle.mockClear();
   mockRefetch.mockClear();
   mockSkip.mockClear();
@@ -453,6 +465,10 @@ describe('Today', () => {
         complete: true,
         item: expect.objectContaining({ choreId: 'dishes', dueOn: mockToday }),
       }),
+      // The second argument is the `onError` that puts the row back when the
+      // write does not land — a failed tick used to stay pinned with a toast
+      // saying "— done".
+      expect.objectContaining({ onError: expect.any(Function) }),
     );
   });
 
@@ -780,7 +796,10 @@ describe('ticking something off', () => {
     fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
 
     // The second call is the reversal, not a repeat of the first.
-    expect(mockToggle).toHaveBeenCalledWith(expect.objectContaining({ complete: false }));
+    expect(mockToggle).toHaveBeenCalledWith(
+      expect.objectContaining({ complete: false }),
+      expect.anything(),
+    );
   });
 
   it('does not offer an undo for un-completing', () => {
@@ -1676,5 +1695,50 @@ describe('changing whose turn it is, in one tap', () => {
 
     expect(await screen.findByText(/^Flag it$/)).toBeOnTheScreen();
     expect(screen.queryByText('Rotation')).toBeNull();
+  });
+});
+
+describe('when a tick does not land', () => {
+  /*
+   * Jake: *"I don't want to be unsure if I messed something up or if the app
+   * did."*
+   *
+   * The occurrence sheet renders `toggle.error`, but a tick from the row's own
+   * checkbox never opens the sheet — so the most common way to complete a
+   * chore was the one with nowhere to report a failure. Mutations retry zero
+   * times, so one dropped request is final: the row ticked, rolled back, and
+   * the only thing on screen was a toast saying "— done".
+   */
+  it('says so, instead of claiming it is done', async () => {
+    mockToggleError = new Error('Network request failed');
+    await renderScreen();
+
+    expect(await screen.findByText(/Network request failed/)).toBeOnTheScreen();
+  });
+
+  it('does not offer to undo something that did not happen', async () => {
+    // "Undo" on a write that failed would be a second button doing nothing.
+    mockToggleError = new Error('Network request failed');
+    await renderScreen();
+
+    await screen.findByText(/Network request failed/);
+    expect(screen.queryByText('Undo')).toBeNull();
+  });
+
+  it('puts the row back rather than leaving it pinned', async () => {
+    /*
+     * `held` keeps a just-ticked row in place so it does not jump out from
+     * under your finger. On failure that has to be undone, or the row sits
+     * there looking done for ever.
+     */
+    await renderScreen();
+    fireEvent.press(screen.getByLabelText('Mark Dishes done'));
+
+    const onError = (mockToggle.mock.calls[0] as unknown as [unknown, { onError: () => void }])[1]
+      .onError;
+    expect(onError).toEqual(expect.any(Function));
+    act(() => onError());
+
+    expect(screen.queryByText(/Dishes — done/)).toBeNull();
   });
 });

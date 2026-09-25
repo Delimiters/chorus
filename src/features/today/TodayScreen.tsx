@@ -206,7 +206,29 @@ export function TodayScreen() {
 
   const completeItem = useCallback(
     (item: AgendaItem, complete: boolean) => {
-      toggle.mutate({ item, complete });
+      toggle.mutate(
+        { item, complete },
+        {
+          /*
+           * Put the row back if the write did not land.
+           *
+           * `held` and the toast are set optimistically below, which is right
+           * — the row should not jump the moment you tick it. What was wrong
+           * was that a failed write left it pinned in place with a toast
+           * saying "— done", which is the app claiming something it did not
+           * do. The mutation retries zero times, so one dropped request is
+           * final.
+           */
+          onError: () => {
+            setHeld((current) => {
+              const next = new Map(current);
+              next.delete(item.occurrenceKey);
+              return next;
+            });
+            setUndo(null);
+          },
+        },
+      );
       // Which list it came from, recorded now rather than re-derived later.
       // `assignee` is a resolution rather than a user id, and rotation means
       // the answer can be a computation; the list it was actually rendered in
@@ -224,6 +246,9 @@ export function TodayScreen() {
     },
     [toggle, view.mine],
   );
+
+  /** A tick that did not land, which the row checkbox had no way to report. */
+  const tickFailure = (toggle.error as Error | null)?.message ?? null;
 
   const refresh = async () => {
     setRefreshing(true);
@@ -939,13 +964,29 @@ export function TodayScreen() {
         ) : null}
       </ScrollView>
 
+      {/*
+        A failed tick says so, and takes precedence over the undo.
+        
+        The occurrence sheet renders `toggle.error`, but a tick from the row's
+        own checkbox never opens the sheet — so the most common way to complete
+        a chore was also the one with nowhere to report a failure. The toast is
+        already here for the undo; the error simply outranks it, because
+        "something went wrong" matters more than "you can undo this".
+      */}
       <Toast
-        message={undo === null ? null : undo.label}
-        actionLabel="Undo"
-        onAction={() => {
-          if (undo !== null) completeItem(undo.item, false);
+        message={tickFailure ?? (undo === null ? null : undo.label)}
+        {...(tickFailure === null && undo !== null
+          ? {
+              actionLabel: 'Undo',
+              onAction: () => {
+                completeItem(undo.item, false);
+              },
+            }
+          : {})}
+        onDismiss={() => {
+          setUndo(null);
+          toggle.reset();
         }}
-        onDismiss={() => setUndo(null)}
         bottomInset={ADD_BUTTON_CLEARANCE}
       />
 

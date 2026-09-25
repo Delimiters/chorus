@@ -20,12 +20,13 @@ import { isRecurring } from '@/core/chore/kind';
 import { useFlagsByChore } from '@/data/hooks/useFlags';
 import { useScheduleToday } from '@/data/hooks/useChores';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
-import { useRoutinePreference, useRoutineStore } from '@/stores/routineStore';
+import { useRoutineStore } from '@/stores/routineStore';
 import { useCategoryList } from '@/data/hooks/useCategories';
 import { quantiseWindow, useOccurrences, useToday_View } from '@/data/hooks/useOccurrences';
 import {
   useAddToPlan,
   useMyPlanEntries,
+  usePlanDismissals,
   usePlanEntries,
   usePlanLoading,
 } from '@/data/hooks/usePlan';
@@ -412,17 +413,14 @@ export function PlanView() {
    * to read. Flagged work is the exception, and it is the one thing here that
    * somebody actually decided.
    *
-   * Two markers, two clocks. `autoPlannedOn` stops the whole-day fill running
-   * twice, so removing something sticks. `autoPlannedFlags` does the same job
-   * per occurrence, because a flag raised at two in the afternoon has to land
-   * today and a day-level marker would hold it until tomorrow.
+   * What stops the fill undoing a deliberate removal is the record of the
+   * removal itself, in the database where both phones can see it. There were
+   * two device-local markers here — a day marker for the bulk fill and a
+   * per-occurrence one for flagged work — and both are gone: neither could
+   * survive the other phone, and together they meant the plan went stale the
+   * moment it had run.
    */
-  const autoPlannedOn = useRoutinePreference().autoPlannedOn;
-  const autoPlannedTheirsOn = useRoutinePreference().autoPlannedTheirsOn;
-  const markTheirDayPlanned = useRoutineStore((s) => s.markTheirDayPlanned);
-  const autoPlannedFlags = useRoutinePreference().autoPlannedFlags;
-  const markAutoPlanned = useRoutineStore((s) => s.markAutoPlanned);
-  const markFlagsAutoPlanned = useRoutineStore((s) => s.markFlagsAutoPlanned);
+  const dismissals = usePlanDismissals(today);
 
   /*
    * In flight, and failed-today, both as refs.
@@ -430,11 +428,8 @@ export function PlanView() {
    * `useAddToPlan` is optimistic: `onMutate` writes the new rows into the plan
    * cache before the request is even sent. `entries` is a dependency of this
    * effect, so the write immediately re-runs it, `due` comes out empty — every
-   * key is now "planned" — and the empty branch below marked the day done with
-   * the request still open. `autoPlannedOn` is persisted, so a write that then
-   * failed left the day marked, the rollback restored the rows, and the
-   * auto-plan silently never happened again that day. Precisely the failure the
-   * comment on the mutation claims to prevent.
+   * key is now "planned" — while the request is still open. Without the guard
+   * the effect would re-enter and write the same rows again.
    *
    * `failedFor` exists because the obvious guard loops: on failure the cache
    * rolls back, `due` refills, and the effect resubmits forever.
@@ -463,17 +458,16 @@ export function PlanView() {
    * already on their day, so the second person's own run finds the work there
    * and adds nothing.
    *
-   * ── Two limits worth knowing ──────────────────────────────────────────
+   * ── The limit worth knowing ───────────────────────────────────────────
    *
-   * A flag raised *after* this has run does not reach their day until they
-   * open the app themselves. Your own day keeps a per-occurrence record for
-   * exactly this case; theirs has only a day-level marker, and reusing the
-   * per-occurrence one would conflate the two plans, since shared work has the
-   * same occurrence key on both.
+   * With more than two people this fills only the earliest-joined other
+   * member. The app is two-person by design; a third would need a loop.
    *
-   * And with more than two people this fills only the earliest-joined other
-   * member. The app is two-person by design; a third would need a loop and a
-   * marker per person rather than a single flag.
+   * The other limit is gone: this used to run once per device per day, so a
+   * flag raised afterwards did not reach their plan until they opened the app
+   * themselves. It is now idempotent against `plan_dismissals` like your own
+   * fill, so it can run whenever and a flag lands as soon as either phone
+   * notices it.
    */
   const theirInFlight = useRef(false);
   const theirFailedFor = useRef<CivilDate | null>(null);
@@ -481,7 +475,6 @@ export function PlanView() {
   useEffect(() => {
     if (household.data == null || housemateId === undefined) return;
     if (isLoading || entriesLoading) return;
-    if (autoPlannedTheirsOn === today) return;
     if (theirInFlight.current || theirFailedFor.current === today) return;
 
     const theirPlanned = new Set(
@@ -491,25 +484,20 @@ export function PlanView() {
     );
 
     /*
-     * Only ever fills an *empty* day, never tops one up.
+     * What she took off her own plan, which is the thing a device-local marker
+     * could never see.
      *
-     * The marker is device-local, and that is not enough on its own for a day
-     * that is not yours. Emily opens at seven, her own fill runs, she takes
-     * the mopping off at half past. Jake opens at nine for the first time
-     * today: his `autoPlannedTheirsOn` is null, the row is gone from
-     * `allEntries`, and without this he would put the mopping straight back.
-     * "Take off today" is the button this app keeps accidentally breaking.
-     *
-     * Emptiness is the honest signal for what Jake actually asked for — *"if
-     * Emily hasn't opened the app today hers is just empty"* — and it cannot
-     * be confused with a day she has curated. The one case it gets wrong is a
-     * day she deliberately cleared to nothing, which refills; a day with one
-     * row left on it does not.
+     * This branch used to refuse to touch a non-empty day at all, as a proxy
+     * for "she has already curated this" — necessary while the only record of
+     * her removals lived on her phone. With the record in the database the
+     * proxy can go, so her day now fills as work becomes due through the day
+     * rather than only when it happens to be empty.
      */
-    if (theirPlanned.size > 0) {
-      markTheirDayPlanned(today);
-      return;
-    }
+    const theirDismissed = new Set(
+      dismissals
+        .filter((d) => d.userId === housemateId && d.dismissedOn === today)
+        .map((d) => d.occurrenceKey),
+    );
 
     /*
      * Both sides of the split, filtered by `belongsTo` against *their* id.
@@ -540,19 +528,17 @@ export function PlanView() {
       : theirDue.filter((i) => i.dueOn === today);
     const theirFlagged = theirDue.filter((item) => householdFlags.has(item.choreId));
 
-    const keys = new Set(theirBaseline.map((i) => i.occurrenceKey));
-    const due = [...theirBaseline, ...theirFlagged.filter((i) => !keys.has(i.occurrenceKey))];
+    const wanted = new Map<string, (typeof theirDue)[number]>();
+    for (const item of [...theirBaseline, ...theirFlagged]) wanted.set(item.occurrenceKey, item);
 
-    if (due.length === 0) {
-      markTheirDayPlanned(today);
-      return;
-    }
+    const due = [...wanted.values()].filter((item) => !theirDismissed.has(item.occurrenceKey));
+
+    if (due.length === 0) return;
 
     theirInFlight.current = true;
     addForThem.mutate(
       due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
       {
-        onSuccess: () => markTheirDayPlanned(today),
         onError: () => {
           theirFailedFor.current = today;
         },
@@ -566,14 +552,13 @@ export function PlanView() {
     housemateId,
     isLoading,
     entriesLoading,
-    autoPlannedTheirsOn,
+    dismissals,
     today,
     allEntries,
     view.mine,
     view.theirs,
     householdFlags,
     addForThem,
-    markTheirDayPlanned,
   ]);
 
   const inFlight = useRef(false);
@@ -652,27 +637,33 @@ export function PlanView() {
     });
 
     /*
-     * Two fills with different clocks, which is why this is no longer one
-     * early return.
+     * One fill, and it can run as often as it likes.
      *
-     * The whole-day fill runs once, in the morning, and `autoPlannedOn` stops
-     * it running again — otherwise "Take off today" would be a button that
-     * does nothing.
+     * This used to be two mechanisms with two clocks: a device-local day
+     * marker so the whole-day fill ran once, and a per-occurrence device
+     * record so flagged work could still land in the afternoon. Both existed
+     * for the same reason — the fill and "Take off today" pull in opposite
+     * directions, and something had to stop the second run handing back what
+     * you removed.
      *
-     * Flagged work cannot be gated that way. Jake: *"if things are flagged
-     * they should still automatically populate onto the plan but nothing else
-     * should."* A flag is usually raised *because* something has just come up,
-     * so the one at two in the afternoon is the case that matters — and under
-     * a day-level marker it would not have landed until tomorrow.
+     * Recording the *removals* instead makes the whole question go away. Jake:
      *
-     * So flagged occurrences are remembered individually. Each one is added at
-     * most once a day, which keeps "Take off today" sticky: remove a flagged
-     * chore and it stays removed, even though the flag lives until the work is
-     * done.
+     *   *"maybe my plan just recalculates every time you open it (leaving off
+     *   things you specifically took off the plan manually). That way if you
+     *   mess with something midday you're not confused why it's not there."*
+     *
+     * So: no markers. Create a chore at two in the afternoon and it appears;
+     * reassign one and it moves; flag one and it lands. Take one off and it
+     * stays off, because the dismissal is a row in the database that both
+     * phones can see — which the device-local markers could not manage, and
+     * is why Emily removing something on her phone used to survive only until
+     * Jake opened his.
      */
-    // `?.` rather than `!== null`: a preference blob written before this field
-    // existed has no key at all, and `undefined !== null` is true.
-    const alreadyFlagged = new Set(autoPlannedFlags?.on === today ? autoPlannedFlags.keys : []);
+    const dismissed = new Set(
+      dismissals
+        .filter((d) => d.userId === userId && d.dismissedOn === today)
+        .map((d) => d.occurrenceKey),
+    );
 
     /*
      * Today's work, not the backlog — which is the distinction Emily drew.
@@ -683,101 +674,41 @@ export function PlanView() {
      *
      * Her "specifically" is the whole of it. What made the plan unreadable was
      * never the dishes being due; it was the pile of things that had been late
-     * for weeks arriving alongside them. `dueOn === today` keeps the first and
-     * leaves the second to the "Add everything due or late" button.
-     *
-     * So the household setting now means "the backlog as well", rather than
-     * "fill the plan at all" — a narrowing of what it controls, not a change
-     * to whether it is honoured.
+     * for weeks arriving alongside them. The household setting widens this to
+     * the backlog as well.
      */
-    const wantsEverything = household.data.autoPlan;
-    const baseline = wantsEverything ? dueToday : dueToday.filter((i) => i.dueOn === today);
-
-    // Once a day, whichever baseline it is, so that taking something off sticks.
-    const firstRunToday = autoPlannedOn !== today;
-    const bulk = firstRunToday ? baseline : [];
+    const baseline = household.data.autoPlan ? dueToday : dueToday.filter((i) => i.dueOn === today);
 
     /*
-     * Not an exception to "if I added it to the plan I'm doing it" — the
-     * clearest case of it. Every other row the fill produced came from a
-     * schedule nobody looked at that morning; a flag is a person deciding by
-     * hand, and flags are shared, so it is also how Emily tells Jake something
-     * needs doing without a conversation.
+     * Flagged work lands whatever the setting says, and is not an exception to
+     * "if I added it to the plan I'm doing it" — it is the clearest case of it.
+     * Every other row here came from a schedule nobody looked at this morning;
+     * a flag is a person deciding by hand, and flags are shared, so it is also
+     * how Emily tells Jake something needs doing without a conversation.
      *
      * Narrowed by the same due-or-late rule rather than taking every flagged
      * chore: a flag lasts until the work is done, so one raised now on
-     * something due in three weeks would otherwise sit on every day in
-     * between.
+     * something due in three weeks would otherwise sit on every day between.
      */
-    const flagged = dueToday.filter(
-      (item) => householdFlags.has(item.choreId) && !alreadyFlagged.has(item.occurrenceKey),
-    );
+    const flagged = dueToday.filter((item) => householdFlags.has(item.choreId));
+
+    const wanted = new Map<string, (typeof dueToday)[number]>();
+    for (const item of [...baseline, ...flagged]) wanted.set(item.occurrenceKey, item);
+
+    const due = [...wanted.values()].filter((item) => !dismissed.has(item.occurrenceKey));
+
+    if (due.length === 0) return;
 
     /*
-     * Flagging something that is *already* on your plan still counts as
-     * handled, and saying so is what stops "Take off today" being undone once.
-     *
-     * `dueToday` excludes anything already planned, so this case produced no
-     * record at all: nothing was added, nothing was written down, and the
-     * first time you removed the chore the flagged path handed it straight
-     * back. The second removal stuck, because the bounce-back finally wrote
-     * the record — which is the dead-button shape this screen keeps producing,
-     * wearing a slightly different hat.
-     *
-     * Written outside the mutation because no write is involved. Guarded on
-     * being genuinely new so it cannot loop: `autoPlannedFlags` is a
-     * dependency of this effect, and recording a key that is already recorded
-     * would re-run it forever.
+     * `inFlight` is the only thing between a constantly re-evaluating effect
+     * and a second identical write: `add` is optimistic, so its `onMutate`
+     * lands in the cache this effect reads, but the request is still open and
+     * `entries` has not yet been refetched.
      */
-    const flaggedAlreadyPlanned = view.mine
-      .filter(
-        (item) =>
-          householdFlags.has(item.choreId) &&
-          planned.has(item.occurrenceKey) &&
-          !alreadyFlagged.has(item.occurrenceKey),
-      )
-      .map((item) => item.occurrenceKey);
-
-    if (flaggedAlreadyPlanned.length > 0) markFlagsAutoPlanned(today, flaggedAlreadyPlanned);
-
-    const bulkKeys = new Set(bulk.map((i) => i.occurrenceKey));
-    const due = [...bulk, ...flagged.filter((i) => !bulkKeys.has(i.occurrenceKey))];
-
-    /*
-     * The flagged branch's own list is enough, and this was briefly written the
-     * long way round — filtering `due` — on the theory that the bulk fill might
-     * carry a flagged chore the flagged branch had missed.
-     *
-     * It cannot. Both `bulk` and `flagged` are subsets of `dueToday` — `bulk`
-     * is `baseline`, which is `dueToday` itself or its due-today part — so
-     * anything flagged that `bulk` carries is either in `flagged` already or
-     * was recorded earlier today. Reverting the longer form to this one
-     * changed no test, which is how the claim was found to be empty rather
-     * than merely untested.
-     *
-     * The earlier wording said `bulk` was "either empty or the whole of
-     * `dueToday`". True until the baseline narrowed to today's work; the
-     * conclusion survives the correction, the premise did not.
-     */
-    const flaggedKeys = flagged.map((item) => item.occurrenceKey);
-
-    if (due.length === 0) {
-      // Only the whole-day fill has a "nothing to do" state worth recording.
-      // The flagged path has no day to mark — it is per occurrence.
-      if (firstRunToday) markAutoPlanned(today);
-      return;
-    }
-
-    // Marked on success, not before: a failed insert used to leave the day
-    // marked done, so the auto-plan silently never happened and nothing said so.
     inFlight.current = true;
     add.mutate(
       due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
       {
-        onSuccess: () => {
-          if (firstRunToday) markAutoPlanned(today);
-          if (flaggedKeys.length > 0) markFlagsAutoPlanned(today, flaggedKeys);
-        },
         onError: () => {
           failedFor.current = today;
         },
@@ -789,18 +720,15 @@ export function PlanView() {
   }, [
     isLoading,
     entriesLoading,
-    autoPlannedOn,
+    dismissals,
     today,
     entries,
     view.mine,
     chores,
     add,
-    markAutoPlanned,
     userId,
     household.data,
     householdFlags,
-    autoPlannedFlags,
-    markFlagsAutoPlanned,
   ]);
 
   /*
