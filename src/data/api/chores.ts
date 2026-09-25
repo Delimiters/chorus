@@ -492,7 +492,23 @@ export interface ExceptionWriteInput {
   readonly reason?: string;
 }
 
-/** Skips one occurrence. The rotation is undisturbed — see docs/ROTATION.md. */
+/**
+ * Skips one occurrence. The rotation is undisturbed — see docs/ROTATION.md.
+ *
+ * A duplicate used to be mapped to success outright, which is right for the
+ * case it was written for — a double tap, or a retry after a timeout, is one
+ * skip rather than two. It is wrong for the case only two phones can reach:
+ * Jake moves Thursday's dishes, Emily's screen has not refreshed, she taps
+ * "Skip it", and the sheet closes having done nothing. The chore then moves to
+ * Friday instead of being skipped, with nothing said.
+ *
+ * The sheet hides "Skip it" once a row is skipped or rescheduled, so this is
+ * unreachable on one device. Across two it is ordinary, and it is the
+ * documented "a chore that cannot be skipped and never says why" surviving in
+ * the one place a UI guard cannot see.
+ *
+ * So a duplicate is only success when what is already there is a *skip*.
+ */
 export async function skipOccurrence(input: ExceptionWriteInput): Promise<void> {
   const { error } = await supabase.from('chore_exceptions').insert({
     household_id: input.householdId,
@@ -503,7 +519,23 @@ export async function skipOccurrence(input: ExceptionWriteInput): Promise<void> 
     created_by: input.userId,
     ...(input.reason === undefined ? {} : { reason: input.reason }),
   });
-  if (error && !isDuplicate(error)) fail(error);
+  if (error === null) return;
+  if (!isDuplicate(error)) fail(error);
+
+  const { data: existing } = await supabase
+    .from('chore_exceptions')
+    .select('kind')
+    .eq('chore_id', input.choreId)
+    .eq('occurrence_key', input.occurrenceKey)
+    .maybeSingle();
+
+  /*
+   * Already skipped — by the other phone, or by this one's retry. Either way
+   * the outcome the caller asked for is the outcome, so this is success.
+   */
+  if (existing === null || existing.kind === 'skip') return;
+
+  throw new Error('Somebody moved this to another day. Refresh to see where it went.');
 }
 
 /** Moves one occurrence. It keeps its key, its index, and its assignee. */
