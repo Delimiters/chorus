@@ -62,8 +62,9 @@ binding constraint and the "rebuild only when native deps change" rule relaxes.
 On SDK 57 every iOS build must still be a metered cloud build.
 
 Two things this does **not** solve. Compiling is not signing: installing to a
-physical iPhone still needs a provisioning profile, and a free Apple ID personal
-team caps out at 7 days per install. And a Release build embeds the JS bundle,
+physical iPhone still needs a provisioning profile — which used to cap out at 7
+days on a free personal team, and since 2026-09-24 runs a year on the paid one.
+And a Release build embeds the JS bundle,
 so shipping a JavaScript change means rebuilding unless `expo-updates` is added
 — it currently is not.
 
@@ -153,10 +154,14 @@ problem, since Xcode 16.4 ships device support only through iOS 18.5. It was
 not one: `devicectl` enabled developer disk image services itself. Release
 builds need no debug disk image.
 
-**The install expires after 7 days.** Free-team profiles are time-limited.
-The app then refuses to launch until rebuilt and reinstalled — the two
-commands above. This is the one real cost of not paying the $99, and it does
-not heal itself.
+**~~The install expires after 7 days.~~** True of the free team, and the one
+real cost of not paying. Jake enrolled on 2026-09-23 and it activated on the
+24th; the profile now runs to **2027-09-25**, so a build survives about a year
+and the weekly re-flash is gone.
+
+The enrolment kept the **same team id**, `SY59JGZ44Y`, so nothing in the build
+command changed. What changed is that the team is no longer a "Personal Team",
+which is what Apple checks before granting `aps-environment`.
 
 ## A development build (no Apple account needed)
 

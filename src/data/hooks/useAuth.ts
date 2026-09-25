@@ -9,8 +9,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { useSessionStore } from '@/stores/sessionStore';
+import { forgetPushToken } from '../api/pushTokens';
 import { localTransport } from '../notifications';
 import { describeError, supabase, watchAppStateForAuth } from '../supabase';
+import { lastRegisteredPushToken } from './usePushRegistration';
 
 /**
  * Subscribes to auth changes and restores any persisted session.
@@ -113,6 +115,24 @@ export function useSignUp() {
 export function useSignOut() {
   return useMutation({
     mutationFn: async () => {
+      /*
+       * And forget this device, so a phone signed out of stops receiving the
+       * household's remote pushes. Before the sign-out for the same reason the
+       * queue is cleared first: the auth listener tears the shell down as soon
+       * as the session goes, and nothing after that point is guaranteed to run.
+       *
+       * Failure is swallowed — a token left behind is a stale row the send
+       * path will eventually learn about from Expo's receipts, and it must not
+       * be a reason somebody cannot sign out.
+       */
+      const pushToken = lastRegisteredPushToken();
+      if (pushToken !== null) {
+        try {
+          await forgetPushToken(pushToken);
+        } catch {
+          // Signing out matters more than tidying up.
+        }
+      }
       /**
        * Clear the notification queue *first*.
        *

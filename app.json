@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.delimiters.chorus",
-      "buildNumber": "46",
+      "buildNumber": "49",
       "supportsTablet": false
     },
     "android": {
@@ -41,8 +41,7 @@
         }
       ],
       "expo-localization",
-      "expo-secure-store",
-      "./plugins/without-push-entitlement"
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
