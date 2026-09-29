@@ -232,7 +232,6 @@ let mockTurnOverrides = new Map<string, string>();
 
 jest.mock('@/data/hooks/useSubtasks', () => ({
   useSubtasksFor: () => [],
-  useSubtaskTicks: () => new Set<string>(),
   useSubtasksByChore: () => mockSteps,
   useSubtaskTicksFor: () => mockTicks,
   useToggleSubtask: () => ({ mutate: mockToggleSubtask }),
@@ -1734,11 +1733,23 @@ describe('when a tick does not land', () => {
     await renderScreen();
     fireEvent.press(screen.getByLabelText('Mark Dishes done'));
 
+    /*
+     * `held` is what pins the row; the toast is separate. Asserting only that
+     * the toast has gone passes against `setUndo(null)` alone — measured, and
+     * exactly what the first version of this test did. The row's *heading* is
+     * what `held` decides, so that is what this looks at.
+     */
+    const headings = () => screen.getAllByRole('header').map((h) => String(h.props.children));
+    // Held: the row stays where it was rather than jumping to Done under your
+    // finger. That is the state a failure has to undo.
+    expect(headings().some((t) => t.startsWith('Done'))).toBe(false);
+
     const onError = (mockToggle.mock.calls[0] as unknown as [unknown, { onError: () => void }])[1]
       .onError;
-    expect(onError).toEqual(expect.any(Function));
     act(() => onError());
 
     expect(screen.queryByText(/Dishes — done/)).toBeNull();
+    // Released, so it is no longer pinned in place.
+    expect(headings().some((t) => t.startsWith('Done'))).toBe(true);
   });
 });

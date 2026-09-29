@@ -53,7 +53,6 @@ const item = (over: Partial<AgendaItem> = {}): AgendaItem =>
  */
 jest.mock('@/data/hooks/useSubtasks', () => ({
   useSubtasksFor: () => [],
-  useSubtaskTicks: () => new Set<string>(),
   useSubtasksByChore: () => new Map<string, unknown[]>(),
   useSubtaskTicksFor: () => new Map<string, Set<string>>(),
   useToggleSubtask: () => ({ mutate: jest.fn() }),

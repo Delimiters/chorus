@@ -48,10 +48,6 @@ export const qk = {
   planDismissals: (householdId: string, from: string, to: string) =>
     [...qk.household(householdId), 'plan-dismissals', from, to] as const,
   subtasks: (householdId: string) => [...qk.household(householdId), 'subtasks'] as const,
-  /** Ticks for one occurrence; a new occurrence simply has none. */
-  subtaskTicks: (householdId: string, occurrenceKey: string) =>
-    [...qk.subtasks(householdId), 'ticks', occurrenceKey] as const,
-  /** Ticks for everything on screen, sorted so the key is stable. */
   /**
    * Every "ticks for these occurrences" query, whatever list it was keyed by.
    *
@@ -60,6 +56,7 @@ export const qk = {
    */
   subtaskTicksForAll: (householdId: string) =>
     [...qk.household(householdId), 'subtasks', 'ticks-for'] as const,
+  /** Ticks for everything on screen, sorted so the key is stable. */
   subtaskTicksFor: (householdId: string, occurrenceKeys: readonly string[]) =>
     [...qk.subtasks(householdId), 'ticks-for', [...occurrenceKeys].sort()] as const,
   routines: (householdId: string) => [...qk.household(householdId), 'routines'] as const,

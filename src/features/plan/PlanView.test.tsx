@@ -49,6 +49,8 @@ let mockMembers: { userId: string; displayName: string; accent: string }[] = [];
  * on hers survived only until Jake opened his.
  */
 let mockDismissals: { userId: string; occurrenceKey: string; dismissedOn: string }[] = [];
+/** Whether the dismissals query has landed. The fill must wait for it. */
+let mockDismissalsLoading = false;
 let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
 
 let mockHorizon: AgendaItem[] = [];
@@ -88,7 +90,7 @@ jest.mock('@/data/hooks/usePlan', () => ({
    * markers, and it is what lets the fill run on every render: it records the
    * removals rather than the fact that a fill happened.
    */
-  usePlanDismissals: () => mockDismissals,
+  usePlanDismissals: () => ({ dismissals: mockDismissals, isLoading: mockDismissalsLoading }),
   usePlanUnavailable: () => mockPlanUnknown,
   usePlanLoading: () => mockEntriesLoading,
   useTheirPlanCount: () => 0,
@@ -265,6 +267,7 @@ const addedKeys = () =>
 beforeEach(() => {
   mockAdd.mockClear();
   mockDismissals = [];
+  mockDismissalsLoading = false;
   mockClearPlanOnCreate.mockClear();
   // Flags were the one group of fixtures this reset had missed, so a test that
   // set them leaked into every test written after it — and the proposal test
@@ -702,8 +705,11 @@ describe('the fill against its own optimistic write', () => {
       );
     });
 
-    // The guard that matters: the effect re-ran against its own optimistic
-    // write and must not have submitted the same rows a second time.
+    // The effect re-ran against its own optimistic write and must not have
+    // submitted the same rows a second time. Note this passes for two reasons
+    // — the optimistic rows are in `mockEntries`, so `dueToday` is empty —
+    // which is why `inFlight` gets its own test below, against a re-render
+    // that happens *before* the cache write lands.
     expect(mockAdd).toHaveBeenCalledTimes(1);
 
     act(() => settle());
@@ -733,6 +739,52 @@ describe('the fill against its own optimistic write', () => {
         </ThemeProvider>,
       );
     });
+
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the in-flight guard, with nothing else standing in for it', () => {
+  /*
+   * A review found the assertion above passes for the wrong reason: the
+   * `optimistic()` mock feeds `mockEntries`, so by the time the effect re-runs
+   * every key is already "planned", `dueToday` is empty, and the effect
+   * returns long before it reaches `inFlight`. The guarantee was documented
+   * and unchecked — the shape AGENTS.md names.
+   *
+   * In the app the window is real: `mutate` calls `onMutate`, which awaits
+   * `cancelQueries` before it writes, so a re-render in between sees the work
+   * still outstanding and still unplanned. The fill now runs on *every*
+   * render, so this ref is the only thing between that and a duplicate write.
+   *
+   * Here the mock writes nothing back, which reproduces that window exactly.
+   */
+  it('does not submit twice when the cache has not caught up', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    const { rerender } = renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(1));
+
+    /*
+     * `mockEntries` deliberately left empty: the optimistic write has not
+     * landed, so the chore still looks outstanding and unplanned.
+     *
+     * A fresh element each time. React bails out of re-rendering when handed
+     * the *same* element object, so passing one variable twice is a single
+     * render — which is how the first version of this test passed against the
+     * guard removed.
+     */
+    for (let i = 0; i < 2; i += 1) {
+      act(() =>
+        rerender(
+          <ThemeProvider>
+            <PlanView />
+          </ThemeProvider>,
+        ),
+      );
+    }
 
     expect(mockAdd).toHaveBeenCalledTimes(1);
   });
@@ -1523,5 +1575,53 @@ describe('creating a chore with “add to today’s plan” ticked', () => {
     renderView();
 
     await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['gift']));
+  });
+});
+
+describe('the fill waits for the record of what was taken off', () => {
+  /*
+   * A review found the dismissals query had no loading guard, so on any render
+   * where the plan had resolved and this had not — a cold open, or any of the
+   * household-wide invalidations realtime fires — the fill saw an empty
+   * dismissal set and re-added everything that had been removed.
+   *
+   * Not a flicker. `add` clears dismissals for what it adds, so the refill
+   * also *deletes the record*: the chore comes back and the fact that you
+   * removed it is gone. Exactly the failure the table exists to prevent.
+   */
+  it('adds nothing at all while the dismissals are still loading', async () => {
+    mockAutoPlan = false;
+    mockDismissalsLoading = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('fills once they arrive', async () => {
+    // The other half: waiting must not mean never.
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toEqual(['v1:litter']));
+  });
+
+  it('does not fill the housemate’s day while they are loading either', async () => {
+    mockAutoPlan = false;
+    mockDismissalsLoading = true;
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+    mockView.theirs = [item('bins', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } })];
+    mockChores = [recurring('bins')];
+    renderView();
+
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    expect(mockAdd).not.toHaveBeenCalled();
   });
 });

@@ -420,7 +420,7 @@ export function PlanView() {
    * survive the other phone, and together they meant the plan went stale the
    * moment it had run.
    */
-  const dismissals = usePlanDismissals(today);
+  const { dismissals, isLoading: dismissalsLoading } = usePlanDismissals(today);
 
   /*
    * In flight, and failed-today, both as refs.
@@ -474,7 +474,7 @@ export function PlanView() {
 
   useEffect(() => {
     if (household.data == null || housemateId === undefined) return;
-    if (isLoading || entriesLoading) return;
+    if (isLoading || entriesLoading || dismissalsLoading) return;
     if (theirInFlight.current || theirFailedFor.current === today) return;
 
     const theirPlanned = new Set(
@@ -553,6 +553,7 @@ export function PlanView() {
     isLoading,
     entriesLoading,
     dismissals,
+    dismissalsLoading,
     today,
     allEntries,
     view.mine,
@@ -577,7 +578,9 @@ export function PlanView() {
      * the branch is never taken on data nobody has read yet.
      */
     if (household.data == null) return;
-    if (isLoading || entriesLoading) return;
+    // `dismissalsLoading` for the same reason as `entriesLoading`: acting on an
+    // empty dismissal set re-adds what was removed *and* erases the record.
+    if (isLoading || entriesLoading || dismissalsLoading) return;
     if (inFlight.current || failedFor.current === today) return;
 
     /*
@@ -721,6 +724,7 @@ export function PlanView() {
     isLoading,
     entriesLoading,
     dismissals,
+    dismissalsLoading,
     today,
     entries,
     view.mine,

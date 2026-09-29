@@ -739,8 +739,11 @@ export function PlanScreen({
    * any way a person would notice, and one message is easier to act on than a
    * stack of them.
    */
-  const mutationFailure =
+  const rawFailure =
     ((toggle.error ?? remove.error ?? toggleSubtask.error) as Error | null)?.message ?? null;
+  /** A failure already dismissed, so it does not reappear on the next render. */
+  const [hiddenFailure, setHiddenFailure] = useState<string | null>(null);
+  const mutationFailure = rawFailure === hiddenFailure ? null : rawFailure;
 
   const renderRow = ({ item }: { item: AgendaItem }, ownerId: string | undefined) => {
     const meta = choreMeta.get(item.choreId);
@@ -1337,11 +1340,12 @@ export function PlanScreen({
       */}
       <Toast
         message={mutationFailure}
-        onDismiss={() => {
-          toggle.reset();
-          remove.reset();
-          toggleSubtask.reset();
-        }}
+        /*
+         * Hidden locally rather than reset: `reset()` detaches the observer
+         * from a mutation that may still be in flight, so its failure never
+         * arrives and the next one is swallowed.
+         */
+        onDismiss={() => setHiddenFailure(mutationFailure)}
         bottomInset={ADD_BUTTON_CLEARANCE}
       />
     </SafeAreaView>

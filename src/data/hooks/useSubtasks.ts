@@ -11,7 +11,6 @@ import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/reac
 import { useMemo } from 'react';
 
 import {
-  listSubtaskTicks,
   listSubtaskTicksForOccurrences,
   listSubtasks,
   replaceSubtasks,
@@ -38,19 +37,6 @@ export function useSubtasksFor(choreId: string | null): readonly Subtask[] {
   );
 }
 
-/** The ids ticked off for one occurrence. */
-export function useSubtaskTicks(occurrenceKey: string | null): ReadonlySet<string> {
-  const householdId = useActiveHouseholdId();
-  const query = useQuery({
-    queryKey: qk.subtaskTicks(householdId ?? '__none__', occurrenceKey ?? '__none__'),
-    queryFn:
-      householdId === null || occurrenceKey === null
-        ? skipToken
-        : () => listSubtaskTicks(householdId, occurrenceKey),
-  });
-  return useMemo(() => new Set(query.data ?? []), [query.data]);
-}
-
 /**
  * Steps grouped by chore, for drawing them under every row.
  *
@@ -70,13 +56,13 @@ export function useSubtasksByChore(): ReadonlyMap<string, readonly Subtask[]> {
   }, [all.data]);
 }
 
-/** Ticks for everything on screen, keyed by occurrence. */
 /** One tick, as `listSubtaskTicksForOccurrences` returns it. */
 interface TickRow {
   readonly subtaskId: string;
   readonly occurrenceKey: string;
 }
 
+/** Ticks for everything on screen, keyed by occurrence. */
 export function useSubtaskTicksFor(
   occurrenceKeys: readonly string[],
 ): ReadonlyMap<string, ReadonlySet<string>> {

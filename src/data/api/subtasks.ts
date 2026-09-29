@@ -46,25 +46,6 @@ export async function listSubtasks(householdId: string): Promise<readonly Subtas
 }
 
 /**
- * Which steps are ticked for one occurrence.
- *
- * Scoped to a single key rather than fetched wholesale: this is read when an
- * occurrence is opened, and a household's tick history grows without bound.
- */
-export async function listSubtaskTicks(
-  householdId: string,
-  occurrenceKey: string,
-): Promise<readonly string[]> {
-  const { data, error } = await supabase
-    .from('chore_subtask_ticks')
-    .select('subtask_id')
-    .eq('household_id', householdId)
-    .eq('occurrence_key', occurrenceKey);
-  if (error) fail(error);
-  return (data ?? []).map((row) => row.subtask_id);
-}
-
-/**
  * Ticks for several occurrences at once.
  *
  * The list screens draw steps under every row, so asking per occurrence would

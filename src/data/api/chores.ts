@@ -522,7 +522,7 @@ export async function skipOccurrence(input: ExceptionWriteInput): Promise<void> 
   if (error === null) return;
   if (!isDuplicate(error)) fail(error);
 
-  const { data: existing } = await supabase
+  const { data: existing, error: readError } = await supabase
     .from('chore_exceptions')
     .select('kind')
     .eq('chore_id', input.choreId)
@@ -530,10 +530,25 @@ export async function skipOccurrence(input: ExceptionWriteInput): Promise<void> 
     .maybeSingle();
 
   /*
+   * The read's own failure counts. Dropping it meant a timeout or a refused
+   * read produced `null`, which fell into the success branch below — the same
+   * silent no-op this function was being changed to fix, moved one line down.
+   */
+  if (readError) fail(readError);
+
+  /*
    * Already skipped — by the other phone, or by this one's retry. Either way
    * the outcome the caller asked for is the outcome, so this is success.
+   *
+   * `null` means the duplicate is real but the row is invisible to this
+   * reader: `exceptions_insert` needs only household membership while
+   * `exceptions_select` also requires `chore_is_visible`. The app never
+   * produces that state, and saying so is better than claiming a skip.
    */
-  if (existing === null || existing.kind === 'skip') return;
+  if (existing === null) {
+    throw new Error('Something already exists for this one. Refresh and try again.');
+  }
+  if (existing.kind === 'skip') return;
 
   throw new Error('Somebody moved this to another day. Refresh to see where it went.');
 }

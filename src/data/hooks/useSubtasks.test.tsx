@@ -54,7 +54,6 @@ const mockWrites: { subtaskId: string; ticked: boolean }[] = [];
 
 jest.mock('../api/subtasks', () => ({
   listSubtasks: jest.fn(async () => []),
-  listSubtaskTicks: jest.fn(async () => []),
   listSubtaskTicksForOccurrences: jest.fn(async () => mockServerTicks),
   replaceSubtasks: jest.fn(async () => {}),
   setSubtaskTick: jest.fn(

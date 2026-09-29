@@ -15,7 +15,7 @@ create extension if not exists pgtap with schema extensions;
 -- other household.
 
 begin;
-select plan(10);
+select plan(12);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -198,6 +198,42 @@ select is(
    where chore_id = 'fccc9999-9999-9999-9999-999999999991'),
   0,
   'while an ordinary chore still clears its flags when it is done'
+);
+
+-- Her own copy, done. Now the flag she raised has nothing left to point at,
+-- so it goes — the case the first version of this fix got wrong by returning
+-- early for every `everyone` completion, leaving the flag standing for ever.
+insert into public.chore_completions
+  (household_id, chore_id, occurrence_key, due_on, completed_on, completed_by)
+values ('fccc0000-0000-0000-0000-00000000000a', 'fccc9999-9999-9999-9999-999999999994',
+        'v1:laundry:2026-09-21:0:fccc1111-1111-1111-1111-111111111111',
+        '2026-09-21', '2026-09-21', 'fccc1111-1111-1111-1111-111111111111');
+
+select is(
+  (select count(*)::int from public.chore_flags
+   where chore_id = 'fccc9999-9999-9999-9999-999999999994'),
+  0,
+  'and doing your own copy clears the flag *you* raised'
+);
+
+-- The narrowing is per person, not per chore: Bob's flag on the same
+-- `everyone` chore survives Alice having finished hers.
+insert into public.chore_flags (household_id, chore_id, user_id, flagged_on)
+values ('fccc0000-0000-0000-0000-00000000000a', 'fccc9999-9999-9999-9999-999999999994',
+        'fccc2222-2222-2222-2222-222222222222', '2026-09-24');
+
+insert into public.chore_completions
+  (household_id, chore_id, occurrence_key, due_on, completed_on, completed_by)
+values ('fccc0000-0000-0000-0000-00000000000a', 'fccc9999-9999-9999-9999-999999999994',
+        'v1:laundry:2026-09-24:0:fccc1111-1111-1111-1111-111111111111',
+        '2026-09-24', '2026-09-24', 'fccc1111-1111-1111-1111-111111111111');
+
+select is(
+  (select count(*)::int from public.chore_flags
+   where chore_id = 'fccc9999-9999-9999-9999-999999999994'
+     and user_id = 'fccc2222-2222-2222-2222-222222222222'),
+  1,
+  'while the other person''s flag on the same chore is untouched'
 );
 
 -- ═══ Skipping is not doing ═════════════════════════════════════════════════
