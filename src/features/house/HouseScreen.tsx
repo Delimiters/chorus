@@ -229,7 +229,12 @@ export function HouseScreen() {
           board went the other way for the opposite reason.
         */}
         <View style={{ paddingTop: space.xxl, gap: space.sm }}>
+          <Button label="Chore chart" variant="ghost" onPress={() => router.push('/chart')} />
           <Button label="All chores" variant="ghost" onPress={() => router.push('/chores')} />
+          {/* `/stats` has existed since Phase 6 with nothing linking to it —
+              four phases of a screen nobody could reach. The chart is what
+              finally gave it a neighbour. */}
+          <Button label="Last four weeks" variant="ghost" onPress={() => router.push('/stats')} />
           <Button label="Categories" variant="ghost" onPress={() => router.push('/categories')} />
           <Button label="Settings" variant="ghost" onPress={() => router.push('/settings')} />
           <Button

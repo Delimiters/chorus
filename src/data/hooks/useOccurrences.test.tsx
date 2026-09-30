@@ -125,6 +125,66 @@ describe('optimistic completion', () => {
     });
   });
 
+  /*
+   * The backdated tick, which the chore chart depends on and which nothing was
+   * asserting: the hook accepted `completedOn` and a mutation replacing it with
+   * `today` left this suite entirely green.
+   *
+   * It matters because `anchorToCompletion` restarts an `every N days` interval
+   * from the completion date. Recording Tuesday's tick as Wednesday moves the
+   * next occurrence a day, which is exactly the "reset the cycle onto the wrong
+   * day" the chart exists to avoid.
+   */
+  it('records the day the caller says it was done, not today', async () => {
+    const { wrapper } = setup();
+    const { result } = await renderHook(() => useToggleCompletion(), { wrapper });
+    const tuesday = '2026-07-28' as CivilDate;
+
+    await act(async () => {
+      result.current.mutate({ item, complete: true, completedOn: tuesday });
+    });
+
+    await waitFor(() => {
+      expect(mockComplete).toHaveBeenCalledWith(
+        expect.objectContaining({ completedOn: tuesday, dueOn: item.dueOn }),
+      );
+    });
+  });
+
+  it('patches the cache with that same day, so the optimistic grid matches the write', async () => {
+    const { client, window, wrapper } = setup();
+    const { result } = await renderHook(() => useToggleCompletion(), { wrapper });
+    const tuesday = '2026-07-28' as CivilDate;
+
+    await act(async () => {
+      result.current.mutate({ item, complete: true, completedOn: tuesday });
+    });
+
+    await waitFor(() => {
+      const completions = client.getQueryData(qk.completions(HOUSEHOLD, window.start, window.end));
+      expect(completions).toEqual([expect.objectContaining({ completedOn: tuesday })]);
+    });
+  });
+
+  /*
+   * A completion in the future did not happen. Nothing in the UI offers a
+   * future cell, so this is the floor under a caller that gets it wrong.
+   */
+  it('clamps a day in the future back to today', async () => {
+    const { wrapper } = setup();
+    const { result } = await renderHook(() => useToggleCompletion(), { wrapper });
+
+    await act(async () => {
+      result.current.mutate({ item, complete: true, completedOn: '2027-01-01' as CivilDate });
+    });
+
+    await waitFor(() => {
+      expect(mockComplete).toHaveBeenCalledWith(
+        expect.objectContaining({ completedOn: mockToday }),
+      );
+    });
+  });
+
   it('leaves the member list alone, even though it is also an array under the household key', async () => {
     const { client, wrapper } = setup();
     const { result } = await renderHook(() => useToggleCompletion(), { wrapper });
