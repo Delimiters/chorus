@@ -13,7 +13,7 @@ create extension if not exists pgtap with schema extensions;
 -- turning notifications off altogether.
 
 begin;
-select plan(9);
+select plan(14);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -136,6 +136,73 @@ select is(
   (select count(*)::int from net.http_request_queue),
   0,
   'adding a chore you keep to yourself tells nobody its title'
+);
+
+-- ═══ Somebody changing your day ════════════════════════════════════════════
+--
+-- The trap this exists around: both phones fill both plans automatically, so a
+-- trigger that announced every `plan_entries` row would fire once per chore
+-- per morning. `added_by` is null for the fill, and that is the whole
+-- distinction between a decision and housekeeping.
+delete from net.http_request_queue;
+
+-- The fill, as it actually writes: nobody decided this.
+insert into public.plan_entries
+  (household_id, user_id, chore_id, occurrence_key, planned_for, position, added_by)
+values ('ed000000-0000-0000-0000-00000000000a', 'e2222222-2222-2222-2222-222222222222',
+        'ec000000-0000-0000-0000-000000000001', 'v1:dishes:2026-10-01', '2026-10-01', 1, null);
+
+select is(
+  (select count(*)::int from net.http_request_queue),
+  0,
+  'the automatic fill says nothing, however many rows it writes'
+);
+
+-- You, putting something on your own day.
+insert into public.plan_entries
+  (household_id, user_id, chore_id, occurrence_key, planned_for, position, added_by)
+values ('ed000000-0000-0000-0000-00000000000a', 'e2222222-2222-2222-2222-222222222222',
+        'ec000000-0000-0000-0000-000000000001', 'v1:dishes:2026-10-02', '2026-10-02', 2,
+        'e2222222-2222-2222-2222-222222222222');
+
+select is(
+  (select count(*)::int from net.http_request_queue),
+  0,
+  'nor does putting something on your own day — you were there'
+);
+
+-- Alice putting something on Bob's day. This is the one worth hearing about.
+insert into public.plan_entries
+  (household_id, user_id, chore_id, occurrence_key, planned_for, position, added_by)
+values ('ed000000-0000-0000-0000-00000000000a', 'e2222222-2222-2222-2222-222222222222',
+        'ec000000-0000-0000-0000-000000000001', 'v1:dishes:2026-10-03', '2026-10-03', 3,
+        'e1111111-1111-1111-1111-111111111111');
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'to' from net.http_request_queue limit 1),
+  'ExponentPushToken[bob]',
+  'but somebody else putting work on your day reaches you'
+);
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'body' from net.http_request_queue limit 1),
+  'Alice put this on your day.',
+  'and says who did it'
+);
+
+-- ═══ And taking it off ═════════════════════════════════════════════════════
+delete from net.http_request_queue;
+
+insert into public.plan_dismissals
+  (household_id, user_id, occurrence_key, dismissed_on, dismissed_by, chore_id)
+values ('ed000000-0000-0000-0000-00000000000a', 'e2222222-2222-2222-2222-222222222222',
+        'v1:dishes:2026-10-03', '2026-10-03', 'e1111111-1111-1111-1111-111111111111',
+        'ec000000-0000-0000-0000-000000000001');
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'body' from net.http_request_queue limit 1),
+  'Alice took this off your day.',
+  'taking something off somebody else''s day says so too'
 );
 
 select * from finish();

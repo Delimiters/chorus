@@ -424,7 +424,11 @@ describe('a plan in progress', () => {
     fireEvent.press(screen.getByRole('button', { name: /^Bins, .*Open options\.$/ }));
     fireEvent.press(screen.getByRole('button', { name: /Take off today/ }));
 
-    expect(mockRemove).toHaveBeenCalledWith({ occurrenceKey: 'v1:bins', ownerId: THEM });
+    expect(mockRemove).toHaveBeenCalledWith({
+      occurrenceKey: 'v1:bins',
+      ownerId: THEM,
+      choreId: 'bins',
+    });
   });
 
   it('can be reordered without a drag gesture', () => {
@@ -484,7 +488,13 @@ describe('a plan in progress', () => {
     fireEvent.press(screen.getByRole('button', { name: /^Dishes, .*Open options\.$/ }));
     fireEvent.press(screen.getByRole('button', { name: /Take off today/ }));
 
-    expect(mockRemove).toHaveBeenCalledWith({ occurrenceKey: 'v1:dishes', ownerId: ME });
+    // `choreId` rides along so the notification can name the chore — a
+    // dismissal is keyed by occurrence, which the database cannot parse.
+    expect(mockRemove).toHaveBeenCalledWith({
+      occurrenceKey: 'v1:dishes',
+      ownerId: ME,
+      choreId: 'dishes',
+    });
     expect(mockToggle).not.toHaveBeenCalled();
   });
 });

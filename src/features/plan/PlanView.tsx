@@ -63,7 +63,16 @@ export function PlanView() {
    * your housemate's day silently landing on yours is a dead button.
    */
   const [pickingFor, setPickingFor] = useState<string | null>(null);
-  const add = useAddToPlan(today);
+  /*
+   * Two instances of the same hook, told apart by who is deciding.
+   *
+   * `add` is the automatic fill; `addDeliberate` is a person choosing. They
+   * write the same rows and differ only in `added_by`, which is what decides
+   * whether the other phone hears about it — the fill writes constantly, so
+   * announcing it would be a notification per chore per morning.
+   */
+  const add = useAddToPlan(today, undefined, true);
+  const addDeliberate = useAddToPlan(today);
   /*
    * A second instance, bound to whoever the picker is currently filling for.
    *
@@ -89,7 +98,8 @@ export function PlanView() {
     [members.data, userId],
   );
   const allEntries = usePlanEntries(today);
-  const addForThem = useAddToPlan(today, housemateId);
+  const addForThem = useAddToPlan(today, housemateId, true);
+  const addForThemDeliberate = useAddToPlan(today, housemateId);
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
   const horizon = useOccurrences(
     useMemo(
@@ -831,11 +841,15 @@ export function PlanView() {
 
     const settled = [...stale, ...[...mine, ...forThem].map((i) => i.choreId)];
     if (settled.length > 0) clearPlanOnCreate(settled);
+    // Deliberate: somebody ticked "add to today's plan" on the form. The one
+    // that lands on the housemate's day is worth telling her about.
     if (mine.length > 0) {
-      add.mutate(mine.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })));
+      addDeliberate.mutate(
+        mine.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+      );
     }
     if (forThem.length > 0) {
-      addForThem.mutate(
+      addForThemDeliberate.mutate(
         forThem.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
       );
     }
@@ -846,8 +860,8 @@ export function PlanView() {
     today,
     view.mine,
     view.upcoming,
-    add,
-    addForThem,
+    addDeliberate,
+    addForThemDeliberate,
     housemateId,
     userId,
     clearPlanOnCreate,
@@ -886,10 +900,14 @@ export function PlanView() {
         autoPlan={household.data?.autoPlan ?? true}
         dueOrLateCount={dueOrLate.length}
         onAddAllDue={() =>
-          add.mutate(dueOrLate.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
+          addDeliberate.mutate(
+            dueOrLate.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+          )
         }
         onAcceptProposal={(items) =>
-          add.mutate(items.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })))
+          addDeliberate.mutate(
+            items.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+          )
         }
       />
       <PlanPicker
