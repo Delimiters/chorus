@@ -533,6 +533,7 @@ export type Database = {
           household_id: string
           id: string
           joined_at: string
+          push_enabled: boolean
           role: Database["public"]["Enums"]["member_role"]
           share_routine: boolean
           sort_order: number
@@ -543,6 +544,7 @@ export type Database = {
           household_id: string
           id?: string
           joined_at?: string
+          push_enabled?: boolean
           role?: Database["public"]["Enums"]["member_role"]
           share_routine?: boolean
           sort_order?: number
@@ -553,6 +555,7 @@ export type Database = {
           household_id?: string
           id?: string
           joined_at?: string
+          push_enabled?: boolean
           role?: Database["public"]["Enums"]["member_role"]
           share_routine?: boolean
           sort_order?: number
@@ -676,7 +679,9 @@ export type Database = {
       }
       plan_dismissals: {
         Row: {
+          chore_id: string | null
           created_at: string
+          dismissed_by: string | null
           dismissed_on: string
           household_id: string
           id: string
@@ -684,7 +689,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          chore_id?: string | null
           created_at?: string
+          dismissed_by?: string | null
           dismissed_on: string
           household_id: string
           id?: string
@@ -692,7 +699,9 @@ export type Database = {
           user_id: string
         }
         Update: {
+          chore_id?: string | null
           created_at?: string
+          dismissed_by?: string | null
           dismissed_on?: string
           household_id?: string
           id?: string
@@ -700,6 +709,20 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "plan_dismissals_chore_id_fkey"
+            columns: ["chore_id"]
+            isOneToOne: false
+            referencedRelation: "chores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_dismissals_dismissed_by_fkey"
+            columns: ["dismissed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "plan_dismissals_household_id_fkey"
             columns: ["household_id"]
@@ -718,6 +741,7 @@ export type Database = {
       }
       plan_entries: {
         Row: {
+          added_by: string | null
           chore_id: string
           created_at: string
           household_id: string
@@ -729,6 +753,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          added_by?: string | null
           chore_id: string
           created_at?: string
           household_id: string
@@ -740,6 +765,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          added_by?: string | null
           chore_id?: string
           created_at?: string
           household_id?: string
@@ -751,6 +777,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "plan_entries_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "plan_entries_chore_id_fkey"
             columns: ["chore_id"]

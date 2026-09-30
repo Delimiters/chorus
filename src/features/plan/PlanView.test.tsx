@@ -106,8 +106,14 @@ jest.mock('@/data/hooks/usePlan', () => ({
    * not be observed at all. Adding to the wrong plan is the defect this whole
    * area is about.
    */
-  useAddToPlan: (_today: string, ownerId?: string) => ({
-    mutate: (items: unknown, options?: unknown) => mockAdd(items, options, ownerId),
+  /*
+   * `automatic` is recorded as a fourth argument. It decides `added_by`, and
+   * therefore whether the *other* phone is notified — the fill writes plan
+   * rows constantly, so marking it deliberate means a push per chore per
+   * morning. The hook's own test pins the column; this pins the caller.
+   */
+  useAddToPlan: (_today: string, ownerId?: string, automatic = false) => ({
+    mutate: (items: unknown, options?: unknown) => mockAdd(items, options, ownerId, automatic),
   }),
 }));
 
@@ -1623,5 +1629,53 @@ describe('the fill waits for the record of what was taken off', () => {
 
     await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
     expect(mockAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe('what the fill records about who chose it', () => {
+  /*
+   * The wiring for the guard `usePlan.test.tsx` pins at the hook. Swapping the
+   * fill's instance for the announcing one passed every test in this file
+   * before this existed — and the consequence is a notification for every
+   * chore the app plans, every morning, on the other person's phone.
+   */
+  const automaticOf = (ownerId: string | undefined) =>
+    mockAdd.mock.calls.filter((c) => c[2] === ownerId).map((c) => c[3]);
+
+  it('marks its own fill as nobody’s decision', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await waitFor(() => expect(automaticOf(undefined)).toEqual([true]));
+  });
+
+  it('marks the housemate’s fill the same way', async () => {
+    mockAutoPlan = false;
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+    mockView.theirs = [item('bins', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } })];
+    mockChores = [recurring('bins')];
+    renderView();
+
+    await waitFor(() => expect(automaticOf(mockThem)).toEqual([true]));
+  });
+
+  it('marks a deliberate add as a decision, so it is announced', async () => {
+    // The button is a person choosing, and on your own day it still writes
+    // your id — the trigger decides silence, not the client.
+    mockAutoPlan = false;
+    mockView.mine = [
+      item('gutters', { status: 'overdue', dueOn: civilDate('2026-07-04'), daysOverdue: 59 }),
+    ];
+    mockChores = [recurring('gutters')];
+    renderView();
+
+    fireEvent.press(await screen.findByText(/Add everything due or late/));
+
+    expect(automaticOf(undefined)).toContain(false);
   });
 });

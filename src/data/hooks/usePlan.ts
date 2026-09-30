@@ -205,6 +205,14 @@ export function useTheirPlanEntries(
 export interface PlanTarget {
   readonly occurrenceKey: string;
   readonly ownerId?: string | undefined;
+  /**
+   * The chore this occurrence belongs to, so a removal can be named.
+   *
+   * A dismissal is keyed by occurrence, and an occurrence key is a string the
+   * database cannot parse back into a chore without reimplementing the engine
+   * — so the caller, which has the row in hand, carries it.
+   */
+  readonly choreId?: string | undefined;
 }
 
 interface Addable {
@@ -212,7 +220,19 @@ interface Addable {
   readonly choreId: string;
 }
 
-export function useAddToPlan(today: CivilDate, ownerId?: string) {
+export function useAddToPlan(
+  today: CivilDate,
+  ownerId?: string,
+  /**
+   * True when the automatic fill is the caller rather than a person.
+   *
+   * It decides `added_by`, and therefore whether the other phone hears about
+   * it. The fill writes these rows constantly — both devices fill both plans —
+   * so announcing them would mean a notification per chore per morning, which
+   * is how somebody learns to ignore notifications entirely.
+   */
+  automatic = false,
+) {
   const householdId = useActiveHouseholdId();
   const me = useUserId();
   /*
@@ -278,6 +298,7 @@ export function useAddToPlan(today: CivilDate, ownerId?: string) {
           occurrenceKey: item.occurrenceKey,
           plannedFor: today,
           position: item.position,
+          addedBy: automatic ? null : userId,
         })),
       );
       /*
@@ -403,9 +424,14 @@ export function useRemoveFromPlan(today: CivilDate) {
    * mutation hard-wired to `auth.uid()` can only ever edit half the screen.
    */
   return useMutation({
-    mutationFn: async ({ occurrenceKey, ownerId }: PlanTarget) => {
+    mutationFn: async ({ occurrenceKey, ownerId, choreId }: PlanTarget) => {
       const owner = ownerId ?? userId;
-      if (owner === null || householdId === null) throw new Error('Please sign in again.');
+      // `userId` too, not just `owner`: with `ownerId` passed explicitly the
+      // fallback never runs, so a signed-out session would otherwise reach
+      // `dismissedBy` as null and record a removal nobody made.
+      if (owner === null || userId === null || householdId === null) {
+        throw new Error('Please sign in again.');
+      }
 
       /*
        * The record first, then the delete — which is the ordering that fails
@@ -429,6 +455,10 @@ export function useRemoveFromPlan(today: CivilDate) {
         userId: owner,
         occurrenceKey,
         dismissedOn: today,
+        // Whose day it came off is `owner`; this is who did it, and the two
+        // differing is exactly what makes it worth telling them about.
+        dismissedBy: userId,
+        choreId: choreId ?? null,
       });
       await removeFromPlan(owner, occurrenceKey, today);
     },

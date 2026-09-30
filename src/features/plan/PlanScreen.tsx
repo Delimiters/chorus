@@ -1221,6 +1221,10 @@ export function PlanScreen({
                 remove.mutate({
                   occurrenceKey: removing.item.occurrenceKey,
                   ownerId: removing.ownerId,
+                  // So the notification can name the chore: a dismissal is
+                  // keyed by occurrence, and that key is a string the database
+                  // cannot parse back into a chore.
+                  choreId: removing.item.choreId,
                 });
               }
               setRemoving(null);

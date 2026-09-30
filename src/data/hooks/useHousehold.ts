@@ -17,6 +17,7 @@ import {
   listMembers,
   listMyHouseholds,
   setPlanGroupOrder,
+  setPushEnabled,
   updateHousehold,
   type Household,
   type Member,
@@ -245,3 +246,29 @@ export function useSetPlanGroupOrder() {
 }
 
 export type { Household, Member, PlanGroupOrder };
+
+/**
+ * Whether you hear about what your housemate does.
+ *
+ * Deliberately not optimistic. The others in this file patch the members cache
+ * because a toggle that lags reads as broken — but this one is read by a
+ * database trigger rather than by the screen, so an optimistic flip would only
+ * be pretending. What matters is that the write landed, and the mutation's own
+ * pending state says that.
+ */
+export function useSetPushEnabled() {
+  const householdId = useActiveHouseholdId();
+  const queryClient = useQueryClient();
+  const userId = useSessionStore((s) => s.userId);
+
+  return useMutation({
+    mutationFn: (enabled: boolean) => {
+      if (householdId === null || userId === null) throw new Error('You are signed out.');
+      return setPushEnabled(householdId, userId, enabled);
+    },
+    onSettled: async () => {
+      if (householdId === null) return;
+      await queryClient.invalidateQueries({ queryKey: qk.members(householdId) });
+    },
+  });
+}

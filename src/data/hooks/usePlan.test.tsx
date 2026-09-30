@@ -30,6 +30,8 @@ interface Written {
   readonly occurrenceKey: string;
   readonly position: number;
   readonly plannedFor: string;
+  /** Who chose it, or null when the automatic fill did. */
+  readonly addedBy: string | null;
 }
 
 const mockWrites: Written[] = [];
@@ -469,5 +471,36 @@ describe("your housemate's day, as data", () => {
 
     await waitFor(() => expect(result.current.length).toBe(2));
     expect(result.current.map((r) => r.occurrenceKey)).toEqual(['v1:bins', 'v1:mopping']);
+  });
+});
+
+describe('who a plan row records as having chosen it', () => {
+  /*
+   * The single most important field in this hook, and the one nothing was
+   * holding. `added_by` decides whether the *other* phone gets a notification,
+   * and the automatic fill writes these rows constantly — both devices fill
+   * both plans. Mark the fill as deliberate and Emily gets a push per chore
+   * per morning, which is how somebody learns to ignore notifications.
+   */
+  it('records nobody when the automatic fill is the caller', async () => {
+    const { client, wrapper } = harness();
+    seed(client, []);
+    const { result } = renderHook(() => useAddToPlan(TODAY, undefined, true), { wrapper });
+
+    act(() => result.current.mutate([{ occurrenceKey: 'v1:a', choreId: 'a' }]));
+
+    await waitFor(() => expect(mockWrites).toHaveLength(1));
+    expect(mockWrites[0]?.addedBy).toBeNull();
+  });
+
+  it('records the person when a person chose it', async () => {
+    const { client, wrapper } = harness();
+    seed(client, []);
+    const { result } = renderHook(() => useAddToPlan(TODAY), { wrapper });
+
+    act(() => result.current.mutate([{ occurrenceKey: 'v1:a', choreId: 'a' }]));
+
+    await waitFor(() => expect(mockWrites).toHaveLength(1));
+    expect(mockWrites[0]?.addedBy).toBe(ME);
   });
 });
