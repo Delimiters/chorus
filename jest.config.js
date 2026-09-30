@@ -73,6 +73,9 @@ module.exports = {
     'src/core/notify/': coverageThreshold,
     'src/core/chore/': coverageThreshold,
     'src/core/plan/': coverageThreshold,
+    'src/core/notes/': coverageThreshold,
+    // Added late: `text/` shipped with the note-link parser and was missed.
+    'src/core/text/': coverageThreshold,
   },
   coverageReporters: ['text-summary', 'lcov', 'json-summary'],
 };

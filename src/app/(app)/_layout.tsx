@@ -19,6 +19,7 @@ import { LoadingState } from '@/design/components';
 import { useColors } from '@/design/theme';
 import { useActiveHouseholdId, useAuthStatus } from '@/stores/sessionStore';
 import { useViewStore } from '@/stores/viewStore';
+import { useNoteSeenStore } from '@/stores/noteSeenStore';
 import { useRoutineStore } from '@/stores/routineStore';
 
 export default function AppLayout() {
@@ -49,6 +50,11 @@ export default function AppLayout() {
   useEffect(() => {
     void hydrateRoutines();
   }, [hydrateRoutines]);
+
+  const hydrateNotesSeen = useNoteSeenStore((s) => s.hydrate);
+  useEffect(() => {
+    void hydrateNotesSeen();
+  }, [hydrateNotesSeen]);
 
   const reminderPolicy = useReminderPolicy();
   useRealtimeHousehold();

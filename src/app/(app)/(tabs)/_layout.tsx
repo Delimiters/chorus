@@ -3,6 +3,7 @@ import { View, type ColorValue } from 'react-native';
 
 import { useTheme } from '@/design/theme';
 import { type } from '@/design/tokens';
+import { useNoteBadge } from '@/features/notes/useUnseenNotes';
 
 /*
  * Four tabs, and the count is load-bearing rather than incidental.
@@ -35,6 +36,17 @@ function TabIcon({ color, focused }: { color: ColorValue; focused: boolean }) {
 export default function TabLayout() {
   const { colors } = useTheme();
 
+  /*
+   * Counted here rather than inside the Notes screen, because a badge is only
+   * useful on a tab you are *not* looking at. The count comes off the same
+   * query the board renders, so it follows a realtime edit without a fetch of
+   * its own.
+   *
+   * The colour is the household overprint — where the two inks overlap — not
+   * the usual red. Nothing is wrong; somebody wrote something down.
+   */
+  const badge = useNoteBadge();
+
   return (
     <Tabs
       screenOptions={{
@@ -53,7 +65,22 @@ export default function TabLayout() {
     >
       <Tabs.Screen name="index" options={{ title: 'Today', tabBarIcon: TabIcon }} />
       <Tabs.Screen name="upcoming" options={{ title: 'Upcoming', tabBarIcon: TabIcon }} />
-      <Tabs.Screen name="notes" options={{ title: 'Notes', tabBarIcon: TabIcon }} />
+      <Tabs.Screen
+        name="notes"
+        options={{
+          title: 'Notes',
+          tabBarIcon: TabIcon,
+          // Spread rather than `tabBarBadge: badge ?? undefined`:
+          // `exactOptionalPropertyTypes` rejects an explicit undefined.
+          ...(badge === null ? {} : { tabBarBadge: badge }),
+          tabBarBadgeStyle: {
+            backgroundColor: colors.overprint,
+            color: colors.paper,
+            fontSize: 11,
+            fontWeight: '700',
+          },
+        }}
+      />
       <Tabs.Screen name="house" options={{ title: 'House', tabBarIcon: TabIcon }} />
     </Tabs>
   );

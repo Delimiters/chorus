@@ -29,6 +29,7 @@ import { space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 
 import { NoteCard } from '@/features/common/NoteCard';
+import { useMarkNotesSeen } from './useUnseenNotes';
 
 export function NotesScreen() {
   const router = useRouter();
@@ -36,6 +37,13 @@ export function NotesScreen() {
   const notes = useNotes();
   const members = useMembers();
   const userId = useUserId();
+
+  /*
+   * Clears the tab badge while this screen is focused. Called unconditionally,
+   * above the loading and error returns, because a hook cannot live below one —
+   * and marking an empty board seen is harmless.
+   */
+  useMarkNotesSeen();
 
   const nameOf = (id: string | null) => {
     if (id === null) return null;
