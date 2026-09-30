@@ -77,9 +77,16 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     reset: jest.fn(),
   }),
 }));
+/**
+ * Undefined until the household query lands, which is a render later than the
+ * first one. That gap is where the stale-seed defect lived.
+ */
+let mockHouseholdLoaded = true;
+
 jest.mock('@/data/hooks/useHousehold', () => ({
   // Monday-start, so the columns run Mon–Sun and the dates above line up.
-  useHousehold: () => ({ data: { timeZone: 'UTC', weekStartsOn: 1 } }),
+  useHousehold: () =>
+    mockHouseholdLoaded ? { data: { timeZone: 'UTC', weekStartsOn: 1 } } : { data: undefined },
   useMembers: () => ({
     data: [
       { userId: 'me', displayName: 'Jake', accent: 'blue' },
@@ -106,6 +113,7 @@ const renderChart = () =>
 
 beforeEach(() => {
   mockItems = [];
+  mockHouseholdLoaded = true;
   mockMutate.mockClear();
 });
 
@@ -192,6 +200,34 @@ describe('the chart', () => {
     fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, skipped'));
 
     expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The defect found by looking at the screen rather than at a test.
+   *
+   * `weekStartsOn` arrives with the household, a fetch after the first render.
+   * Seeding `useState` with the week computed from the placeholder captured a
+   * Sunday-start grid for a Monday-start household, and the heading stayed on a
+   * date range because the seeded date no longer equalled the computed one —
+   * "This week" was unreachable for the whole life of the screen.
+   */
+  it('follows the household’s week once it loads, rather than the placeholder', () => {
+    mockItems = [occ({ dueOn: TUESDAY })];
+    mockHouseholdLoaded = false;
+
+    const view = renderChart();
+
+    mockHouseholdLoaded = true;
+    view.rerender(
+      <ThemeProvider>
+        <ChoreChartScreen />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText('This week')).toBeTruthy();
+    // Monday first, not Sunday: the grid is the household's week, not the
+    // default one it was rendered with a moment earlier.
+    expect(screen.getByLabelText('Dishes, not due Sun 4 Oct')).toBeTruthy();
   });
 
   /* ── Paging ──────────────────────────────────────────────────────────── */

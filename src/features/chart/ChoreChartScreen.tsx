@@ -67,12 +67,22 @@ export function ChoreChartScreen() {
   const thisWeek = startOfWeek(today, weekStartsOn);
 
   /*
-   * Which week is on screen. Seeded to the one containing today, and paging
-   * forward stops there: a chart of a week that has not happened is a column of
-   * empty boxes you cannot tick.
+   * How many weeks back you have paged — **not** the week itself.
+   *
+   * Storing the date looked equivalent and was not. `weekStartsOn` arrives with
+   * the household, a fetch later than the first render, so seeding state from
+   * it captures the placeholder: this household starts its week on Monday, the
+   * chart opened on a Sunday-to-Saturday grid, and "This week" never appeared
+   * because the seeded date no longer equalled the one being computed. Caught
+   * by looking at the screen; nothing was red.
+   *
+   * An offset has no such failure mode — the week is derived on every render,
+   * so it corrects itself the moment the household lands, and paging back stays
+   * where you put it.
    */
-  const [weekStart, setWeekStart] = useState<CivilDate>(thisWeek);
-  const isThisWeek = weekStart === thisWeek;
+  const [weeksBack, setWeeksBack] = useState(0);
+  const weekStart = addDays(thisWeek, -7 * weeksBack);
+  const isThisWeek = weeksBack === 0;
 
   const window = useMemo(() => ({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
   const { items, isLoading, error } = useOccurrences(window);
@@ -126,7 +136,7 @@ export function ChoreChartScreen() {
           <PagerArrow
             label="Previous week"
             glyph="chevron-left"
-            onPress={() => setWeekStart(addDays(weekStart, -7))}
+            onPress={() => setWeeksBack(weeksBack + 1)}
           />
           <Txt variant="heading" accessibilityRole="header">
             {isThisWeek ? 'This week' : weekLabel(weekStart)}
@@ -137,7 +147,7 @@ export function ChoreChartScreen() {
             label="Next week"
             glyph="chevron-right"
             disabled={isThisWeek}
-            onPress={() => setWeekStart(addDays(weekStart, 7))}
+            onPress={() => setWeeksBack(Math.max(0, weeksBack - 1))}
           />
         </View>
 
@@ -165,6 +175,10 @@ export function ChoreChartScreen() {
           ))}
         </View>
 
+        {/* Above the rows, not below them. A household with a hundred chores
+            has a legend nobody will ever scroll to. */}
+        {rows.length === 0 ? null : <Key />}
+
         {rows.length === 0 ? (
           <View style={{ paddingVertical: space.xxl, alignItems: 'center' }}>
             <Txt variant="body" tone="muted" style={{ textAlign: 'center' }}>
@@ -176,18 +190,10 @@ export function ChoreChartScreen() {
         ) : (
           <Stack gap={0}>
             {rows.map((row) => (
-              <ChartRowView
-                key={row.choreId}
-                row={row}
-                today={today}
-                inkFor={inkFor}
-                onTap={onTap}
-              />
+              <ChartRowView key={row.choreId} row={row} inkFor={inkFor} onTap={onTap} />
             ))}
           </Stack>
         )}
-
-        {rows.length === 0 ? null : <Key />}
       </ScrollView>
     </SafeAreaView>
   );
@@ -205,12 +211,10 @@ function weekLabel(weekStart: CivilDate): string {
 
 function ChartRowView({
   row,
-  today,
   inkFor,
   onTap,
 }: {
   row: ChartRow;
-  today: CivilDate;
   inkFor: (userId: string | null) => string | null;
   onTap: (cell: ChartCell) => void;
 }) {
@@ -250,7 +254,6 @@ function ChartRowView({
             key={cell.date}
             cell={cell}
             title={row.choreTitle}
-            isToday={cell.date === today}
             inkFor={inkFor}
             onPress={() => onTap(cell)}
           />
@@ -263,13 +266,11 @@ function ChartRowView({
 function Box({
   cell,
   title,
-  isToday,
   inkFor,
   onPress,
 }: {
   cell: ChartCell;
   title: string;
-  isToday: boolean;
   inkFor: (userId: string | null) => string | null;
   onPress: () => void;
 }) {
@@ -286,9 +287,19 @@ function Box({
     justifyContent: 'center' as const,
     borderWidth: 1,
     borderColor: 'transparent',
-    // Today's column is tinted rather than outlined. An outline would compete
-    // with the one that means "due today and not done".
-    backgroundColor: isToday ? colors.sunken : 'transparent',
+    /*
+     * No tinted column for today.
+     *
+     * Two goes at one. `sunken` was #F4F4F1 against #F3F2EE paper — a one-unit
+     * difference that rendered as nothing. `raised` was visible and worse: on a
+     * day the chore was not due it painted a solid grey block, which outweighed
+     * every real box on the row and read as a state of its own.
+     *
+     * Today is already marked twice — the bold date in the head, and the one
+     * box on the grid that lifts off the paper. A third marker was competing
+     * with both.
+     */
+    backgroundColor: 'transparent',
   };
 
   const style = (() => {
@@ -297,10 +308,29 @@ function Box({
         // The doer's own ink; the overprint when they have since left, because
         // the household still did it.
         return { ...base, backgroundColor: ink ?? colors.overprint, borderColor: 'transparent' };
+      /*
+       * Three weights, not three colours.
+       *
+       * `colors.overdue` is deliberately *the same value* as `colors.text` —
+       * the design system's position is that a red wash makes an ordinary
+       * Tuesday feel like an incident. On a list that works, because lateness
+       * is spelled out beside the row. On a grid there is no text, so the two
+       * states rendered as literally the same box and the legend showed two
+       * identical swatches.
+       *
+       * So today's box is the only one that lifts off the paper, missed is a
+       * firm ring, and a day still to come is a hairline. No new colour, and
+       * the "outlined, not red" decision stands.
+       */
       case 'today':
-        return { ...base, borderWidth: 1.6, borderColor: colors.text };
+        return {
+          ...base,
+          borderWidth: 2,
+          borderColor: colors.text,
+          backgroundColor: colors.surface,
+        };
       case 'missed':
-        return { ...base, borderWidth: 1.6, borderColor: colors.overdue };
+        return { ...base, borderWidth: 1.6, borderColor: colors.textMuted };
       case 'ahead':
         return { ...base, borderColor: colors.rule };
       case 'skipped':
@@ -410,15 +440,24 @@ function Key() {
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: space.md,
-        paddingTop: space.lg,
+        paddingTop: space.md,
+        paddingBottom: space.xs,
         paddingHorizontal: space.sm,
       }}
     >
       <Legend swatch={swatch({ backgroundColor: colors.overprint, borderColor: 'transparent' })}>
         Done — in their ink
       </Legend>
-      <Legend swatch={swatch({ borderColor: colors.overdue, borderWidth: 1.6 })}>Not done</Legend>
-      <Legend swatch={swatch({ borderColor: colors.text, borderWidth: 1.6 })}>Due today</Legend>
+      <Legend swatch={swatch({ borderColor: colors.textMuted, borderWidth: 1.6 })}>Missed</Legend>
+      <Legend
+        swatch={swatch({
+          borderColor: colors.text,
+          borderWidth: 2,
+          backgroundColor: colors.surface,
+        })}
+      >
+        Due today
+      </Legend>
     </View>
   );
 }
