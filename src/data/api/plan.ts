@@ -68,6 +68,14 @@ export interface PlanAddition {
   readonly occurrenceKey: string;
   readonly plannedFor: CivilDate;
   readonly position: number;
+  /**
+   * Who chose to put this here, or null when the automatic fill did.
+   *
+   * Not defaulted to the signed-in person in the database, tempting as that
+   * was: the fill runs as them too, so Jake's phone filling Emily's day would
+   * be indistinguishable from Jake choosing something for her.
+   */
+  readonly addedBy: string | null;
 }
 
 /**
@@ -90,6 +98,12 @@ export async function addToPlan(entries: readonly PlanAddition[]): Promise<void>
       occurrence_key: entry.occurrenceKey,
       planned_for: entry.plannedFor,
       position: entry.position,
+      /*
+       * Who chose this, or null when the automatic fill did. Null is the
+       * meaningful case: it is what stops the fill announcing itself every
+       * morning as though somebody had decided something.
+       */
+      added_by: entry.addedBy,
     })),
     { onConflict: 'user_id,occurrence_key,planned_for', ignoreDuplicates: true },
   );
@@ -174,6 +188,10 @@ export async function dismissFromPlan(input: {
   userId: string;
   occurrenceKey: string;
   dismissedOn: CivilDate;
+  /** Whose plan it came off is `userId`; this is who did it. */
+  dismissedBy: string;
+  /** Carried so the notification can name the chore. */
+  choreId: string | null;
 }): Promise<void> {
   const { error } = await supabase.from('plan_dismissals').upsert(
     {
@@ -181,6 +199,8 @@ export async function dismissFromPlan(input: {
       user_id: input.userId,
       occurrence_key: input.occurrenceKey,
       dismissed_on: input.dismissedOn,
+      dismissed_by: input.dismissedBy,
+      chore_id: input.choreId,
     },
     { onConflict: 'user_id,occurrence_key,dismissed_on', ignoreDuplicates: true },
   );
