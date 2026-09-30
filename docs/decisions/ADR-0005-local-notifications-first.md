@@ -1,6 +1,6 @@
 # ADR-0005 — Local notifications in v1; remote push deferred
 
-**Status:** accepted · **Date:** 2026-07-29
+**Status:** superseded 2026-09-30 · **Date:** 2026-07-29
 
 ## Context
 
@@ -30,3 +30,24 @@ is a new implementation plus a database trigger — not a change to any call sit
 - The planner is pure and lives in `src/core`, so it is property-testable — "a
   completed occurrence never yields a reminder", "output never exceeds the cap",
   "output is exactly the nearest N by fire time".
+
+## Superseded, 2026-09-30
+
+The membership arrived on 2026-09-24 and the APNs key on the 29th, so the
+deferral is spent. Remote push is live, and it does the one thing this ADR
+named as structurally impossible without it — *"tell you your housemate
+completed something"*.
+
+It did **not** need the `NotificationTransport` seam this ADR built. The
+sending side turned out to belong in the database: `pg_net` was already
+installed, so a trigger on `chore_completions` and on `chores` posts straight
+to Expo. No second implementation of the transport, no edge function, no
+second place to keep a secret. The seam is still the right shape for anything
+the *client* schedules; it simply was not the axis this change moved along.
+
+What the client did need was the address book — `push_tokens` had existed
+unused since the first migration, exactly so enabling this would not require
+one.
+
+The 64-notification cap and everything else in **Consequences** still applies
+to local reminders, which are unchanged.

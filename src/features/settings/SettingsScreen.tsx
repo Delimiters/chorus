@@ -27,6 +27,7 @@ import {
   useHousehold,
   useMembers,
   useSetPlanGroupOrder,
+  useSetPushEnabled,
   useUpdateHousehold,
   type PlanGroupOrder,
 } from '@/data/hooks/useHousehold';
@@ -114,6 +115,13 @@ export function SettingsScreen() {
   // switch does not flash the wrong way and correct itself a frame later. It
   // was left at `false` when the default flipped, which is exactly that flash.
   const autoPlan = household.data?.autoPlan ?? true;
+
+  /*
+   * Defaults to on while the members query is in flight, matching the column,
+   * so the switch does not flash off and correct itself.
+   */
+  const setPushEnabled = useSetPushEnabled();
+  const pushEnabled = (members.data ?? []).find((m) => m.userId === userId)?.pushEnabled ?? true;
   const timeZone = household.data?.timeZone ?? 'UTC';
 
   /** The device's zone, for the "this looks wrong" case below. */
@@ -247,6 +255,30 @@ export function SettingsScreen() {
               onValueChange={setCompactRows}
               accessibilityLabel="Compact rows"
             />,
+          )}
+        </Stack>
+
+        {/*
+          Its own section, above the per-phone ones, because it is the only
+          notification setting that follows *you* rather than the device —
+          it lives on your membership row, so it is the same answer on every
+          phone you sign in to.
+        */}
+        <SectionHeader title="About your housemate" />
+        <Stack gap={space.sm}>
+          {row(
+            'Tell me what they do',
+            'A notification when they finish a chore or add a new one. Yours alone — they cannot change it for you, and you cannot change theirs.',
+            <Switch
+              value={pushEnabled}
+              onValueChange={(value) => setPushEnabled.mutate(value)}
+              accessibilityLabel="Tell me what they do"
+            />,
+          )}
+          {setPushEnabled.error == null ? null : (
+            <Txt variant="small" tone="danger">
+              {(setPushEnabled.error as Error).message}
+            </Txt>
           )}
         </Stack>
 
