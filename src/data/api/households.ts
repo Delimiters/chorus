@@ -8,6 +8,7 @@
 import {
   listMembersWith,
   setPlanGroupOrderWith,
+  setPushEnabledWith,
   type Member,
   type PlanGroupOrder,
 } from './members';
@@ -159,3 +160,12 @@ export async function updateHousehold(
 
 /** Re-exported so callers have one import for the household data layer. */
 export type { Member, PlanGroupOrder } from './members';
+
+/** Whether you hear about what your housemate does. See `members.ts`. */
+export async function setPushEnabled(
+  householdId: string,
+  userId: string,
+  enabled: boolean,
+): Promise<void> {
+  await setPushEnabledWith(supabase, householdId, userId, enabled);
+}

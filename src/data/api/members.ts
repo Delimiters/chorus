@@ -45,6 +45,15 @@ export interface Member {
    * `profiles_update` is what stops it being written.
    */
   readonly planGroupOrder: PlanGroupOrder;
+  /**
+   * Whether this person hears about what their housemate does.
+   *
+   * Read for everyone, writable only for yourself — `guard_membership_update`
+   * refuses a change to anybody else's row, the same way it protects
+   * `share_routine`. Rides along here because the Settings screen already has
+   * the member list and a second query for one boolean would be silly.
+   */
+  readonly pushEnabled: boolean;
 }
 
 /**
@@ -60,7 +69,9 @@ export async function listMembersWith(
 ): Promise<Member[]> {
   const { data, error } = await client
     .from('household_members')
-    .select('user_id, role, sort_order, accent, profiles!inner(display_name, plan_group_order)')
+    .select(
+      'user_id, role, sort_order, accent, push_enabled, profiles!inner(display_name, plan_group_order)',
+    )
     .eq('household_id', householdId)
     .order('sort_order');
   if (error) throw error;
@@ -76,6 +87,7 @@ export async function listMembersWith(
       accent: row.accent as InkName,
       role: row.role,
       sortOrder: row.sort_order,
+      pushEnabled: row.push_enabled,
       // Anything the column's CHECK would reject cannot arrive, but a value
       // from a future version could — fall back rather than hand a screen a
       // string it will match no branch on.
@@ -112,4 +124,35 @@ export async function setPlanGroupOrderWith(
     .select('id');
   if (error) throw error;
   if ((data ?? []).length === 0) throw new Error('Your profile could not be found.');
+}
+
+/**
+ * Whether this member hears about what their housemate does.
+ *
+ * Per member, not per household: being interrupted is a personal preference,
+ * and a shared switch would let one of them decide for both. Guarded in the
+ * database too — `guard_membership_update` refuses a change to anybody's row
+ * but your own, exactly as it does for `share_routine`.
+ *
+ * `.select()` and a row check, because PostgREST reports a policy refusal as
+ * success with an empty result, and a toggle that springs back with no
+ * explanation is how "only the founder can change anything" stayed invisible
+ * for a week.
+ */
+export async function setPushEnabledWith(
+  client: MemberClient,
+  householdId: string,
+  userId: string,
+  enabled: boolean,
+): Promise<void> {
+  const { data, error } = await client
+    .from('household_members')
+    .update({ push_enabled: enabled })
+    .eq('household_id', householdId)
+    .eq('user_id', userId)
+    .select('user_id');
+  if (error) throw error;
+  if ((data ?? []).length === 0) {
+    throw new Error('That change was not allowed. Try signing out and back in.');
+  }
 }

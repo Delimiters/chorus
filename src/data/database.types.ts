@@ -533,6 +533,7 @@ export type Database = {
           household_id: string
           id: string
           joined_at: string
+          push_enabled: boolean
           role: Database["public"]["Enums"]["member_role"]
           share_routine: boolean
           sort_order: number
@@ -543,6 +544,7 @@ export type Database = {
           household_id: string
           id?: string
           joined_at?: string
+          push_enabled?: boolean
           role?: Database["public"]["Enums"]["member_role"]
           share_routine?: boolean
           sort_order?: number
@@ -553,6 +555,7 @@ export type Database = {
           household_id?: string
           id?: string
           joined_at?: string
+          push_enabled?: boolean
           role?: Database["public"]["Enums"]["member_role"]
           share_routine?: boolean
           sort_order?: number

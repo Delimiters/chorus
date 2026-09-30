@@ -58,6 +58,12 @@ jest.mock('../api/chores', () => ({
   listCompletionsForChores: (...args: unknown[]) => mockListCompletionsForChores(...(args as [])),
   listExceptions: jest.fn(async () => []),
   listExceptionsForChores: jest.fn(async () => []),
+  // Present because the hook calls it. Missing, it threw a TypeError that
+  // react-query surfaced as the hook's `error` — so a test asserting the
+  // *chores* failure was racing a mock-shaped-wrong failure for which error
+  // arrived first.
+  listTurnOverrides: jest.fn(async () => []),
+  setTurnOverride: jest.fn(),
   listOneTimeChores: jest.fn(async () => ({ chores: [], unreadable: [] })),
   completeOccurrence: jest.fn(),
   uncompleteOccurrence: jest.fn(),

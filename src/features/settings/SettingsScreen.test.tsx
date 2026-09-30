@@ -19,6 +19,29 @@ const mockUpdate = jest.fn();
 let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
 
 let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
+const mockSetPushEnabled = jest.fn();
+/*
+ * The housemate first, and always the opposite. With 'me' at index 0 the
+ * assertions below passed against `members.data[0]`, which is the mis-read
+ * they are supposed to catch.
+ */
+const defaultMembers = () => [
+  {
+    userId: 'user-them',
+    displayName: 'Sam',
+    accent: 'pink',
+    planGroupOrder: 'oneOff',
+    pushEnabled: true,
+  },
+  {
+    userId: 'me',
+    displayName: 'Jake',
+    accent: 'blue',
+    planGroupOrder: mockMyGroupOrder,
+    pushEnabled: true,
+  },
+];
+let mockMembers = defaultMembers();
 const mockSetGroupOrder = jest.fn();
 let mockGroupOrderError: Error | null = null;
 
@@ -26,16 +49,13 @@ jest.mock('@/data/hooks/useHousehold', () => ({
   useHousehold: () => ({ data: mockHousehold, isLoading: false, error: null }),
   useUpdateHousehold: () => ({ mutate: mockUpdate }),
   useMembers: () => ({
-    /*
-     * The housemate first, and always the opposite. With 'me' at index 0 the
-     * assertions below passed against `members.data[0]`, which is the mis-read
-     * they are supposed to catch.
-     */
-    data: [
-      { userId: 'user-them', displayName: 'Sam', accent: 'pink', planGroupOrder: 'oneOff' },
-      { userId: 'me', displayName: 'Jake', accent: 'blue', planGroupOrder: mockMyGroupOrder },
-    ],
+    // `planGroupOrder` is read at call time so a test can change it *after*
+    // `beforeEach` has built the list, which is how the existing tests drive it.
+    data: mockMembers.map((m) =>
+      m.userId === 'me' ? { ...m, planGroupOrder: mockMyGroupOrder } : m,
+    ),
   }),
+  useSetPushEnabled: () => ({ mutate: mockSetPushEnabled, error: null }),
   useSetPlanGroupOrder: () => ({ mutate: mockSetGroupOrder, error: mockGroupOrderError }),
 }));
 
@@ -97,6 +117,8 @@ beforeEach(() => {
   useReminderStore.setState({ policy: DEFAULT_POLICY });
   mockAvailable = true;
   mockMyGroupOrder = 'chores';
+  mockMembers = defaultMembers();
+  mockSetPushEnabled.mockClear();
   mockSetGroupOrder.mockClear();
   mockGroupOrderError = null;
 });
@@ -340,24 +362,41 @@ describe('which build am I looking at', () => {
   });
 });
 
-describe('being told about a new chore', () => {
-  it('is not offered, because nothing delivers it yet', async () => {
-    /*
-     * The switch wrote a preference nothing reads: announcing a chore your
-     * housemate added needs a push from their phone to yours, which needs a
-     * paid Apple account. A control that cannot do anything is worse than its
-     * absence — this screen already hides the reminder switch on a build that
-     * cannot schedule reminders, for the same reason.
-     */
+describe('being told what your housemate does', () => {
+  /*
+   * This used to assert the *absence* of the control: the switch wrote a
+   * preference nothing read, because announcing a chore needs a push, which
+   * needed a paid Apple account. That arrived on 2026-09-24 and the delivery
+   * is real — a database trigger posts to Expo on completion and on a new
+   * chore — so the control does something now.
+   */
+  it('offers the switch, and shows what is stored', async () => {
     await renderScreen();
 
-    expect(screen.queryByLabelText('Tell me when a chore is added')).toBeNull();
-    expect(screen.queryByText(/New chores/)).toBeNull();
+    expect(screen.getByLabelText('Tell me what they do').props.value).toBe(true);
   });
 
-  it('keeps the stored preference, so the setting returns with the feature', () => {
-    // Removing the control must not quietly discard what people had set.
-    expect(DEFAULT_POLICY.announceNewChores).toBe(true);
+  it('reflects having turned it off', async () => {
+    mockMembers = mockMembers.map((m) => (m.userId === 'me' ? { ...m, pushEnabled: false } : m));
+    await renderScreen();
+
+    expect(screen.getByLabelText('Tell me what they do').props.value).toBe(false);
+  });
+
+  it('writes the change', async () => {
+    await renderScreen();
+
+    fireEvent(screen.getByLabelText('Tell me what they do'), 'valueChange', false);
+
+    expect(mockSetPushEnabled).toHaveBeenCalledWith(false);
+  });
+
+  it('says it is yours alone, because the database enforces exactly that', async () => {
+    // `guard_membership_update` refuses a change to anybody else's row, so the
+    // copy is describing a real guarantee rather than a convention.
+    await renderScreen();
+
+    expect(screen.getByText(/they cannot change it for you/)).toBeOnTheScreen();
   });
 });
 
