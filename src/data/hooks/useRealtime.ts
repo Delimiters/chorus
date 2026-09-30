@@ -38,6 +38,11 @@ const TABLES = [
   // A plan made on one phone should show on the other: seeing what your
   // housemate has taken on today is half the reason to share a list.
   'plan_entries',
+  // What was taken off a plan on purpose. Published by its migration but
+  // subscribed by nobody, so a removal reached the other phone only
+  // incidentally — via the `plan_entries` delete — which is an unordered race
+  // against the very refetch the fill depends on.
+  'plan_dismissals',
   'chore_completions',
   'chore_exceptions',
   // Whose turn one occurrence is. A change on one phone has to reach the other,

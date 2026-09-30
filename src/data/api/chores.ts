@@ -492,7 +492,23 @@ export interface ExceptionWriteInput {
   readonly reason?: string;
 }
 
-/** Skips one occurrence. The rotation is undisturbed — see docs/ROTATION.md. */
+/**
+ * Skips one occurrence. The rotation is undisturbed — see docs/ROTATION.md.
+ *
+ * A duplicate used to be mapped to success outright, which is right for the
+ * case it was written for — a double tap, or a retry after a timeout, is one
+ * skip rather than two. It is wrong for the case only two phones can reach:
+ * Jake moves Thursday's dishes, Emily's screen has not refreshed, she taps
+ * "Skip it", and the sheet closes having done nothing. The chore then moves to
+ * Friday instead of being skipped, with nothing said.
+ *
+ * The sheet hides "Skip it" once a row is skipped or rescheduled, so this is
+ * unreachable on one device. Across two it is ordinary, and it is the
+ * documented "a chore that cannot be skipped and never says why" surviving in
+ * the one place a UI guard cannot see.
+ *
+ * So a duplicate is only success when what is already there is a *skip*.
+ */
 export async function skipOccurrence(input: ExceptionWriteInput): Promise<void> {
   const { error } = await supabase.from('chore_exceptions').insert({
     household_id: input.householdId,
@@ -503,7 +519,38 @@ export async function skipOccurrence(input: ExceptionWriteInput): Promise<void> 
     created_by: input.userId,
     ...(input.reason === undefined ? {} : { reason: input.reason }),
   });
-  if (error && !isDuplicate(error)) fail(error);
+  if (error === null) return;
+  if (!isDuplicate(error)) fail(error);
+
+  const { data: existing, error: readError } = await supabase
+    .from('chore_exceptions')
+    .select('kind')
+    .eq('chore_id', input.choreId)
+    .eq('occurrence_key', input.occurrenceKey)
+    .maybeSingle();
+
+  /*
+   * The read's own failure counts. Dropping it meant a timeout or a refused
+   * read produced `null`, which fell into the success branch below — the same
+   * silent no-op this function was being changed to fix, moved one line down.
+   */
+  if (readError) fail(readError);
+
+  /*
+   * Already skipped — by the other phone, or by this one's retry. Either way
+   * the outcome the caller asked for is the outcome, so this is success.
+   *
+   * `null` means the duplicate is real but the row is invisible to this
+   * reader: `exceptions_insert` needs only household membership while
+   * `exceptions_select` also requires `chore_is_visible`. The app never
+   * produces that state, and saying so is better than claiming a skip.
+   */
+  if (existing === null) {
+    throw new Error('Something already exists for this one. Refresh and try again.');
+  }
+  if (existing.kind === 'skip') return;
+
+  throw new Error('Somebody moved this to another day. Refresh to see where it went.');
 }
 
 /** Moves one occurrence. It keeps its key, its index, and its assignee. */

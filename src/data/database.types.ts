@@ -674,6 +674,48 @@ export type Database = {
           },
         ]
       }
+      plan_dismissals: {
+        Row: {
+          created_at: string
+          dismissed_on: string
+          household_id: string
+          id: string
+          occurrence_key: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dismissed_on: string
+          household_id: string
+          id?: string
+          occurrence_key: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dismissed_on?: string
+          household_id?: string
+          id?: string
+          occurrence_key?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_dismissals_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plan_dismissals_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plan_entries: {
         Row: {
           chore_id: string

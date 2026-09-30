@@ -38,55 +38,10 @@ const MODES: readonly TodayMode[] = ['plan', 'chores', 'routines'];
 export interface RoutinePreference {
   readonly showOthers: boolean;
   readonly todayMode: TodayMode;
-  /**
-   * The last day the whole-day fill ran. Only that fill — flagged work is tracked per occurrence in `autoPlannedFlags`, and one-off work has counted since the 2026-09-07 reversal.
-   *
-   * **Persisted**, and that is the whole point. It was in memory only, with a
-   * comment claiming a relaunch could only ever re-add things you had not
-   * removed. That was backwards: `useRemoveFromPlan` deletes the row, so after
-   * a relaunch the marker is gone, the row is gone, and the chore is added
-   * straight back. "Take off today" survived a re-render and not a restart —
-   * a chore that keeps coming back.
-   */
-  readonly autoPlannedOn: string | null;
-
-  /**
-   * Flagged occurrences already auto-added today, and the day they were added.
-   *
-   * `autoPlannedOn` cannot answer this. It is a whole-day marker: once the
-   * morning fill has run, the effect returns early for the rest of the day, so
-   * a chore flagged at two in the afternoon would not have reached the plan
-   * until tomorrow. Jake asked for the opposite — *"if things are flagged they
-   * should still automatically populate onto the plan"* — and a flag is most
-   * often raised precisely because something has just come up.
-   *
-   * Per occurrence rather than per day, because the marker is what makes "Take
-   * off today" stick. Without it, removing a flagged chore from your plan
-   * would hand it straight back on the next render, and the flag lasts until
-   * the work is done — so the fight would last all day.
-   */
-  readonly autoPlannedFlags: { readonly on: string; readonly keys: readonly string[] } | null;
-
-  /**
-   * The last day this device filled the *housemate's* plan.
-   *
-   * Its own marker rather than sharing `autoPlannedOn`, because the two fills
-   * are separate writes that can succeed independently: one marker would let a
-   * successful fill of your own day mark the other as done and leave your
-   * housemate's empty for the rest of the day.
-   *
-   * Still device-local, and that is fine. Whoever opens the app first fills
-   * both plans; the second person's own run then finds the work already
-   * planned and adds nothing.
-   */
-  readonly autoPlannedTheirsOn: string | null;
 }
 
 export const DEFAULT_ROUTINE_PREFERENCE: RoutinePreference = {
   showOthers: true,
-  autoPlannedOn: null,
-  autoPlannedFlags: null,
-  autoPlannedTheirsOn: null,
   /*
    * The plan, not the backlog.
    *
@@ -134,9 +89,6 @@ interface RoutineState {
   readonly setShowOthers: (show: boolean) => void;
   readonly setTodayMode: (mode: TodayMode) => void;
   readonly markCelebrated: (day: string) => void;
-  readonly markAutoPlanned: (day: string) => void;
-  readonly markFlagsAutoPlanned: (day: string, keys: readonly string[]) => void;
-  readonly markTheirDayPlanned: (day: string) => void;
   readonly queuePlanOnCreate: (choreId: string, queuedOn: string) => void;
   readonly clearPlanOnCreate: (choreIds: readonly string[]) => void;
   readonly hydrate: () => Promise<void>;
@@ -161,31 +113,6 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
   },
 
   markCelebrated: (celebratedOn) => set({ celebratedOn }),
-
-  markAutoPlanned: (autoPlannedOn) => {
-    const preference = { ...get().preference, autoPlannedOn };
-    set({ preference });
-    persist(preference);
-  },
-
-  markTheirDayPlanned: (autoPlannedTheirsOn) => {
-    const preference = { ...get().preference, autoPlannedTheirsOn };
-    set({ preference });
-    persist(preference);
-  },
-
-  markFlagsAutoPlanned: (on, keys) => {
-    const existing = get().preference.autoPlannedFlags ?? null;
-    // A new day starts the list over rather than growing it forever. Yesterday's
-    // keys can never match today's occurrences anyway — the key carries the date.
-    const carried = existing !== null && existing.on === on ? existing.keys : [];
-    const preference = {
-      ...get().preference,
-      autoPlannedFlags: { on, keys: [...new Set([...carried, ...keys])] },
-    };
-    set({ preference });
-    persist(preference);
-  },
 
   queuePlanOnCreate: (choreId, queuedOn) =>
     set((state) => ({ planOnCreate: [...state.planOnCreate, { choreId, queuedOn }] })),
@@ -237,26 +164,6 @@ export const useRoutineStore = create<RoutineState>((set, get) => ({
             // version is missing keys rather than malformed, and losing every
             // preference because one is absent would be a poor trade.
             ...(typeof stored.showOthers === 'boolean' ? { showOthers: stored.showOthers } : {}),
-            ...(typeof stored.autoPlannedOn === 'string'
-              ? { autoPlannedOn: stored.autoPlannedOn }
-              : {}),
-            ...(typeof stored.autoPlannedTheirsOn === 'string'
-              ? { autoPlannedTheirsOn: stored.autoPlannedTheirsOn }
-              : {}),
-            // Shape-checked rather than `typeof`, because this one is an
-            // object: a half-written blob would otherwise reach the effect as
-            // `{ on: undefined }` and match nothing while looking present.
-            ...(typeof stored.autoPlannedFlags?.on === 'string' &&
-            Array.isArray(stored.autoPlannedFlags.keys)
-              ? {
-                  autoPlannedFlags: {
-                    on: stored.autoPlannedFlags.on,
-                    keys: stored.autoPlannedFlags.keys.filter(
-                      (key): key is string => typeof key === 'string',
-                    ),
-                  },
-                }
-              : {}),
             // Membership, not `typeof`: a stored mode from some future version
             // must fall back to the default rather than reaching a switch that
             // matches no branch.

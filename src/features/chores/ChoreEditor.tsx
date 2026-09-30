@@ -54,6 +54,9 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
   const steps = useSubtasksFor(choreId);
   const saveSteps = useReplaceSubtasks();
 
+  /** The chore this session created, so a retry updates instead of duplicating. */
+  const [createdId, setCreatedId] = useState<string | null>(null);
+
   // Editing a chore that has not arrived yet: wait rather than opening the form
   // empty, which would look like a new chore and save as a duplicate.
   if (choreId !== null && chore === undefined) return <LoadingState />;
@@ -73,14 +76,35 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
   const submit = (draft: ChoreDraft) => {
     const steps = draft.subtasks ?? [];
     const afterSave = (savedChoreId: string) => {
-      saveSteps.mutate({ choreId: savedChoreId, steps }, { onSuccess: close, onError: close });
+      /*
+       * Only closes when the steps actually saved.
+       *
+       * `onError: close` used to sit here, so a failed step write dismissed
+       * the form exactly as a success did — and `saveSteps.error` was not in
+       * `failure`, so nothing said anything. `replaceSubtasks` is a read, a
+       * delete and one round trip per step with no transaction, so a failure
+       * mid-way leaves the steps half-written and the form gone.
+       */
+      saveSteps.mutate({ choreId: savedChoreId, steps }, { onSuccess: close });
     };
 
-    if (chore)
-      update.mutate({ choreId: chore.id, draft }, { onSuccess: () => afterSave(chore.id) });
+    /*
+     * `existingId` rather than `chore`, which is the route's copy and stays
+     * undefined for a chore created in this session.
+     *
+     * Without it, a create that succeeded while its steps failed left the only
+     * safe retry — tapping Save again — creating a *second* chore. The same
+     * gap made a double tap duplicate: `create` resolves, the button
+     * re-enables while the steps are still writing, and the second tap sees
+     * `chore` still undefined.
+     */
+    const existingId = chore?.id ?? createdId;
+    if (existingId !== null && existingId !== undefined)
+      update.mutate({ choreId: existingId, draft }, { onSuccess: () => afterSave(existingId) });
     else
       create.mutate(draft, {
         onSuccess: (newChoreId) => {
+          setCreatedId(newChoreId);
           // Recorded as an intent, not a plan row: the occurrence key does not
           // exist until the schedule has been expanded. The plan claims it.
           if (planToday) queuePlanOnCreate(newChoreId, today);
@@ -89,8 +113,18 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
       });
   };
 
-  const pending = create.isPending || update.isPending;
-  const failure = (create.error ?? update.error ?? archive.error) as Error | null;
+  /*
+   * The steps write counts as saving, and its failure counts as a failure.
+   *
+   * Leaving it out of both meant the Save button stopped spinning and
+   * re-enabled while the steps were still going — the window a second tap
+   * turned into a duplicate chore.
+   */
+  const pending = create.isPending || update.isPending || saveSteps.isPending;
+  const failure = (create.error ??
+    update.error ??
+    saveSteps.error ??
+    archive.error) as Error | null;
 
   return (
     <ChoreForm

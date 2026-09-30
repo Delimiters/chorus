@@ -129,3 +129,83 @@ export async function movePlanEntry(id: string, position: number): Promise<void>
   const { error } = await supabase.from('plan_entries').update({ position }).eq('id', id);
   if (error) fail(error);
 }
+
+/** Whose day, and which occurrence, was taken off — for one day. */
+export interface PlanDismissalRow {
+  readonly userId: string;
+  readonly occurrenceKey: string;
+  readonly dismissedOn: CivilDate;
+}
+
+/**
+ * What has been taken off either plan, in a date range.
+ *
+ * Read over the same window as the entries themselves, because a dismissal is
+ * only meaningful beside the day it belongs to.
+ */
+export async function listPlanDismissals(
+  householdId: string,
+  from: CivilDate,
+  to: CivilDate,
+): Promise<readonly PlanDismissalRow[]> {
+  const { data, error } = await supabase
+    .from('plan_dismissals')
+    .select('user_id, occurrence_key, dismissed_on')
+    .eq('household_id', householdId)
+    .gte('dismissed_on', from)
+    .lte('dismissed_on', to);
+  if (error) fail(error);
+  return (data ?? []).map((row) => ({
+    userId: row.user_id,
+    occurrenceKey: row.occurrence_key,
+    dismissedOn: civilDate(row.dismissed_on),
+  }));
+}
+
+/**
+ * Record that somebody took this off a plan on purpose.
+ *
+ * Upserted, because taking the same row off twice — a double tap, a retry
+ * after a timeout — is one fact rather than two, and the unique key says so.
+ * `ignoreDuplicates` so the second write is success rather than 23505.
+ */
+export async function dismissFromPlan(input: {
+  householdId: string;
+  userId: string;
+  occurrenceKey: string;
+  dismissedOn: CivilDate;
+}): Promise<void> {
+  const { error } = await supabase.from('plan_dismissals').upsert(
+    {
+      household_id: input.householdId,
+      user_id: input.userId,
+      occurrence_key: input.occurrenceKey,
+      dismissed_on: input.dismissedOn,
+    },
+    { onConflict: 'user_id,occurrence_key,dismissed_on', ignoreDuplicates: true },
+  );
+  if (error) fail(error);
+}
+
+/**
+ * Take the dismissal back, because the chore is being put on the plan again.
+ *
+ * Called when something is added by hand. Without it, adding a chore you had
+ * taken off earlier leaves a record saying you did not want it — harmless
+ * while the entry exists, and wrong the moment you take it off and put it
+ * back a second time.
+ */
+export async function undismissFromPlan(input: {
+  userId: string;
+  occurrenceKeys: readonly string[];
+  dismissedOn: CivilDate;
+}): Promise<void> {
+  if (input.occurrenceKeys.length === 0) return;
+  const { error } = await supabase
+    .from('plan_dismissals')
+    .delete()
+    .eq('user_id', input.userId)
+    .eq('dismissed_on', input.dismissedOn)
+    .in('occurrence_key', [...input.occurrenceKeys]);
+  if (error) fail(error);
+}

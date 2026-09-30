@@ -18,6 +18,73 @@ Newest first.
 
 ---
 
+## 2026-09-29 — The plan recalculates on every open; removals are a shared fact
+
+**Was:** the plan filled itself once per device per day, gated by device-local
+markers (`autoPlannedOn`, later `autoPlannedFlags`, and `autoPlannedTheirsOn`
+for the housemate's day). The fill and "Take off today" pull in opposite
+directions — run the fill twice and whatever you removed comes back — and the
+markers were what stopped the second run.
+
+**Now:** `plan_dismissals` records the *removals*. The fill is idempotent and
+runs on every render; all three markers are deleted.
+
+**Why:** Jake — *"maybe my plan just recalculates every time you open it
+(leaving off things you specifically took off the plan manually). That way if
+you mess with something midday you're not confused why it's not there."* The
+old design bought stickiness at the cost of staleness: create or reassign a
+chore at two in the afternoon and it waited until tomorrow.
+
+**It had to be a table.** Both phones fill both plans, so a device-local record
+is wrong by construction: Emily takes the mopping off on her phone, Jake opens
+the app, his device has never heard of it, and it comes back. A bug hunt found
+that happening in the shipped code.
+
+**What it cost, and what nearly cost more.** The housemate's fill used to
+refuse to touch a non-empty day at all, as a proxy for "she has curated this";
+that proxy is gone, so Jake's phone now writes to Emily's plan through the day
+rather than once. And the first version of this shipped without a loading guard
+on the dismissals query — so on any render where the plan had resolved and the
+dismissals had not, the fill re-added everything removed *and* deleted the
+record of the removal, because adding clears dismissals. Caught in review. The
+rule it broke was already written down one hook away: this screen does not
+merely render that answer, it writes plan rows from it.
+
+**A related reversal in the same change:** `useRemoveFromPlan` writes the
+dismissal *before* deleting the entry. The first version did the opposite and
+justified it by saying a dismissal on a still-planned row would make the fill
+"skip it forever" — it would not, because dismissals carry a day. Record-first
+fails better: a half-failure leaves the row planned with a harmless record,
+rather than removed with no record and refilled on the next pass.
+
+---
+
+## 2026-09-29 — Completing your copy clears your flag, not the household's
+
+**Was:** completing any chore deleted every flag on it.
+
+**Now:** for an `everyone` chore — one job *each* — it deletes only the flag of
+the person who completed their own copy. Every other kind still clears the lot,
+because they produce one occurrence per period and finishing it finishes the
+work the flag was about.
+
+**Why:** Emily flags the laundry, Jake ticks his copy, and her flag vanished
+while her copy was still outstanding. Worse since the plan started auto-filling
+flagged work, because losing the flag also stopped it reaching her day.
+
+**This took two attempts, and the first was worse than the bug.** It returned
+early for `everyone` chores, so *no* completion ever cleared their flag —
+including the last one — and a flag stood for ever until cleared by hand. The
+pgTAP file asserted the one-person case and not the both-people case, which is
+what let it through. `chore_flags` is keyed per (chore, person), which maps
+exactly onto "one job each": the fix is a narrower `where`, not a branch.
+
+**What it does not fix, deliberately:** un-ticking does not bring a flag back.
+The trigger deletes and a delete has nothing to restore from; resurrecting them
+would mean recording every flag ever cleared to undo something rare.
+
+---
+
 ## 2026-09-23 — A shared note board, on the House tab
 
 **Was:** nothing. Anything that was not yet a chore had nowhere to live, so it

@@ -11,7 +11,6 @@ import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/reac
 import { useMemo } from 'react';
 
 import {
-  listSubtaskTicks,
   listSubtaskTicksForOccurrences,
   listSubtasks,
   replaceSubtasks,
@@ -38,19 +37,6 @@ export function useSubtasksFor(choreId: string | null): readonly Subtask[] {
   );
 }
 
-/** The ids ticked off for one occurrence. */
-export function useSubtaskTicks(occurrenceKey: string | null): ReadonlySet<string> {
-  const householdId = useActiveHouseholdId();
-  const query = useQuery({
-    queryKey: qk.subtaskTicks(householdId ?? '__none__', occurrenceKey ?? '__none__'),
-    queryFn:
-      householdId === null || occurrenceKey === null
-        ? skipToken
-        : () => listSubtaskTicks(householdId, occurrenceKey),
-  });
-  return useMemo(() => new Set(query.data ?? []), [query.data]);
-}
-
 /**
  * Steps grouped by chore, for drawing them under every row.
  *
@@ -68,6 +54,12 @@ export function useSubtasksByChore(): ReadonlyMap<string, readonly Subtask[]> {
     }
     return map;
   }, [all.data]);
+}
+
+/** One tick, as `listSubtaskTicksForOccurrences` returns it. */
+interface TickRow {
+  readonly subtaskId: string;
+  readonly occurrenceKey: string;
 }
 
 /** Ticks for everything on screen, keyed by occurrence. */
@@ -130,23 +122,47 @@ export function useToggleSubtask(tickedOn: string) {
       });
     },
 
+    /*
+     * Patches every cache entry a screen actually reads.
+     *
+     * This used to write only `qk.subtaskTicks(household, occurrenceKey)` — a
+     * `string[]` keyed by one occurrence. Nothing renders from that. Both
+     * screens read `useSubtaskTicksFor`, which is `qk.subtaskTicksFor` keyed
+     * by the *list* of occurrences on screen and shaped
+     * `{subtaskId, occurrenceKey}[]`. Different key, different shape, so the
+     * optimistic update was inert in the app: tapping a step did nothing until
+     * the refetch landed, and on a bad connection did nothing visible at all.
+     *
+     * A prefix filter rather than an exact key, because the list in the key
+     * changes with whatever is on screen and this mutation cannot know it.
+     */
     onMutate: async ({ subtaskId, ticked, occurrenceKey }) => {
       if (householdId === null) return;
-      const key = qk.subtaskTicks(householdId, occurrenceKey);
-      await queryClient.cancelQueries({ queryKey: key });
-      const snapshot = queryClient.getQueryData<readonly string[]>(key);
+      const prefix = qk.subtasks(householdId);
+      await queryClient.cancelQueries({ queryKey: prefix });
 
-      queryClient.setQueryData<readonly string[]>(key, (existing) => {
-        const without = (existing ?? []).filter((id) => id !== subtaskId);
-        return ticked ? [...without, subtaskId] : without;
+      const snapshots = queryClient.getQueriesData<readonly TickRow[]>({
+        queryKey: qk.subtaskTicksForAll(householdId),
       });
 
-      return { snapshot };
+      queryClient.setQueriesData<readonly TickRow[]>(
+        { queryKey: qk.subtaskTicksForAll(householdId) },
+        (existing) => {
+          const without = (existing ?? []).filter(
+            (row) => !(row.subtaskId === subtaskId && row.occurrenceKey === occurrenceKey),
+          );
+          return ticked ? [...without, { subtaskId, occurrenceKey }] : without;
+        },
+      );
+
+      return { snapshots };
     },
 
-    onError: (_error, input, context) => {
-      if (householdId === null || context?.snapshot === undefined) return;
-      queryClient.setQueryData(qk.subtaskTicks(householdId, input.occurrenceKey), context.snapshot);
+    onError: (_error, _input, context) => {
+      if (householdId === null || context?.snapshots === undefined) return;
+      for (const [key, snapshot] of context.snapshots) {
+        queryClient.setQueryData(key, snapshot);
+      }
     },
 
     onSettled: async () => {

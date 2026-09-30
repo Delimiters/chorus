@@ -206,7 +206,29 @@ export function TodayScreen() {
 
   const completeItem = useCallback(
     (item: AgendaItem, complete: boolean) => {
-      toggle.mutate({ item, complete });
+      toggle.mutate(
+        { item, complete },
+        {
+          /*
+           * Put the row back if the write did not land.
+           *
+           * `held` and the toast are set optimistically below, which is right
+           * — the row should not jump the moment you tick it. What was wrong
+           * was that a failed write left it pinned in place with a toast
+           * saying "— done", which is the app claiming something it did not
+           * do. The mutation retries zero times, so one dropped request is
+           * final.
+           */
+          onError: () => {
+            setHeld((current) => {
+              const next = new Map(current);
+              next.delete(item.occurrenceKey);
+              return next;
+            });
+            setUndo(null);
+          },
+        },
+      );
       // Which list it came from, recorded now rather than re-derived later.
       // `assignee` is a resolution rather than a user id, and rotation means
       // the answer can be a computation; the list it was actually rendered in
@@ -224,6 +246,12 @@ export function TodayScreen() {
     },
     [toggle, view.mine],
   );
+
+  /** A tick that did not land, which the row checkbox had no way to report. */
+  const rawTickFailure = (toggle.error as Error | null)?.message ?? null;
+  /** A failure the person has already dismissed, so it does not come back. */
+  const [hiddenError, setHiddenError] = useState<string | null>(null);
+  const tickFailure = rawTickFailure === hiddenError ? null : rawTickFailure;
 
   const refresh = async () => {
     setRefreshing(true);
@@ -755,14 +783,14 @@ export function TodayScreen() {
 
         {/*
           Search, above the list and below the date.
-        
+
           The picker learned this lesson first: at fifty-odd rows, grouping is
           right for browsing and useless for looking one thing up, and looking
           one thing up is the common case on a list this long.
         */}
         {/*
           The scope, as a filter statement rather than a second navigation bar.
-        
+
           A full-width segmented control here would sit directly under the mode
           switch — two identical pill bars, one above the other, meaning quite
           different things. These are label-styled toggles instead: they read as
@@ -939,13 +967,38 @@ export function TodayScreen() {
         ) : null}
       </ScrollView>
 
+      {/*
+        A failed tick says so, and takes precedence over the undo.
+
+        The occurrence sheet renders `toggle.error`, but a tick from the row's
+        own checkbox never opens the sheet — so the most common way to complete
+        a chore was also the one with nowhere to report a failure. The toast is
+        already here for the undo; the error simply outranks it, because
+        "something went wrong" matters more than "you can undo this".
+      */}
       <Toast
-        message={undo === null ? null : undo.label}
-        actionLabel="Undo"
-        onAction={() => {
-          if (undo !== null) completeItem(undo.item, false);
+        message={tickFailure ?? (undo === null ? null : undo.label)}
+        {...(tickFailure === null && undo !== null
+          ? {
+              actionLabel: 'Undo',
+              onAction: () => {
+                completeItem(undo.item, false);
+              },
+            }
+          : {})}
+        /*
+         * Hides the message locally rather than resetting the mutation.
+         *
+         * `reset()` detaches the observer from a mutation that may still be in
+         * flight — so its `onError` never runs, the row stays pinned, and the
+         * next failure is swallowed. The toast's timer is keyed on the message
+         * text, so an unchanged error message does not restart it: a second
+         * tick during a showing error would have been silently lost.
+         */
+        onDismiss={() => {
+          setUndo(null);
+          setHiddenError(tickFailure);
         }}
-        onDismiss={() => setUndo(null)}
         bottomInset={ADD_BUTTON_CLEARANCE}
       />
 
