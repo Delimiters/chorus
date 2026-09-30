@@ -43,11 +43,24 @@ begin
     phrase := ' wrote a note.';
   else
     /*
-     * Quiet if the note was touched in the last ten minutes. One person
-     * saving twice while thinking is one piece of news, and a board that
-     * buzzes per keystroke-worth-of-thought is a board people mute.
+     * Quiet if the **same person** touched the note in the last ten minutes.
+     * One person saving twice while thinking is one piece of news, and a
+     * board that buzzes per keystroke-worth-of-thought is a board people mute.
+     *
+     * The author test is not optional, and leaving it out was a real bug: a
+     * throttle on the note alone silenced your housemate's *correction* to
+     * something you had just written. Jake writes "Landlord coming Tuesday",
+     * Emily fixes it to Wednesday four minutes later, and the one person who
+     * will otherwise be out on the wrong day hears nothing. Worse, any
+     * back-and-forth where each save lands inside ten minutes of the last
+     * notifies nobody after the first.
+     *
+     * `is not distinct from` rather than `=`: a null on either side would make
+     * `=` null, the whole condition null, and the branch fall through — which
+     * is the safe direction here, but by accident rather than on purpose.
      */
-    if old.updated_at > now() - interval '10 minutes' then
+    if old.updated_at > now() - interval '10 minutes'
+       and old.updated_by is not distinct from new.updated_by then
       return new;
     end if;
     phrase := ' updated a note.';
@@ -77,6 +90,11 @@ end;
 $$;
 
 revoke all on function private.notify_on_note() from public;
+
+comment on function private.notify_on_note() is
+  'Tells the other phone that a note was written or edited. Throttled to one '
+  'push per author per ten minutes, so saving twice while you think is one '
+  'piece of news — but a housemate correcting what you just wrote still is.';
 
 create trigger household_notes_notify_insert
   after insert on public.household_notes

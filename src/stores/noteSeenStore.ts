@@ -5,12 +5,13 @@
  * `src/core/notes/unseen.ts` for why it is derived rather than stored per
  * person per note.
  *
- * The seeding is the part worth reading. `lastSeenAt` starts as `null`, and a
- * first hydrate that finds nothing stored **writes the current moment** rather
- * than leaving it null: every note on the board predates the install, none of
- * it is news, and a "9+" on a phone that has never shown the board is the
- * opposite of a notification. From then on the value only moves forward, as
- * the board is looked at.
+ * The value is **always a stamp copied off a note**, never a reading of this
+ * phone's clock. That is what makes the monotonic rule below safe: two phones
+ * whose clocks disagree still write comparable values, and a phone that
+ * briefly thinks it is 2027 cannot write a moment nothing will ever exceed.
+ *
+ * `null` until a list has been seen, which the counter reads as "nothing is
+ * new" — the right answer for a fresh install, where every note predates it.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,7 +25,7 @@ interface NoteSeenState {
   /** False until the stored value has been read, so nothing is written over it. */
   readonly hydrated: boolean;
   /**
-   * Record that the board has been seen as of `at`.
+   * Record that the board has been seen up to `at` — a note's own `updatedAt`.
    *
    * Monotonic: an earlier timestamp is ignored. The board marks itself seen on
    * focus *and* whenever the list changes while it is open, so two marks can
@@ -50,15 +51,10 @@ export const useNoteSeenStore = create<NoteSeenState>((set, get) => ({
   hydrate: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw !== null && raw !== '') {
-        set({ lastSeenAt: raw });
-        return;
-      }
-      // Nothing stored: this device has never opened the board. Treat
-      // everything already on it as read — see the note above.
-      const now = new Date().toISOString();
-      set({ lastSeenAt: now });
-      void AsyncStorage.setItem(STORAGE_KEY, now);
+      if (raw !== null && raw !== '') set({ lastSeenAt: raw });
+      // Nothing stored: left null on purpose. The tab bar seeds it from the
+      // newest note as soon as a list arrives, which is a server stamp rather
+      // than a guess at what this phone thinks the time is.
     } catch {
       /*
        * Unreadable storage leaves `lastSeenAt` null, which the counter reads as

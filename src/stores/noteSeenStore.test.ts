@@ -21,15 +21,20 @@ describe('noteSeenStore', () => {
     jest.restoreAllMocks();
   });
 
-  it('seeds the current moment on a device with nothing stored', async () => {
-    jest.spyOn(Date.prototype, 'toISOString').mockReturnValue('2026-09-30T12:00:00.000Z');
+  /*
+   * Null, not "now". The store used to seed the device clock here, which put a
+   * reading of this phone's time into a value compared against Postgres
+   * timestamps — and `markSeen` only moves forward, so a phone that briefly
+   * thought it was 2027 would have killed its own badge for a year. The tab
+   * bar seeds from the newest note instead.
+   */
+  it('stays empty on a device with nothing stored, rather than guessing at the time', async () => {
+    jest.spyOn(Date.prototype, 'toISOString').mockReturnValue('2027-01-01T00:00:00.000Z');
 
     await useNoteSeenStore.getState().hydrate();
 
-    expect(useNoteSeenStore.getState().lastSeenAt).toBe('2026-09-30T12:00:00.000Z');
-    // Persisted, not just held: a relaunch must not re-seed to a later moment
-    // and hide notes written in between.
-    await expect(AsyncStorage.getItem(KEY)).resolves.toBe('2026-09-30T12:00:00.000Z');
+    expect(useNoteSeenStore.getState().lastSeenAt).toBeNull();
+    await expect(AsyncStorage.getItem(KEY)).resolves.toBeNull();
   });
 
   it('restores a stored moment rather than seeding over it', async () => {
@@ -57,10 +62,10 @@ describe('noteSeenStore', () => {
 
   it('moves the moment forward and persists it', async () => {
     await useNoteSeenStore.getState().hydrate();
-    useNoteSeenStore.getState().markSeen('2027-01-01T00:00:00.000Z');
+    useNoteSeenStore.getState().markSeen('2026-10-01T09:00:00.000Z');
 
-    expect(useNoteSeenStore.getState().lastSeenAt).toBe('2027-01-01T00:00:00.000Z');
-    await expect(AsyncStorage.getItem(KEY)).resolves.toBe('2027-01-01T00:00:00.000Z');
+    expect(useNoteSeenStore.getState().lastSeenAt).toBe('2026-10-01T09:00:00.000Z');
+    await expect(AsyncStorage.getItem(KEY)).resolves.toBe('2026-10-01T09:00:00.000Z');
   });
 
   it('ignores a stale mark, so nothing already seen comes back', async () => {

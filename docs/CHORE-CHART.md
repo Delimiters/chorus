@@ -46,12 +46,21 @@ cost is that it does not follow you to a second phone: reading the board on an
 iPad would leave the iPhone badged. That is the same trade the view and reminder
 preferences already make.
 
-Two details worth knowing:
+Three details worth knowing:
 
 - **Your own edits never count.** Obvious in hindsight, easy to get wrong.
-- **A fresh install counts nothing.** The store seeds the moment on first
-  hydrate. A "9+" on a phone that has never shown the board is noise dressed as
-  news.
+- **A fresh install counts nothing.** The tab bar seeds from the newest note as
+  soon as a list is in hand. A "9+" on a phone that has never shown the board is
+  noise dressed as news.
+- **"Seen" is a stamp copied off a note, never a reading of the phone's clock.**
+  The first version recorded device time, which compared two clocks that can
+  disagree — and broke in both directions. A phone running ninety seconds slow
+  left a badge on a board it was looking at. A phone that briefly read 2027 — a
+  manual set, a bad sync — wrote a moment nothing would ever exceed, and since
+  the value only moves forward, that killed the badge for a year with no way to
+  reset it from inside the app. Marking the newest note's own stamp costs
+  nothing: a note saved after the list was fetched is later than it, so it is
+  still news.
 
 The badge clears **while the board is focused**, not while it is mounted. That
 distinction is the one defect that got through review here: a tab screen stays
@@ -67,8 +76,13 @@ decisions:
 
 - **The headline is the title, else the note's first line.** The same promotion
   the card on the board does, so the push and the row it opens agree.
-- **An edit within ten minutes of the last one says nothing.** Saving twice while
-  you think is one piece of news, not two.
+- **An edit within ten minutes of *your own* last one says nothing.** Saving
+  twice while you think is one piece of news, not two. The author test is not
+  optional: a throttle on the note alone silenced your housemate's *correction*
+  to something you had just written, which is the one message you most need.
+  Jake writes "Landlord coming Tuesday", Emily fixes it to Wednesday four
+  minutes later, and the person who would otherwise be out on the wrong day
+  hears nothing.
 
 Both are mutation-verified, along with the clause that ignores an edit changing
 neither title nor body.
@@ -143,14 +157,48 @@ raise an "Open in Chorus?" alert that needs a tap nothing here can deliver, so
 the faster route is to temporarily point `(tabs)/index.tsx` at the screen under
 review and cold-start onto it.
 
+## Two things the review found that were older than this PR
+
+**A rescheduled interval occurrence re-anchored nothing.** `anchorToCompletion`
+reads a completion's due date off its occurrence *key*, which still carries the
+date the rule produced — while the row shows the date somebody moved it to. A
+rescheduled occurrence is therefore off the chain by construction, and the
+"a completion has to sit on the chain to move it" guard threw it away. So an
+`every N days` chore that had been rescheduled and was then completed left its
+next occurrence exactly where the chain already had it, which in the test case
+is *the day after it was done*. That is the failure this screen exists to
+prevent, arriving through a door nobody had looked at.
+
+The guard now makes an exception for a key that carries one. The stale-client
+case it was written for is untouched: a key nobody moved has no exception.
+Reachable from Today and Upcoming too — the chart is only what made ticking a
+past day routine enough to notice.
+
+**`/chores` had no way back.** It stopped being a tab in this PR and became a
+pushed stack route under a `Stack` with `headerShown: false`, so it covers the
+tab bar — with no back bar, no header and no tab bar. The only exit was the iOS
+edge-swipe, on a screen that is a scroll view full of pressable rows. Worse,
+`ChoreEditor` closes with `router.replace('/chores')` when it has no history,
+which leaves no swipe target either: a cold start into a chore, then Cancel, and
+the app was stuck until it was killed. Every app suite was green, because none
+of them asks whether there is a way off a screen. There are three that do now.
+
 ## What is not here
 
 - **`/stats` finally has a link.** It has existed since Phase 6 with nothing
   pointing at it — four phases of a screen nobody could reach. The chart gave it
   a neighbour on House.
-- **Ticking a shared day ticks only the first share.** An `everyone` chore fans
-  out to one occurrence per person, and ticking somebody else's from a grid with
-  no indication whose box it was is the wrong default. Theirs is one tap away on
+- **Ticking a shared day ticks your own share.** An `everyone` chore fans out to
+  one occurrence per person, and ticking somebody else's from a grid with no
+  indication whose box it was is the wrong default. Theirs is one tap away on
   the occurrence sheet.
+
+  The first version tapped `items[0]`, which read as "yours" and is not. The
+  projector's last sort key is the subject's **user id**, so `items[0]` is the
+  same person for every fan-out chore in the household, forever — and for
+  whichever housemate's id sorts second, every shared box tapped the other
+  person's share. The write hit a duplicate `occurrence_key`, was swallowed as
+  idempotent, and the box never changed. A silent no-op, every time, invisible
+  to the person whose id sorted first. Found in review.
 - **A chore not due at all gets no row.** Seven blank boxes are noise, and the
   full list is one tap away on House.

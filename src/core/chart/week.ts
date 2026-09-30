@@ -52,13 +52,27 @@ export interface ChartCell {
    */
   readonly items: readonly AgendaItem[];
   /**
-   * True when tapping should record a completion, false when it should undo
-   * one, and null when the cell is not tappable.
+   * Your own occurrence on that day, or null when none of them is yours.
+   *
+   * This is what a tap acts on, and it exists because `items[0]` was wrong in a
+   * way that was invisible until somebody worked out the ordering. An
+   * `everyone` chore fans out to one occurrence per person, and the projector's
+   * last sort key is the subject's **user id** — so `items[0]` is the same
+   * person for every fan-out chore in the household, forever. For the housemate
+   * whose id sorts second, every shared box tapped somebody else's share: the
+   * write hit a duplicate `occurrence_key`, was swallowed as idempotent, and
+   * the box never changed. A silent no-op, every time.
+   */
+  readonly target: AgendaItem | null;
+  /**
+   * What a tap does: record a completion, undo one, or nothing.
    *
    * Derived here rather than at the row, because "tappable" is three
-   * conditions — the chore was due, the day is not in the future, and the
-   * occurrences agree about what state they are in — and a screen that
-   * recomputed them would be a second copy of this rule.
+   * conditions — the day is not in the future, the chore was due, and **the
+   * occurrence in question is yours** — and a screen that recomputed them would
+   * be a second copy of this rule. The first version documented the third
+   * condition in this comment and did not implement it, which is the exact
+   * shape AGENTS.md warns about.
    */
   readonly tap: 'complete' | 'undo' | null;
 }
@@ -94,23 +108,44 @@ function stateOf(items: readonly AgendaItem[], date: CivilDate, today: CivilDate
   return 'missed';
 }
 
-function tapOf(state: CellState): ChartCell['tap'] {
-  switch (state) {
-    case 'done':
+/**
+ * Which of a day's occurrences is yours to tick.
+ *
+ * A chore with no fan-out has one occurrence and no subject, and it is
+ * everybody's. A fan-out chore has one per person, and only your own is yours —
+ * ticking your housemate's share from a grid, with no indication whose box it
+ * was, is the wrong default and in practice did not even work.
+ */
+function ownItem(items: readonly AgendaItem[], userId: string | null): AgendaItem | null {
+  return items.find((item) => item.subject === null || item.subject === userId) ?? null;
+}
+
+/**
+ * What a tap does, decided from **your own** occurrence rather than the cell.
+ *
+ * So a day where your housemate has done their share and you have not still
+ * offers you a tick, and a day where you have done yours and they have not
+ * offers you an undo — even though the cell as a whole reads as outstanding.
+ */
+function tapOf(own: AgendaItem | null, date: CivilDate, today: CivilDate): ChartCell['tap'] {
+  if (own === null) return null;
+  // A completion in the future did not happen.
+  if (compareCivil(date, today) > 0) return null;
+
+  switch (own.status) {
+    case 'completed':
       return 'undo';
-    case 'today':
-    case 'missed':
-      return 'complete';
     /*
      * A skipped occurrence is a decision somebody made, and un-skipping is a
      * different action from completing — it lives on the occurrence sheet,
-     * where there is room to explain it. A future cell is not tappable because
-     * a completion in the future did not happen.
+     * where there is room to explain it.
      */
     case 'skipped':
-    case 'ahead':
-    case 'none':
       return null;
+    case 'due':
+    case 'overdue':
+    case 'upcoming':
+      return 'complete';
   }
 }
 
@@ -131,9 +166,14 @@ function tapOf(state: CellState): ChartCell['tap'] {
  */
 export function weekChart(
   items: readonly AgendaItem[],
-  options: { readonly weekStart: CivilDate; readonly today: CivilDate },
+  options: {
+    readonly weekStart: CivilDate;
+    readonly today: CivilDate;
+    /** Who is looking. Decides which share of a fan-out chore a tap acts on. */
+    readonly userId: string | null;
+  },
 ): readonly ChartRow[] {
-  const { weekStart, today } = options;
+  const { weekStart, today, userId } = options;
   const days = weekDays(weekStart);
   const weekEnd = days[6] as CivilDate;
 
@@ -157,7 +197,8 @@ export function weekChart(
     const cells = days.map<ChartCell>((date) => {
       const onDay = mine.filter((item) => item.dueOn === date);
       const state = stateOf(onDay, date, today);
-      return { date, state, items: onDay, tap: tapOf(state) };
+      const target = ownItem(onDay, userId);
+      return { date, state, items: onDay, target, tap: tapOf(target, date, today) };
     });
 
     rows.push({

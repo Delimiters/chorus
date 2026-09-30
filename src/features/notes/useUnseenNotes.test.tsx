@@ -25,9 +25,16 @@ interface Row {
 }
 
 let mockRows: Row[] = [];
+let mockLoading = false;
+let mockError: Error | null = null;
 
 jest.mock('@/data/hooks/useNotes', () => ({
-  useNotes: () => ({ data: mockRows, isLoading: false, error: null, refetch: jest.fn() }),
+  useNotes: () => ({
+    data: mockRows,
+    isLoading: mockLoading,
+    error: mockError,
+    refetch: jest.fn(),
+  }),
   useNoteList: () => mockRows,
 }));
 jest.mock('@/data/hooks/useHousehold', () => ({
@@ -81,6 +88,8 @@ describe('the Notes tab badge', () => {
   beforeEach(() => {
     mockRows = [];
     mockFocuses = true;
+    mockLoading = false;
+    mockError = null;
     seenAt(null);
   });
 
@@ -133,6 +142,89 @@ describe('the Notes tab badge', () => {
       </ThemeProvider>,
     );
     expect(screen.getByText(/badge:/).children.join('')).toBe('badge:none');
+  });
+
+  /*
+   * A phone that has never seen the board starts from the newest note on it,
+   * not from what the phone thinks the time is. Everything already there
+   * predates the install and none of it is news.
+   */
+  it('seeds itself from the newest note, so a fresh install shows nothing', () => {
+    mockRows = [THEIR_NOTE];
+    seenAt(null);
+
+    render(<Badge />);
+
+    expect(screen.getByText(/badge:/).children.join('')).toBe('badge:none');
+    expect(useNoteSeenStore.getState().lastSeenAt).toBe(THEIR_NOTE.updatedAt);
+  });
+
+  /*
+   * The clock-skew case, which is why "seen" is a stamp copied off a note
+   * rather than a reading of `Date.now()`.
+   *
+   * Here the phone is nowhere near the server's time — it thinks it is 2020.
+   * Marking device time would have left a badge on a board being looked at
+   * until the phone caught up. Marking the note's own stamp cannot.
+   */
+  it('clears against a phone whose clock is wrong', () => {
+    jest.spyOn(Date.prototype, 'toISOString').mockReturnValue('2020-01-01T00:00:00.000Z');
+    mockRows = [THEIR_NOTE];
+    seenAt('2026-09-30T11:00:00.000Z');
+
+    render(
+      <ThemeProvider>
+        <NotesScreen />
+      </ThemeProvider>,
+    );
+    screen.unmount();
+
+    render(
+      <ThemeProvider>
+        <Badge />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText(/badge:/).children.join('')).toBe('badge:none');
+    jest.restoreAllMocks();
+  });
+
+  /*
+   * An errored board is not an empty one. Clearing the badge for notes whose
+   * fetch failed loses them, and `markSeen` only moves forward.
+   */
+  it('does not clear when the board failed to load', () => {
+    mockRows = [THEIR_NOTE];
+    seenAt('2026-09-30T11:00:00.000Z');
+    mockError = new Error('offline');
+
+    render(
+      <ThemeProvider>
+        <NotesScreen />
+      </ThemeProvider>,
+    );
+    screen.unmount();
+
+    mockError = null;
+    render(
+      <ThemeProvider>
+        <Badge />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText(/badge:/).children.join('')).toBe('badge:1');
+  });
+
+  it('does not clear while the board is still loading', () => {
+    mockRows = [THEIR_NOTE];
+    seenAt('2026-09-30T11:00:00.000Z');
+    mockLoading = true;
+
+    render(
+      <ThemeProvider>
+        <NotesScreen />
+      </ThemeProvider>,
+    );
+
+    expect(useNoteSeenStore.getState().lastSeenAt).toBe('2026-09-30T11:00:00.000Z');
   });
 
   /*

@@ -45,6 +45,7 @@ import { weekChart, weekDays, weekTotals, type ChartCell, type ChartRow } from '
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useOccurrences, useToggleCompletion } from '@/data/hooks/useOccurrences';
 import { useToday } from '@/data/today';
+import { useUserId } from '@/stores/sessionStore';
 import { BackBar, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { inkColor } from '@/design/inks';
 import { PagerArrow } from '@/design/PagerArrow';
@@ -60,6 +61,7 @@ export function ChoreChartScreen() {
   const router = useRouter();
   const household = useHousehold();
   const members = useMembers();
+  const userId = useUserId();
   const today = useToday(household.data?.timeZone ?? 'UTC');
   const toggle = useToggleCompletion();
 
@@ -84,10 +86,27 @@ export function ChoreChartScreen() {
   const weekStart = addDays(thisWeek, -7 * weeksBack);
   const isThisWeek = weeksBack === 0;
 
-  const window = useMemo(() => ({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
+  /*
+   * The query window is deliberately much wider than the week on screen, and
+   * grows in eight-week steps rather than moving with every page.
+   *
+   * A window of exactly the seven days shown produced a new query key on every
+   * tap of the arrow, so `isLoading` went true and the whole screen — heading
+   * and both arrows included — was replaced by a spinner. The arrow you needed
+   * to page again had gone. `weekChart` already ignores occurrences outside its
+   * seven days, which is what makes over-fetching free here.
+   */
+  const span = (Math.floor(weeksBack / 8) + 1) * 8;
+  const window = useMemo(
+    () => ({ start: addDays(thisWeek, -7 * span), end: addDays(thisWeek, 6) }),
+    [thisWeek, span],
+  );
   const { items, isLoading, error } = useOccurrences(window);
 
-  const rows = useMemo(() => weekChart(items, { weekStart, today }), [items, weekStart, today]);
+  const rows = useMemo(
+    () => weekChart(items, { weekStart, today, userId }),
+    [items, weekStart, today, userId],
+  );
   const totals = useMemo(() => weekTotals(rows), [rows]);
   const days = useMemo(() => weekDays(weekStart), [weekStart]);
 
@@ -98,18 +117,14 @@ export function ChoreChartScreen() {
   };
 
   const onTap = (cell: ChartCell): void => {
-    const item = cell.items[0];
-    if (item === undefined || cell.tap === null) return;
-    /*
-     * The first occurrence only, deliberately. A shared day holds one per
-     * person, and ticking somebody else's share from a grid — with no
-     * indication whose box it was — is the wrong default. Their own box is one
-     * tap away on the occurrence sheet.
-     */
-    toggle.mutate({ item, complete: cell.tap === 'complete', completedOn: cell.date });
+    if (cell.target === null || cell.tap === null) return;
+    toggle.mutate({
+      item: cell.target,
+      complete: cell.tap === 'complete',
+      completedOn: cell.date,
+    });
   };
 
-  if (isLoading) return <LoadingState label="Working out the week" />;
   if (error !== null) return <ErrorState message={error.message} />;
 
   return (
@@ -177,9 +192,13 @@ export function ChoreChartScreen() {
 
         {/* Above the rows, not below them. A household with a hundred chores
             has a legend nobody will ever scroll to. */}
-        {rows.length === 0 ? null : <Key />}
+        {isLoading || rows.length === 0 ? null : <Key />}
 
-        {rows.length === 0 ? (
+        {isLoading ? (
+          /* Inside the scroll view, so the heading and both arrows stay put.
+             Replacing the screen took away the arrow you needed to page on. */
+          <LoadingState label="Working out the week" />
+        ) : rows.length === 0 ? (
           <View style={{ paddingVertical: space.xxl, alignItems: 'center' }}>
             <Txt variant="body" tone="muted" style={{ textAlign: 'center' }}>
               {isThisWeek
@@ -276,8 +295,16 @@ function Box({
 }) {
   const { colors } = useTheme();
 
-  const doneBy = cell.items[0]?.completedBy ?? null;
-  const ink = inkFor(doneBy);
+  /*
+   * Whose ink a finished box wears.
+   *
+   * One person's ink when one person did all of it, and the overprint when
+   * both had a share — which is what the overprint means everywhere else in
+   * the app. Reading `items[0]` painted a shared day solid blue, so a box two
+   * people had each done half of claimed one of them did it.
+   */
+  const doers = new Set(cell.items.map((item) => item.completedBy));
+  const ink = doers.size === 1 ? inkFor([...doers][0] ?? null) : null;
 
   const base = {
     flex: 1,

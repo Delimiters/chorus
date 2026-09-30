@@ -20,7 +20,7 @@ import { useUserId } from '@/stores/sessionStore';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { useToday } from '@/data/today';
 import { Checkbox, SectionHeader } from '@/design/ChoreRow';
-import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { BackBar, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { formatDayShort } from '@/features/common/format';
 import { groupItems, type Groupable } from '@/core/occurrence/grouping';
 import { useCategoryList } from '@/data/hooks/useCategories';
@@ -230,6 +230,19 @@ export function ChoresScreen() {
           paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
         }}
       >
+        {/*
+          Added when this stopped being a tab.
+          As a tab it needed no way back — there is nowhere to go. Pushed from
+          House under a `Stack` with `headerShown: false`, it covers the tab bar
+          and had no back bar, no header and no tab bar: the only exit was the
+          edge-swipe gesture, on a screen that is a scroll view full of
+          pressable rows. Worse, `ChoreEditor` closes with
+          `router.replace('/chores')` when it has no history, which leaves no
+          swipe target either — a cold start into a chore, then Cancel, and the
+          app was stuck until it was killed.
+        */}
+        <BackBar onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))} />
+
         <Stack gap={2} style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
           <Txt variant="display" accessibilityRole="header">
             Chores

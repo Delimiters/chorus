@@ -32,15 +32,16 @@ function occ(over: {
   status?: AgendaItem['status'];
   choreTitle?: string;
   completedBy?: string | null;
+  subject?: string | null;
 }): AgendaItem {
   const completed = over.status === 'completed';
   return {
     choreId: 'c1',
     choreTitle: over.choreTitle ?? 'Dishes',
-    occurrenceKey: `v1:c1:${over.dueOn}:0:-`,
+    occurrenceKey: `v1:c1:${over.dueOn}:0:${over.subject ?? '-'}`,
     dueOn: over.dueOn,
     status: over.status ?? 'due',
-    subject: null,
+    subject: over.subject ?? null,
     timesOfDay: [],
     assignee: { kind: 'anyone' },
     completedOn: completed ? over.dueOn : null,
@@ -95,6 +96,7 @@ jest.mock('@/data/hooks/useHousehold', () => ({
   }),
 }));
 jest.mock('@/data/today', () => ({ useToday: () => '2026-09-30' }));
+jest.mock('@/stores/sessionStore', () => ({ useUserId: () => 'me' }));
 jest.mock('expo-router', () => ({
   useRouter: () => ({
     push: jest.fn(),
@@ -164,13 +166,56 @@ describe('the chart', () => {
     expect(mockMutate.mock.calls[0]?.[0]).toMatchObject({ complete: true, completedOn: TODAY });
   });
 
-  it('undoes a day that was already done, keeping its own date', () => {
+  it('undoes a day that was already done', () => {
     mockItems = [occ({ dueOn: MONDAY, status: 'completed' })];
 
     renderChart();
     fireEvent.press(screen.getByLabelText('Dishes, Mon 28 Sep, done'));
 
-    expect(mockMutate.mock.calls[0]?.[0]).toMatchObject({ complete: false, completedOn: MONDAY });
+    // No assertion on `completedOn` here: the hook ignores it when `complete`
+    // is false, so one would read as coverage it is not.
+    expect(mockMutate.mock.calls[0]?.[0]).toMatchObject({ complete: false });
+  });
+
+  /* ── Shared days ─────────────────────────────────────────────────────── */
+
+  /*
+   * An `everyone` chore fans out to one occurrence per person, and the
+   * projector's last sort key is the subject's **user id** — so `items[0]` is
+   * the same person for every fan-out chore in the household, forever. The
+   * first version tapped `items[0]`: for whichever housemate's id sorted
+   * second, every shared box hit the other person's share, the write landed on
+   * a duplicate `occurrence_key` and was swallowed as idempotent, and the box
+   * never changed. A silent no-op, every time, invisible to the person whose id
+   * sorted first.
+   *
+   * `me` sorts before `them`, so `items[0]` is deliberately not the viewer's.
+   */
+  it('ticks your own share of a shared day, not whoever sorts first', () => {
+    mockItems = [
+      occ({ dueOn: TUESDAY, subject: 'me', status: 'completed', completedBy: 'me' }),
+      occ({ dueOn: TUESDAY, subject: 'them' }),
+    ];
+
+    renderChart();
+    // The cell reads as outstanding, because one share still is.
+    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, not done'));
+
+    // But the viewer is `me`, whose share is done — so the offer is the undo.
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+    expect(mockMutate.mock.calls[0]?.[0]).toMatchObject({
+      complete: false,
+      item: expect.objectContaining({ subject: 'me' }),
+    });
+  });
+
+  it('offers nothing on a shared day that holds no share of yours', () => {
+    mockItems = [occ({ dueOn: TUESDAY, subject: 'them' })];
+
+    renderChart();
+    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, not done'));
+
+    expect(mockMutate).not.toHaveBeenCalled();
   });
 
   /* ── What must not be tappable ───────────────────────────────────────── */
@@ -231,6 +276,22 @@ describe('the chart', () => {
   });
 
   /* ── Paging ──────────────────────────────────────────────────────────── */
+
+  /*
+   * The cross-month branch, which nothing reached. It hangs on
+   * `formatDayShort(...).slice(4)` — a positional slice on a formatted string,
+   * exactly the sort of thing that changes shape without a compile error. Four
+   * weeks back from 28 September is 31 August to 6 September, which is the
+   * nearest week that both straddles a month and is not "This week".
+   */
+  it('names a week that straddles a month boundary', () => {
+    mockItems = [occ({ dueOn: TUESDAY })];
+
+    renderChart();
+    for (let i = 0; i < 4; i += 1) fireEvent.press(screen.getByLabelText('Previous week'));
+
+    expect(screen.getByText('31 Aug – 6 Sep')).toBeTruthy();
+  });
 
   it('pages back a week, and cannot page past this one', () => {
     mockItems = [occ({ dueOn: TUESDAY })];

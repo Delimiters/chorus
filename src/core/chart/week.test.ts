@@ -3,6 +3,10 @@ import type { CivilDate } from '../civil/types';
 
 import { weekChart, weekDays, weekTotals, type CellState } from './week';
 
+/** Whoever is looking at the chart. Their own share is the one a tap acts on. */
+const ME = 'me';
+const THEM = 'them';
+
 const MONDAY = '2026-09-28' as CivilDate;
 const TUESDAY = '2026-09-29' as CivilDate;
 const WEDNESDAY = '2026-09-30' as CivilDate;
@@ -85,7 +89,7 @@ describe('what each box says', () => {
         occ({ dueOn: THURSDAY }),
         occ({ dueOn: SUNDAY, status: 'completed' }),
       ],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect(states(rows)).toEqual(['none', 'missed', 'today', 'ahead', 'none', 'none', 'done']);
@@ -95,6 +99,7 @@ describe('what each box says', () => {
     const rows = weekChart([occ({ dueOn: TUESDAY, status: 'skipped' })], {
       weekStart: MONDAY,
       today: TODAY,
+      userId: ME,
     });
 
     expect(states(rows)[1]).toBe('skipped');
@@ -108,10 +113,10 @@ describe('what each box says', () => {
   it('is not done until everybody on a shared day has done their share', () => {
     const rows = weekChart(
       [
-        occ({ dueOn: TUESDAY, subject: 'me', status: 'completed' }),
-        occ({ dueOn: TUESDAY, subject: 'them', status: 'due' }),
+        occ({ dueOn: TUESDAY, subject: ME, status: 'completed' }),
+        occ({ dueOn: TUESDAY, subject: THEM, status: 'due' }),
       ],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect(states(rows)[1]).toBe('missed');
@@ -121,10 +126,10 @@ describe('what each box says', () => {
   it('is done when everybody on a shared day has', () => {
     const rows = weekChart(
       [
-        occ({ dueOn: TUESDAY, subject: 'me', status: 'completed' }),
-        occ({ dueOn: TUESDAY, subject: 'them', status: 'completed' }),
+        occ({ dueOn: TUESDAY, subject: ME, status: 'completed' }),
+        occ({ dueOn: TUESDAY, subject: THEM, status: 'completed' }),
       ],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect(states(rows)[1]).toBe('done');
@@ -140,7 +145,7 @@ describe('what can be tapped', () => {
         occ({ dueOn: THURSDAY }),
         occ({ dueOn: MONDAY, status: 'completed' }),
       ],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect((rows[0]?.cells ?? []).map((cell) => cell.tap)).toEqual([
@@ -154,10 +159,61 @@ describe('what can be tapped', () => {
     ]);
   });
 
+  /*
+   * The defect that made a fan-out chore untickable for one of the two people.
+   *
+   * `items[0]` is not "yours" — the projector's last sort key is the subject's
+   * user id, so it is the same person for every fan-out chore forever. For the
+   * housemate whose id sorts second, every shared box tapped the other
+   * person's share: a duplicate `occurrence_key`, swallowed as idempotent, and
+   * a box that never changed.
+   *
+   * `them` sorts after `me`, so `items[0]` here is `me`'s completed share.
+   * Looking as `them`, the tap must offer a tick on their own outstanding one.
+   */
+  it('offers you a tick on a shared day your housemate has already done', () => {
+    const items = [
+      occ({ dueOn: TUESDAY, subject: ME, status: 'completed' }),
+      occ({ dueOn: TUESDAY, subject: THEM, status: 'due' }),
+    ];
+
+    const asThem = weekChart(items, { weekStart: MONDAY, today: TODAY, userId: THEM });
+    expect(asThem[0]?.cells[1]?.tap).toBe('complete');
+    expect(asThem[0]?.cells[1]?.target?.subject).toBe(THEM);
+
+    // And the person who has already done theirs is offered the undo, not a
+    // second tick of work they have finished.
+    const asMe = weekChart(items, { weekStart: MONDAY, today: TODAY, userId: ME });
+    expect(asMe[0]?.cells[1]?.tap).toBe('undo');
+    expect(asMe[0]?.cells[1]?.target?.subject).toBe(ME);
+  });
+
+  it('offers nothing when a shared day holds no share of yours', () => {
+    const rows = weekChart([occ({ dueOn: TUESDAY, subject: THEM })], {
+      weekStart: MONDAY,
+      today: TODAY,
+      userId: ME,
+    });
+
+    expect(rows[0]?.cells[1]?.tap).toBeNull();
+    expect(rows[0]?.cells[1]?.target).toBeNull();
+  });
+
+  it('treats an unshared chore as everybody’s, whoever is looking', () => {
+    const rows = weekChart([occ({ dueOn: TUESDAY })], {
+      weekStart: MONDAY,
+      today: TODAY,
+      userId: 'somebody-else-entirely',
+    });
+
+    expect(rows[0]?.cells[1]?.tap).toBe('complete');
+  });
+
   it('offers nothing on a skipped day', () => {
     const rows = weekChart([occ({ dueOn: TUESDAY, status: 'skipped' })], {
       weekStart: MONDAY,
       today: TODAY,
+      userId: ME,
     });
 
     expect(rows[0]?.cells[1]?.tap).toBeNull();
@@ -169,6 +225,7 @@ describe('which rows appear', () => {
     const rows = weekChart([occ({ choreId: 'c1', dueOn: TUESDAY })], {
       weekStart: MONDAY,
       today: TODAY,
+      userId: ME,
     });
 
     expect(rows).toHaveLength(1);
@@ -178,7 +235,7 @@ describe('which rows appear', () => {
   it('ignores an occurrence outside the week rather than folding it into an edge', () => {
     const rows = weekChart(
       [occ({ dueOn: '2026-09-27' as CivilDate }), occ({ dueOn: '2026-10-05' as CivilDate })],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect(rows).toEqual([]);
@@ -188,6 +245,7 @@ describe('which rows appear', () => {
     const rows = weekChart([occ({ dueOn: TUESDAY, displaced: true })], {
       weekStart: MONDAY,
       today: TODAY,
+      userId: ME,
     });
 
     expect(rows).toEqual([]);
@@ -200,7 +258,7 @@ describe('which rows appear', () => {
         occ({ choreId: 'c1', choreTitle: 'Bins', dueOn: TUESDAY }),
         occ({ choreId: 'c3', choreTitle: 'Hoover', dueOn: TUESDAY }),
       ],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect(rows.map((row) => row.choreTitle)).toEqual(['Bins', 'Hoover', 'Windows']);
@@ -215,7 +273,7 @@ describe('which rows appear', () => {
     const build = (ids: readonly string[]) =>
       weekChart(
         ids.map((id) => occ({ choreId: id, choreTitle: 'Bins', dueOn: TUESDAY })),
-        { weekStart: MONDAY, today: TODAY },
+        { weekStart: MONDAY, today: TODAY, userId: ME },
       ).map((row) => row.choreId);
 
     expect(build(['b', 'a'])).toEqual(['a', 'b']);
@@ -229,7 +287,7 @@ describe('which rows appear', () => {
         occ({ dueOn: TUESDAY }),
         occ({ dueOn: WEDNESDAY }),
       ],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect(rows).toHaveLength(1);
@@ -246,7 +304,7 @@ describe('the counts', () => {
         occ({ dueOn: WEDNESDAY }),
         occ({ dueOn: THURSDAY }),
       ],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect(rows[0]?.done).toBe(1);
@@ -260,14 +318,14 @@ describe('the counts', () => {
         occ({ choreId: 'c2', choreTitle: 'Dishes', dueOn: TUESDAY, status: 'completed' }),
         occ({ choreId: 'c2', choreTitle: 'Dishes', dueOn: WEDNESDAY }),
       ],
-      { weekStart: MONDAY, today: TODAY },
+      { weekStart: MONDAY, today: TODAY, userId: ME },
     );
 
     expect(weekTotals(rows)).toEqual({ done: 2, due: 3 });
   });
 
   it('is zero and zero for an empty week', () => {
-    expect(weekTotals(weekChart([], { weekStart: MONDAY, today: TODAY }))).toEqual({
+    expect(weekTotals(weekChart([], { weekStart: MONDAY, today: TODAY, userId: ME }))).toEqual({
       done: 0,
       due: 0,
     });

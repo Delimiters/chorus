@@ -13,7 +13,7 @@ create extension if not exists pgtap with schema extensions;
 -- turning notifications off altogether.
 
 begin;
-select plan(21);
+select plan(24);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -243,10 +243,19 @@ select is(
   'and says who wrote it'
 );
 
+-- Array *length*, not element zero. `jsonb_agg` over a join has no defined
+-- order, so "element 0 is bob" would still hold — sometimes — if the author
+-- stopped being excluded. The count cannot.
+select is(
+  (select jsonb_array_length(convert_from(body, 'utf8')::jsonb) from net.http_request_queue limit 1),
+  1,
+  'to exactly one person — not back to the author'
+);
+
 select is(
   (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'to' from net.http_request_queue limit 1),
   'ExponentPushToken[bob]',
-  'to the housemate, not back to the author'
+  'and that person is the housemate'
 );
 
 -- A note with no title falls back to its first line, the same promotion the
@@ -306,6 +315,35 @@ select is(
   (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'body' from net.http_request_queue limit 1),
   'Alice updated a note.',
   'but coming back to it later is news again'
+);
+
+-- The throttle is per author, not per note.
+--
+-- Bob correcting what Alice wrote four minutes ago is news to Alice — she is
+-- the one who will otherwise act on the wrong version. A throttle that looked
+-- only at `updated_at` silenced exactly that.
+update public.household_notes
+   set title = 'Boiler', body = 'Landlord said he would send someone.'
+ where id = 'ef000000-0000-0000-0000-000000000001';
+
+reset role;
+delete from net.http_request_queue;
+select pg_temp.become('e2222222-2222-2222-2222-222222222222');
+
+update public.household_notes
+   set body = 'Landlord is coming Wednesday, not Tuesday.'
+ where id = 'ef000000-0000-0000-0000-000000000001';
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'body' from net.http_request_queue limit 1),
+  'Bob updated a note.',
+  'your housemate correcting what you just wrote is not throttled — it is the correction'
+);
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'to' from net.http_request_queue limit 1),
+  'ExponentPushToken[alice]',
+  'and it goes to the person who wrote the thing being corrected'
 );
 
 -- Touching a note without changing what it says is not news at all. Aged

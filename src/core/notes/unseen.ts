@@ -29,14 +29,14 @@ export interface SeenCandidate {
  *
  * `lastSeenAt` of `null` counts nothing. A fresh install has never opened the
  * board, and badging it with a "14" for a year of notes nobody has changed is
- * noise dressed as news — so the store seeds the timestamp on first hydrate
- * and this is the safety net behind it.
+ * noise dressed as news — so the tab bar seeds it from `latestNoteStamp` as
+ * soon as a list is in hand, and this is what holds until then.
  *
- * Timestamps are compared as **strings**, which is exact rather than lucky:
- * both sides are UTC ISO-8601 from the same two sources — Postgres's
- * `now()` serialised by PostgREST, and `Date.toISOString()` — and that format
- * sorts lexicographically in the same order it sorts chronologically. Parsing
- * to `Date` would need a clock in `core`, which invariant 2 forbids.
+ * Timestamps are compared as **strings**, and both sides now come from the
+ * same clock: `lastSeenAt` is a stamp copied off a note, not a reading of the
+ * phone's own time. ISO-8601 in UTC sorts lexicographically in the same order
+ * it sorts chronologically, so the comparison is exact. Parsing to `Date` would
+ * need a clock in `core`, which invariant 2 forbids anyway.
  *
  * A note written by nobody (`updated_by` nulled when its author deleted their
  * account) counts: it was somebody else's, and it is certainly not yours.
@@ -49,6 +49,28 @@ export function countUnseenNotes(
   if (lastSeenAt === null) return 0;
 
   return notes.filter((note) => note.updatedBy !== userId && note.updatedAt > lastSeenAt).length;
+}
+
+/**
+ * The newest edit on the board, or null when there is nothing on it.
+ *
+ * This is what "seen" is recorded as, and the reason is that it comes from
+ * **Postgres**. Recording the phone's own clock compared a device time against
+ * server timestamps, and two clocks that disagree break it in both directions:
+ * a phone running ninety seconds slow leaves a badge on a board it is looking
+ * at, and a phone that briefly reads 2027 — a manual set, a bad sync — writes a
+ * moment nothing can ever exceed. `markSeen` only moves forward, so that second
+ * one kills the badge for a year with no way to reset it from inside the app.
+ *
+ * Marking the newest stamp instead costs nothing: a note saved after the list
+ * was fetched has an `updatedAt` greater than this, so it is still news.
+ */
+export function latestNoteStamp(notes: readonly SeenCandidate[]): string | null {
+  let latest: string | null = null;
+  for (const note of notes) {
+    if (latest === null || note.updatedAt > latest) latest = note.updatedAt;
+  }
+  return latest;
 }
 
 /**

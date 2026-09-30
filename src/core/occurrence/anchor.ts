@@ -92,8 +92,12 @@ export function anchorToCompletion(
     .map((completion) => ({
       dueOn: dueOnFromKey(completion.occurrenceKey),
       completedOn: completion.completedOn,
+      occurrenceKey: completion.occurrenceKey,
     }))
-    .filter((c): c is { dueOn: CivilDate; completedOn: CivilDate } => c.dueOn !== null)
+    .filter(
+      (c): c is { dueOn: CivilDate; completedOn: CivilDate; occurrenceKey: string } =>
+        c.dueOn !== null,
+    )
     .sort((a, b) => compareCivil(a.dueOn, b.dueOn));
 
   if (dated.length === 0) return raw;
@@ -137,9 +141,21 @@ export function anchorToCompletion(
      * A tick written against a date this chore no longer falls on — which is
      * what a stale client writes — would otherwise drag the whole series onto
      * a phase nothing was ever due on.
+     *
+     * **Unless somebody moved it there.** A rescheduled occurrence is off the
+     * chain by construction: its key still carries the date the rule produced,
+     * while the row shows the date it was moved to, and the re-admission below
+     * deliberately keeps it alive after a re-anchor has deleted its original.
+     * Ticking one of those hit this guard and re-anchored nothing — so an
+     * interval chore rescheduled and then completed had its next occurrence
+     * stay where the chain already put it, which could be the *day after* it
+     * was done. That is "reset the cycle onto the wrong day" arriving through
+     * the one door the chore chart exists to close.
+     *
+     * The stale-client case is untouched: a key nobody moved has no exception.
      */
     const offset = daysBetween(anchor, completion.dueOn);
-    if (offset % everyNDays !== 0) continue;
+    if (offset % everyNDays !== 0 && !hasException(completion.occurrenceKey)) continue;
 
     /*
      * Segments that end before the window are counted, not expanded.
