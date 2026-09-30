@@ -118,10 +118,10 @@ Ordered roughly by expected value.
   supports linking, and it needs deliberate handling rather than discovery in
   production.
 
-- **Remote push notifications.** Gated on a $99/yr Apple Developer account.
-  "Your partner completed X", nudges, and server-side daily digests via a
-  Supabase Edge Function. The `NotificationTransport` seam already exists, so
-  this is a new implementation plus a DB trigger — no call-site changes.
+- ~~**Remote push notifications.**~~ **Shipped 29–30 September 2026.** The
+  membership landed, the APNs key is uploaded, and a `pg_net` call from a
+  trigger tells the other phone about completions, new chores, changes to your
+  day, and notes. See `docs/CHORE-CHART.md` for the note half.
 - **Home screen widget.** Today's chores at a glance. Needs a native build.
 - **Chore templates.** "Add a starter set" during onboarding.
 - **Multi-household.** The schema already supports it; only the UI assumes one.
