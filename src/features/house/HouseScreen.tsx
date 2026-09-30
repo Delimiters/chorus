@@ -15,7 +15,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { addDays, startOfWeek } from '@/core/civil/date';
 import { listCompletions } from '@/data/api/chores';
 import { useSignOut } from '@/data/hooks/useAuth';
-import { useNotes } from '@/data/hooks/useNotes';
 import {
   useActiveInvite,
   useCreateInvite,
@@ -30,8 +29,7 @@ import { Button, LoadingState, Stack, Txt } from '@/design/components';
 import { inkColor } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
-import { useActiveHouseholdId, useUserId } from '@/stores/sessionStore';
-import { NoteCard } from '@/features/common/NoteCard';
+import { useActiveHouseholdId } from '@/stores/sessionStore';
 import { skipToken, useQuery } from '@tanstack/react-query';
 
 export function HouseScreen() {
@@ -40,28 +38,11 @@ export function HouseScreen() {
   const createInvite = useCreateInvite();
   const { colors, isDark } = useTheme();
   const householdId = useActiveHouseholdId();
-  const userId = useUserId();
   const household = useHousehold();
   const members = useMembers();
   const signOut = useSignOut();
   const today = useToday(household.data?.timeZone ?? 'UTC');
 
-  /*
-   * The board, and the two lookups its cards need. Kept here rather than
-   * inside `NoteCard` so the card stays a pure presentation component that a
-   * test can render without a household.
-   */
-  const notes = useNotes();
-  const noteList = notes.data ?? [];
-  const noteEditorName = (id: string | null) => {
-    if (id === null) return null;
-    if (id === userId) return 'You';
-    return (members.data ?? []).find((m) => m.userId === id)?.displayName ?? null;
-  };
-  const noteEditorInk = (id: string | null) => {
-    const member = (members.data ?? []).find((m) => m.userId === id);
-    return member === undefined ? null : inkColor(member.accent, isDark);
-  };
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
   const week = useMemo(() => {
@@ -101,55 +82,6 @@ export function HouseScreen() {
           <Txt variant="mono" tone="faint">
             {(members.data ?? []).length} {(members.data ?? []).length === 1 ? 'PERSON' : 'PEOPLE'}
           </Txt>
-        </Stack>
-
-        {/*
-          Above "Who lives here", which is deliberate.
-          
-          Everything else on this tab is reference material you consult rarely
-          — the roster, the week's split, the invite code. The note board is
-          the one thing here you might open daily, and burying the only live
-          content under two static blocks would be the wrong way round.
-
-          Three at most, then a way through to the rest: the header plus three
-          cards is about one screen on an iPhone 14, so the member list still
-          starts on the first scroll.
-        */}
-        <SectionHeader title="Notes" count={noteList.length} />
-        <Stack gap={space.xs}>
-          {notes.error ? (
-            /*
-             * Said, not swallowed. `useNoteList` returned an empty array on
-             * failure, so a dropped connection rendered "Nothing written down
-             * yet" — a confident claim about a household that may have plenty.
-             */
-            <Txt variant="small" tone="danger" style={{ paddingHorizontal: space.sm }}>
-              The notes could not be loaded.
-            </Txt>
-          ) : noteList.length === 0 ? (
-            <Txt variant="small" tone="faint" style={{ paddingHorizontal: space.sm }}>
-              For the things that are not quite chores. Nothing written down yet.
-            </Txt>
-          ) : (
-            noteList
-              .slice(0, 3)
-              .map((note) => (
-                <NoteCard
-                  key={note.id}
-                  title={note.title}
-                  body={note.body}
-                  editorName={noteEditorName(note.updatedBy)}
-                  editorInk={noteEditorInk(note.updatedBy)}
-                  updatedAt={note.updatedAt}
-                  onPress={() => router.push(`/note/${note.id}`)}
-                />
-              ))
-          )}
-          <Button
-            label={noteList.length > 3 ? `All ${noteList.length} notes` : 'Open the note board'}
-            variant="ghost"
-            onPress={() => router.push('/notes')}
-          />
         </Stack>
 
         <SectionHeader title="Who lives here" />
@@ -288,7 +220,16 @@ export function HouseScreen() {
           ) : null}
         </Stack>
 
+        {/*
+          The library, which used to be a tab of its own.
+
+          It moved here when Notes took its place: a list of every chore you
+          have is something you open while *setting things up*, not daily, and
+          this tab is already where the reference material lives. The note
+          board went the other way for the opposite reason.
+        */}
         <View style={{ paddingTop: space.xxl, gap: space.sm }}>
+          <Button label="All chores" variant="ghost" onPress={() => router.push('/chores')} />
           <Button label="Categories" variant="ghost" onPress={() => router.push('/categories')} />
           <Button label="Settings" variant="ghost" onPress={() => router.push('/settings')} />
           <Button

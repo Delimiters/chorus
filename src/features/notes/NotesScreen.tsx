@@ -7,6 +7,12 @@
  *
  * Newest edit first, because a board sorted by creation puts the thing you
  * were just working on at the bottom.
+ *
+ * A tab since 2026-09-30, where the Chores library used to be. Jake: *"the
+ * note board needs to be more visible."* Buried two taps deep on the House
+ * tab, it was competing with a list of household settings; the library it
+ * replaced is consulted while setting things up rather than daily, so it moved
+ * the other way. No back bar, because a tab has nowhere to go back to.
  */
 
 import { useRouter } from 'expo-router';
@@ -16,7 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMembers } from '@/data/hooks/useHousehold';
 import { useNotes } from '@/data/hooks/useNotes';
 import { AddChoreButton, ADD_BUTTON_CLEARANCE } from '@/design/AddButton';
-import { BackBar, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { inkColor } from '@/design/inks';
 import { useTheme } from '@/design/theme';
 import { space } from '@/design/tokens';
@@ -54,13 +60,6 @@ export function NotesScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       {/* A route fallback, not a bare `back()`: a cold start straight to
           /notes has no history, and `back()` there does nothing at all. */}
-      <BackBar
-        onPress={() => {
-          if (router.canGoBack()) router.back();
-          else router.replace('/house');
-        }}
-        label="House"
-      />
       <ScrollView
         contentContainerStyle={{ padding: space.lg, paddingBottom: ADD_BUTTON_CLEARANCE }}
       >
