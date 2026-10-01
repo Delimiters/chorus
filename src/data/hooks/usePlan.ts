@@ -422,13 +422,23 @@ export function usePlanDismissals(today: CivilDate): {
    * removal made on *her* phone reaches this one as an invalidation, and until
    * the refetch lands this phone has no idea it happened.
    *
-   * Collapsed into one flag rather than returned as two, because every caller
-   * writes plan rows from the answer — there is no caller for whom "stale but
-   * present" is good enough, so there is no reason to let one pick wrong.
+   * `isError` is in there too, and for the third time the same argument. A
+   * failed fetch leaves `data` undefined, so `dismissals` falls back to the
+   * empty list while both `isLoading` and `isFetching` are false — and the
+   * fill cannot tell "nothing was taken off" from "we asked and it broke".
+   * Open the app on a flaky morning having removed three chores earlier and
+   * all three come back; worse, `add` calls `undismissFromPlan`, so the three
+   * records are deleted and tomorrow does not fix it.
+   *
+   * Collapsed into one flag rather than returned as three, because every
+   * caller writes plan rows from the answer — there is no caller for whom
+   * "stale, absent or broken but present" is good enough, so there is no
+   * reason to let one pick wrong. The name is now a slight lie and the
+   * alternative was three booleans nobody would combine correctly.
    */
   return {
     dismissals: query.data ?? EMPTY_DISMISSALS,
-    isLoading: query.isLoading || query.isFetching,
+    isLoading: query.isLoading || query.isFetching || query.isError,
   };
 }
 
