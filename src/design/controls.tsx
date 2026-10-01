@@ -67,7 +67,15 @@ export function SegmentedControl<T extends string>({
             onPress={() => onChange(segment.value)}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
-            accessibilityLabel={segment.label}
+            /*
+             * The badge has to be in the label, not only on the screen.
+             * `accessibilityLabel` on a Pressable replaces whatever its
+             * children would have said, so the count rendered and was
+             * announced to nobody.
+             */
+            accessibilityLabel={
+              segment.badge == null ? segment.label : `${segment.label}, ${segment.badge} due`
+            }
             style={{
               flex: scrollable ? undefined : 1,
               paddingHorizontal: scrollable ? space.md : space.sm,

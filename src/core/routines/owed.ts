@@ -25,12 +25,26 @@
  * every other clock reading in the engine.
  */
 
-import type { CivilTime } from '../civil/types';
-import { bucketStart, minutesFromDayStart, type TimeBucket } from './buckets';
+import type { CivilDate, CivilTime } from '../civil/types';
+import { DEFAULT_BUCKET_TIMES, minutesFromDayStart, type TimeBucket } from './buckets';
 
-/** Only the fields the count needs, so a fixture can stand in for the projection. */
+/**
+ * Only the fields the count needs, so a fixture can stand in for the projection.
+ *
+ * `dueOn` is here because leaving it out was a defect, not an economy. The
+ * projection the caller hands over spans a **whole quantised week** — that is
+ * what `useRoutineDay` fetches — and without a day to compare against, every
+ * incomplete occurrence from Sunday onward counted. One daily item read `5` on
+ * a Thursday and `7` by Saturday.
+ *
+ * Worse than the arithmetic: a shape without `dueOn` cannot *express* the bug,
+ * so no fixture could catch it, and `RoutineOccurrence` satisfied the narrower
+ * shape structurally so it type-checked. That is the trap AGENTS.md names —
+ * the wrong type being a subtype of the right one.
+ */
 export interface OwedCandidate {
   readonly ownerId: string;
+  readonly dueOn: CivilDate;
   readonly bucket: TimeBucket;
   /** A specific time, or null when the item only claims a bucket. */
   readonly timeOfDay: CivilTime | null;
@@ -42,12 +56,20 @@ export interface OwedCandidate {
  *
  * A timed item is owed from its own time — setting one is a statement that the
  * thing happens *then*, and rounding it down to its bucket would throw that
- * away and claim 21:00's medication was overdue at five in the afternoon. An
- * untimed item is owed from the start of the bucket it claims, because a bucket
- * means "sometime this evening" and the window opening is the honest moment.
+ * away and claim 21:00's medication was overdue at five in the afternoon.
+ *
+ * An untimed item is owed from its bucket's **reminder** time, not from where
+ * the bucket structurally begins. The two differ for exactly one bucket and it
+ * is the one that matters: morning *starts* at 05:00, because that is where the
+ * routine day is cut so that night is one span rather than two. Measuring from
+ * there made every untimed morning item owed at five in the morning — so the
+ * count did not start at zero and climb, it started at all of them. `buckets.ts`
+ * already makes this argument against itself, which is why
+ * `DEFAULT_BUCKET_TIMES.morning` is 07:00 and the reminder does not fire at the
+ * boundary either.
  */
 function owedFrom(item: OwedCandidate): number {
-  return minutesFromDayStart(item.timeOfDay ?? bucketStart(item.bucket));
+  return minutesFromDayStart(item.timeOfDay ?? DEFAULT_BUCKET_TIMES[item.bucket]);
 }
 
 /**
@@ -56,18 +78,28 @@ function owedFrom(item: OwedCandidate): number {
  * Includes earlier buckets, which is what makes it a nudge rather than a clock:
  * the thing you skipped this morning is still owed at three in the afternoon.
  *
- * `missed` counts for the same reason — on the day being viewed it is work
- * that came due and did not happen. It stops counting tomorrow, because a
- * missed routine never rolls forward.
+ * Today only. The caller's projection spans a whole week, so the day is a
+ * parameter rather than an assumption — see `OwedCandidate.dueOn`.
  *
  * Somebody else's shared routine is never counted. A badge is a prompt to act,
  * and you cannot do their stretches.
  */
 export function owedByNow(
   items: readonly OwedCandidate[],
-  options: { readonly userId: string | null; readonly now: CivilTime },
+  options: {
+    readonly userId: string | null;
+    /**
+     * The day being counted, which is always today.
+     *
+     * Required, and the reason is the whole of the `dueOn` note above: the
+     * caller's projection covers a week, and a count with no day in it counts
+     * the week.
+     */
+    readonly today: CivilDate;
+    readonly now: CivilTime;
+  },
 ): number {
-  const { userId, now } = options;
+  const { userId, today, now } = options;
   if (userId === null) return 0;
 
   const elapsed = minutesFromDayStart(now);
@@ -75,7 +107,15 @@ export function owedByNow(
   return items.filter(
     (item) =>
       item.ownerId === userId &&
-      (item.status === 'due' || item.status === 'missed') &&
+      item.dueOn === today &&
+      /*
+       * `due` alone, because for today's date it is the only incomplete status
+       * the projector can produce: `statusOf` gives `upcoming` strictly in the
+       * future and `missed` strictly in the past. The first version also
+       * admitted `missed`, which read as "a skipped item still counts today"
+       * and was in fact the clause letting the rest of the week in.
+       */
+      item.status === 'due' &&
       owedFrom(item) <= elapsed,
   ).length;
 }

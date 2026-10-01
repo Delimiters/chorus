@@ -8,17 +8,27 @@
  */
 import { render, screen } from '@testing-library/react-native';
 
-import type { CivilTime } from '@/core/civil/types';
+import type { CivilDate, CivilTime } from '@/core/civil/types';
 import { ThemeProvider } from '@/design/theme';
 
 import { ModeSwitch } from './ModeSwitch';
 
+/*
+ * `dueOn` is in this fixture because leaving it out is what let a defect past
+ * both this file and the unit tests. `useRoutineDay` returns a whole quantised
+ * week — the Routines screen pages through it — so a harness whose occurrences
+ * are all implicitly "today" is shaped differently from the real caller in
+ * exactly the dimension that was broken.
+ */
 interface Occ {
   ownerId: string;
+  dueOn: CivilDate;
   bucket: 'morning' | 'afternoon' | 'evening' | 'night';
   timeOfDay: CivilTime | null;
   status: 'upcoming' | 'due' | 'completed' | 'missed';
 }
+
+const TODAY = '2026-10-01' as CivilDate;
 
 let mockOccurrences: Occ[] = [];
 let mockNow = '09:00' as CivilTime;
@@ -37,6 +47,7 @@ jest.mock('@/stores/sessionStore', () => ({ useUserId: () => 'me' }));
 
 const item = (over: Partial<Occ> = {}): Occ => ({
   ownerId: 'me',
+  dueOn: TODAY,
   bucket: 'morning',
   timeOfDay: null,
   status: 'due',
@@ -97,6 +108,38 @@ describe('the Routines segment', () => {
     renderSwitch();
 
     expect(screen.getByText('9+')).toBeTruthy();
+  });
+
+  /*
+   * The week the real hook actually hands over. Without this the screen test
+   * agreed with the unit tests and both were wrong together.
+   */
+  it('counts today out of the week the projection covers', () => {
+    mockOccurrences = [
+      item({ dueOn: '2026-09-28' as CivilDate, status: 'missed' }),
+      item({ dueOn: '2026-09-29' as CivilDate, status: 'missed' }),
+      item({ dueOn: '2026-09-30' as CivilDate, status: 'missed' }),
+      item({ dueOn: TODAY }),
+      item({ dueOn: '2026-10-02' as CivilDate, status: 'upcoming' }),
+    ];
+
+    renderSwitch();
+
+    expect(screen.getByText('1')).toBeTruthy();
+    expect(screen.queryByText('4')).toBeNull();
+  });
+
+  it('announces the count, rather than drawing it for nobody', () => {
+    mockOccurrences = [item(), item()];
+
+    renderSwitch();
+
+    expect(screen.getByLabelText('Routines, 2 due')).toBeTruthy();
+    // And says just the name when there is nothing owed.
+    screen.unmount();
+    mockOccurrences = [];
+    renderSwitch();
+    expect(screen.getByLabelText('Routines')).toBeTruthy();
   });
 
   it('never counts your housemate’s shared routine', () => {
