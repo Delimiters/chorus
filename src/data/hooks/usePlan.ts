@@ -406,7 +406,30 @@ export function usePlanDismissals(today: CivilDate): {
    * away — *"PlanView does not merely render that answer, it writes plan rows
    * from it"*. This was the one query the rule had not been applied to.
    */
-  return { dismissals: query.data ?? EMPTY_DISMISSALS, isLoading: query.isLoading };
+  /*
+   * `isFetching`, not just `isLoading`, and the distinction is the whole bug
+   * Emily reported — *"I keep taking things off today and they come back lol"*.
+   *
+   * `isLoading` is only true for a query that has never resolved. Once there is
+   * data in the cache, a refetch leaves it false and hands back the **old**
+   * rows while the new ones are in flight. Every removal invalidates this query,
+   * and so does every realtime change from the other phone — so the window
+   * where the fill sees a stale "nothing was taken off" is not a rare startup
+   * race, it is the moment immediately after every single removal.
+   *
+   * The local half of that is fixed where it should be, by patching the
+   * dismissal into the cache in `onMutate`. This closes the other half: a
+   * removal made on *her* phone reaches this one as an invalidation, and until
+   * the refetch lands this phone has no idea it happened.
+   *
+   * Collapsed into one flag rather than returned as two, because every caller
+   * writes plan rows from the answer — there is no caller for whom "stale but
+   * present" is good enough, so there is no reason to let one pick wrong.
+   */
+  return {
+    dismissals: query.data ?? EMPTY_DISMISSALS,
+    isLoading: query.isLoading || query.isFetching,
+  };
 }
 
 const EMPTY_DISMISSALS: readonly PlanDismissalRow[] = [];
@@ -463,12 +486,32 @@ export function useRemoveFromPlan(today: CivilDate) {
       await removeFromPlan(owner, occurrenceKey, today);
     },
 
+    /*
+     * ── Both halves of the removal, or the fill undoes it ─────────────────
+     *
+     * Emily: *"Chorus is glitching I keep taking things off today and they come
+     * back lol"*. She was right, and it was not user error.
+     *
+     * Taking something off is two facts: the entry goes, and a dismissal says
+     * that was deliberate. Only the first was patched here; the second had to
+     * make a round trip. And `isLoading` does not cover that gap — on a query
+     * that already has data it is false for a background refetch — so the
+     * fill's `dismissalsLoading` guard waved it through. The fill then saw the
+     * entry gone and no dismissal, concluded the chore was unplanned and
+     * un-dismissed, and put it straight back. Worse, the re-add calls
+     * `undismissFromPlan`, which deleted the dismissal as it landed. So the
+     * chore came back *and* the record of not wanting it was erased, which is
+     * why it kept happening.
+     *
+     * Both facts now land in the cache in the same tick as each other.
+     */
     onMutate: async ({ occurrenceKey, ownerId }) => {
       const owner = ownerId ?? userId;
       if (householdId === null || owner === null) return;
       const key = qk.plan(householdId, from, today);
-      await queryClient.cancelQueries({ queryKey: key });
+      const dismissalKey = qk.planDismissals(householdId, from, today);
       const snapshot = queryClient.getQueryData<readonly PlanEntryRow[]>(key);
+      const dismissalSnapshot = queryClient.getQueryData<readonly PlanDismissalRow[]>(dismissalKey);
 
       queryClient.setQueryData<readonly PlanEntryRow[]>(key, (existing = []) =>
         existing.filter(
@@ -480,12 +523,42 @@ export function useRemoveFromPlan(today: CivilDate) {
             ),
         ),
       );
-      return { snapshot };
+
+      queryClient.setQueryData<readonly PlanDismissalRow[]>(dismissalKey, (existing = []) => {
+        // The table's own unique key, so a double tap is one fact here too.
+        const already = existing.some(
+          (d) => d.userId === owner && d.occurrenceKey === occurrenceKey && d.dismissedOn === today,
+        );
+        if (already) return existing;
+        return [...existing, { userId: owner, occurrenceKey, dismissedOn: today }];
+      });
+
+      /*
+       * Written first, cancelled second — the same ordering `useReorderPlan`
+       * documents a few hundred lines down, and for the same reason. Awaiting
+       * `cancelQueries` first pushes the patch a microtask or more past the
+       * render that needs it, and the render that needs it here is the fill
+       * deciding whether this chore is still wanted today.
+       */
+      await queryClient.cancelQueries({ queryKey: key });
+      await queryClient.cancelQueries({ queryKey: dismissalKey });
+
+      return { snapshot, dismissalSnapshot };
     },
 
     onError: (_error, _key, context) => {
-      if (householdId === null || context?.snapshot === undefined) return;
-      queryClient.setQueryData(qk.plan(householdId, from, today), context.snapshot);
+      if (householdId === null) return;
+      if (context?.snapshot !== undefined) {
+        queryClient.setQueryData(qk.plan(householdId, from, today), context.snapshot);
+      }
+      // Rolled back too. A dismissal left behind for a row that is back on the
+      // plan would make the next removal look like it had already happened.
+      if (context?.dismissalSnapshot !== undefined) {
+        queryClient.setQueryData(
+          qk.planDismissals(householdId, from, today),
+          context.dismissalSnapshot,
+        );
+      }
     },
 
     onSettled: () => {
