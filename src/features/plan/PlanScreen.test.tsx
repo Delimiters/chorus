@@ -109,6 +109,18 @@ let mockHousemateFirst = true;
 const mockSetGroupOrder = jest.fn();
 let mockGroupOrderError: Error | null = null;
 
+/*
+ * The Routines segment's count, which `ModeSwitch` fetches for itself.
+ *
+ * Mocked away rather than fed, because none of these tests is about it and
+ * leaving it real would make every one of them depend on the routine query, the
+ * household and a once-a-minute clock. `ModeSwitch.test.tsx` is where it is
+ * actually asserted.
+ */
+jest.mock('@/features/routines/useRoutineOwed', () => ({
+  useRoutineOwedBadge: () => null,
+}));
+
 jest.mock('@/data/hooks/useHousehold', () => ({
   useMembers: () => ({
     // The housemate is permanently set to the opposite preference, so reading
