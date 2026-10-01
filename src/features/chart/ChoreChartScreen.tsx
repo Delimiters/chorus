@@ -40,7 +40,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { addDays, startOfWeek } from '@/core/civil/date';
-import type { CivilDate, Weekday } from '@/core/civil/types';
+import type { CivilDate, DateWindow, Weekday } from '@/core/civil/types';
 import { weekChart, weekDays, weekTotals, type ChartCell, type ChartRow } from '@/core/chart/week';
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
 import { useOccurrences, useToggleCompletion } from '@/data/hooks/useOccurrences';
@@ -83,6 +83,18 @@ export const WEEKS_PER_STEP = 8;
  */
 export function spanFor(weeksBack: number): number {
   return (Math.floor(weeksBack / WEEKS_PER_STEP) + 1) * WEEKS_PER_STEP;
+}
+
+/**
+ * The window the chart asks the projector for.
+ *
+ * Exported so the test that checks it against the engine's limit measures the
+ * window that actually ships, rather than a second copy of the arithmetic that
+ * could drift the moment somebody widens the end to prefetch.
+ */
+export function windowFor(thisWeek: CivilDate, weeksBack: number): DateWindow {
+  const span = spanFor(weeksBack);
+  return { start: addDays(thisWeek, -7 * span), end: addDays(thisWeek, 6) };
 }
 
 /** The gap between boxes. Hairline, so the week reads as one ruled strip. */
@@ -128,11 +140,7 @@ export function ChoreChartScreen() {
    * to page again had gone. `weekChart` already ignores occurrences outside its
    * seven days, which is what makes over-fetching free here.
    */
-  const span = spanFor(weeksBack);
-  const window = useMemo(
-    () => ({ start: addDays(thisWeek, -7 * span), end: addDays(thisWeek, 6) }),
-    [thisWeek, span],
-  );
+  const window = useMemo(() => windowFor(thisWeek, weeksBack), [thisWeek, weeksBack]);
   const { items, isLoading, error, refetch } = useOccurrences(window);
 
   const rows = useMemo(
@@ -397,11 +405,35 @@ function Box({
    */
   const yoursDoneTheirsNot = cell.own === 'done' && cell.state !== 'done';
 
+  /*
+   * One rule for the count, used by the paint and the label alike.
+   *
+   * They had two: the box required at least one done, the label only required
+   * several slots — so a 3x chore with nothing done printed an empty box and
+   * announced "0 of 3 done". And a cell holding one completion and two skips
+   * took the `yoursDoneTheirsNot` branch, so it was painted filled with a tick
+   * for a day where one of three actually happened. The count wins wherever
+   * there is more than one slot, because "1 of 3" is the more honest thing to
+   * say than either a tick or nothing.
+   */
+  const showsCount = cell.slots.total > 1 && cell.slots.done > 0 && cell.state !== 'done';
+
   const style = (() => {
-    if (yoursDoneTheirsNot) {
+    if (yoursDoneTheirsNot && !showsCount) {
       return {
         ...base,
-        backgroundColor: ink ?? colors.overprint,
+        /*
+         * The ink of whoever did *your* share, read off the item the tap acts
+         * on rather than off the cell.
+         *
+         * Equivalent to the cell-wide `ink` in every state this branch can
+         * actually reach — a two-item cell with one completion has exactly one
+         * doer either way, and anything with more slots is showing a count
+         * instead. Spelled this way because it is the one that stays true if
+         * the household ever has a third member, and because the comment above
+         * promises your ink and this is the expression that means it.
+         */
+        backgroundColor: inkFor(cell.target?.completedBy ?? null) ?? colors.overprint,
         borderWidth: 1.6,
         borderColor: colors.textMuted,
       };
@@ -444,7 +476,7 @@ function Box({
   })();
 
   const mark = (() => {
-    if (yoursDoneTheirsNot) {
+    if (yoursDoneTheirsNot && !showsCount) {
       return (
         <Txt variant="bodyStrong" style={{ color: colors.paper }}>
           ✓
@@ -457,7 +489,7 @@ function Box({
      * built around, surviving its own fix. The box now says how far through you
      * are, and fills on the last one.
      */
-    if (cell.slots.total > 1 && cell.slots.done > 0 && cell.state !== 'done') {
+    if (showsCount) {
       return (
         <Txt variant="mono" tone="muted" style={{ fontSize: 11 }}>
           {`${cell.slots.done}/${cell.slots.total}`}
@@ -568,10 +600,14 @@ function describe(cell: ChartCell, title: string): string {
 
   // Only when your share disagrees with the day — otherwise it would append
   // "you have done yours" to every ordinary completed box.
+  // Same rule the box paints by, so the two can never describe the cell
+  // differently — which they did, under two slightly different conditions.
+  if (cell.slots.total > 1 && cell.slots.done > 0 && cell.state !== 'done') {
+    return `${dayReads}, ${cell.slots.done} of ${cell.slots.total} done`;
+  }
   if (cell.own === 'done' && cell.state !== 'done') return `${dayReads}, you have done yours`;
   if (cell.own === 'skipped' && cell.state !== 'skipped') return `${dayReads}, you skipped yours`;
   if (cell.own === 'none' && cell.state !== 'none') return `${dayReads}, your housemate's`;
-  if (cell.slots.total > 1) return `${dayReads}, ${cell.slots.done} of ${cell.slots.total} done`;
 
   return dayReads;
 }

@@ -260,6 +260,27 @@ describe('what can be tapped', () => {
     ).toEqual({ done: 1, total: 3 });
   });
 
+  /*
+   * The assertion that was missing, and the one that makes the ownership
+   * filter in `ownSlots` load-bearing.
+   *
+   * Every other `slots` fixture is a floating chore whose slots have no
+   * subject, so "mine" is all of them and the filter does nothing. Here your
+   * housemate has done theirs and you have not: counting the cell rather than
+   * your share would print "1/2" in a box where none of your work is done.
+   */
+  it('counts only your share of a shared day, not your housemate’s', () => {
+    const rows = weekChart(
+      [
+        occ({ dueOn: TUESDAY, subject: THEM, status: 'completed' }),
+        occ({ dueOn: TUESDAY, subject: ME }),
+      ],
+      { weekStart: MONDAY, today: TODAY, userId: ME },
+    );
+
+    expect(rows[0]?.cells[1]?.slots).toEqual({ done: 0, total: 1 });
+  });
+
   it('offers the undo only once every slot is finished', () => {
     const slots = [
       { ...occ({ dueOn: TUESDAY, status: 'completed' }), occurrenceKey: 'v1:c1:t:0:-' },

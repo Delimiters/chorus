@@ -11,12 +11,19 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { AgendaItem } from '@/core/occurrence/agenda';
+import { daysBetween } from '@/core/civil/date';
 import { RESCHEDULE_PAD_DAYS } from '@/core/occurrence/project';
 import { MAX_WINDOW_DAYS } from '@/core/recurrence/expand';
 import type { CivilDate } from '@/core/civil/types';
 import { ThemeProvider } from '@/design/theme';
 
-import { ChoreChartScreen, MAX_WEEKS_BACK, WEEKS_PER_STEP, spanFor } from './ChoreChartScreen';
+import {
+  ChoreChartScreen,
+  MAX_WEEKS_BACK,
+  WEEKS_PER_STEP,
+  spanFor,
+  windowFor,
+} from './ChoreChartScreen';
 
 const MONDAY = '2026-09-28' as CivilDate;
 const TUESDAY = '2026-09-29' as CivilDate;
@@ -27,7 +34,9 @@ const THURSDAY = '2026-10-01' as CivilDate;
 const TODAY = WEDNESDAY;
 
 let mockItems: AgendaItem[] = [];
+let mockError: Error | null = null;
 const mockMutate = jest.fn();
+const mockRefetch = jest.fn();
 
 function occ(over: {
   dueOn: CivilDate;
@@ -70,8 +79,8 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     chores: [],
     today: '2026-09-30',
     isLoading: false,
-    error: null,
-    refetch: jest.fn(),
+    error: mockError,
+    refetch: mockRefetch,
   }),
   useToggleCompletion: () => ({
     mutate: mockMutate,
@@ -99,12 +108,16 @@ jest.mock('@/data/hooks/useHousehold', () => ({
 }));
 jest.mock('@/data/today', () => ({ useToday: () => '2026-09-30' }));
 jest.mock('@/stores/sessionStore', () => ({ useUserId: () => 'me' }));
+const mockBack = jest.fn();
+const mockReplace = jest.fn();
+let mockCanGoBack = true;
+
 jest.mock('expo-router', () => ({
   useRouter: () => ({
     push: jest.fn(),
-    back: jest.fn(),
-    replace: jest.fn(),
-    canGoBack: () => true,
+    back: mockBack,
+    replace: mockReplace,
+    canGoBack: () => mockCanGoBack,
   }),
 }));
 
@@ -118,7 +131,12 @@ const renderChart = () =>
 beforeEach(() => {
   mockItems = [];
   mockHouseholdLoaded = true;
+  mockError = null;
+  mockCanGoBack = true;
   mockMutate.mockClear();
+  mockRefetch.mockClear();
+  mockBack.mockClear();
+  mockReplace.mockClear();
 });
 
 describe('the chart', () => {
@@ -347,6 +365,41 @@ describe('the chart', () => {
     expect(screen.getByLabelText('Dishes, not due Sun 4 Oct')).toBeTruthy();
   });
 
+  /*
+   * The error state, which shipped with no coverage at all — the mock
+   * hard-coded `error: null`, so the back bar, the cold-start fallback and the
+   * retry were unreachable from the suite and deleting the whole branch would
+   * have gone unnoticed. This screen is pushed from House under a Stack with
+   * no header, so a bare `ErrorState` is the same dead end as `/chores`.
+   */
+  describe('when the week cannot be loaded', () => {
+    it('still offers a way back', () => {
+      mockError = new Error('offline');
+
+      renderChart();
+      fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+
+      expect(mockBack).toHaveBeenCalled();
+    });
+
+    it('offers a retry that actually refetches', () => {
+      mockError = new Error('offline');
+
+      renderChart();
+      fireEvent.press(screen.getByText('Try again'));
+
+      expect(mockRefetch).toHaveBeenCalled();
+    });
+
+    it('says what went wrong', () => {
+      mockError = new Error('offline');
+
+      renderChart();
+
+      expect(screen.getByText('offline')).toBeTruthy();
+    });
+  });
+
   /* ── Paging ──────────────────────────────────────────────────────────── */
 
   /*
@@ -394,27 +447,35 @@ describe('the chart', () => {
  * back over the limit silently with every test green.
  */
 describe('how far back the window may reach', () => {
-  const windowDays = (weeksBack: number) => {
-    // start = thisWeek - 7 * span, end = thisWeek + 6, inclusive.
-    const span = spanFor(weeksBack);
-    return 7 * span + 7;
+  /*
+   * Measured off `windowFor`, which is what the component actually asks for.
+   *
+   * Hand-computing `7 * span + 7` here matched today and was a second
+   * implementation: widen the window's end to prefetch, or change the factor,
+   * and this stays green while the real window grows past the limit.
+   */
+  const paddedDays = (weeksBack: number) => {
+    const window = windowFor('2026-09-28' as CivilDate, weeksBack);
+    // The same sum `projectOccurrences` guards on.
+    return daysBetween(window.start, window.end) + 1 + RESCHEDULE_PAD_DAYS * 2;
   };
 
   it('stays inside the projection limit at its widest', () => {
-    const padded = windowDays(MAX_WEEKS_BACK) + RESCHEDULE_PAD_DAYS * 2;
-
-    expect(padded).toBeLessThanOrEqual(MAX_WINDOW_DAYS);
+    expect(paddedDays(MAX_WEEKS_BACK)).toBeLessThanOrEqual(MAX_WINDOW_DAYS);
   });
 
   /*
    * Non-vacuity: the clamp has to be the thing holding it, not the arithmetic
    * happening to be small. One step further has to breach the limit, or this
    * is a test that would pass with the clamp set to anything.
+   *
+   * Which also means this fails if `MAX_WEEKS_BACK` is *lowered* — 32 is the
+   * largest safe value, not merely a safe one, and a more conservative clamp
+   * turns this red with a message that reads like the opposite of the problem.
+   * Say so here rather than leaving the next person to work it out.
    */
-  it('would breach it one step further, so the clamp is load-bearing', () => {
-    const padded = windowDays(MAX_WEEKS_BACK + WEEKS_PER_STEP) + RESCHEDULE_PAD_DAYS * 2;
-
-    expect(padded).toBeGreaterThan(MAX_WINDOW_DAYS);
+  it('is the largest safe clamp: one step further breaches the limit', () => {
+    expect(paddedDays(MAX_WEEKS_BACK + WEEKS_PER_STEP)).toBeGreaterThan(MAX_WINDOW_DAYS);
   });
 
   it('grows in steps rather than on every tap, so paging does not refetch', () => {
@@ -431,7 +492,7 @@ describe('how far back the window may reach', () => {
       fireEvent.press(screen.getByLabelText('Previous week'));
     }
 
-    // 32 weeks back from the week of 28 Sep 2026 is the week of 17 Feb 2026.
+    // 32 weeks back from the week of 28 Sep 2026 is the week of 16 Feb 2026.
     expect(screen.getByText('16–22 February')).toBeTruthy();
   });
 });

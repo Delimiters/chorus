@@ -137,8 +137,19 @@ function stateOf(items: readonly AgendaItem[], date: CivilDate, today: CivilDate
  * ticking your housemate's share from a grid, with no indication whose box it
  * was, is the wrong default and in practice did not even work.
  */
-function ownItem(items: readonly AgendaItem[], userId: string | null): AgendaItem | null {
-  const mine = items.filter((item) => item.subject === null || item.subject === userId);
+/**
+ * Which of a day's occurrences are yours.
+ *
+ * One copy of the rule, because there were two and only one of them was
+ * pinned by a test — so deleting the filter from the other left the suite
+ * green while a shared day started reporting your housemate's completion as
+ * part of your own progress.
+ */
+function mineOf(items: readonly AgendaItem[], userId: string | null): readonly AgendaItem[] {
+  return items.filter((item) => item.subject === null || item.subject === userId);
+}
+
+function ownItem(mine: readonly AgendaItem[]): AgendaItem | null {
   if (mine.length === 0) return null;
 
   /*
@@ -163,7 +174,12 @@ function ownItem(items: readonly AgendaItem[], userId: string | null): AgendaIte
 }
 
 /**
- * How many of your own slots on that day are done, out of how many there are.
+ * How many of the slots that are yours to do on that day are done.
+ *
+ * "Yours" is `mineOf`'s rule: your own share of a fan-out chore, or all of an
+ * unshared one — which means on an unshared chore a completion by either of you
+ * counts, because either of you could have done it. The user-facing strings
+ * ("1/3") are neutral about who for exactly that reason.
  *
  * Only ever interesting above one, and that happens for a floating rule: a
  * "3x a week, any day" chore emits several occurrences sharing one date, so
@@ -171,11 +187,7 @@ function ownItem(items: readonly AgendaItem[], userId: string | null): AgendaIte
  * ticked — two taps in a row with no visible effect, which is the complaint
  * that started this whole screen.
  */
-function ownSlots(
-  items: readonly AgendaItem[],
-  userId: string | null,
-): { readonly done: number; readonly total: number } {
-  const mine = items.filter((item) => item.subject === null || item.subject === userId);
+function ownSlots(mine: readonly AgendaItem[]): { readonly done: number; readonly total: number } {
   return {
     done: mine.filter((item) => item.status === 'completed').length,
     total: mine.length,
@@ -263,18 +275,19 @@ export function weekChart(
 
   const rows: ChartRow[] = [];
 
-  for (const [choreId, { title, items: mine }] of byChore) {
+  for (const [choreId, { title, items: forChore }] of byChore) {
     const cells = days.map<ChartCell>((date) => {
-      const onDay = mine.filter((item) => item.dueOn === date);
+      const onDay = forChore.filter((item) => item.dueOn === date);
       const state = stateOf(onDay, date, today);
-      const target = ownItem(onDay, userId);
+      const mine = mineOf(onDay, userId);
+      const target = ownItem(mine);
       return {
         date,
         state,
         items: onDay,
         target,
         own: ownStateOf(target, date, today),
-        slots: ownSlots(onDay, userId),
+        slots: ownSlots(mine),
         tap: tapOf(target, date, today),
       };
     });
