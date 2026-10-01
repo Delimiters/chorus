@@ -19,6 +19,14 @@ import { MIN_TARGET, radius, space } from './tokens';
 export interface Segment<T extends string> {
   readonly value: T;
   readonly label: string;
+  /**
+   * A small count beside the label, or null/undefined for none.
+   *
+   * A string rather than a number so the caller decides how to cap it — "9+"
+   * is the right answer past a point, and a control should not be inventing
+   * that rule for every list that uses it.
+   */
+  readonly badge?: string | null;
 }
 
 interface SegmentedProps<T extends string> {
@@ -78,15 +86,42 @@ export function SegmentedControl<T extends string>({
               backgroundColor: selected ? colors.surface : 'transparent',
             }}
           >
-            <Txt
-              variant="small"
-              style={{
-                color: selected ? colors.text : colors.textMuted,
-                fontWeight: selected ? '700' : '500',
-              }}
-            >
-              {segment.label}
-            </Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+              <Txt
+                variant="small"
+                style={{
+                  color: selected ? colors.text : colors.textMuted,
+                  fontWeight: selected ? '700' : '500',
+                }}
+              >
+                {segment.label}
+              </Txt>
+              {segment.badge == null ? null : (
+                /*
+                 * A count, not a dot and not a shake.
+                 *
+                 * Jake floated an animated nudge on the tab and called it
+                 * possibly overkill; it is. An animation you cannot dismiss is
+                 * charming once and irritating by the third morning, it cannot
+                 * say *how much* is owed, and it fights reduced-motion. The
+                 * number is quieter and carries more.
+                 */
+                <View
+                  style={{
+                    minWidth: 18,
+                    paddingHorizontal: 5,
+                    paddingVertical: 1,
+                    borderRadius: radius.pill,
+                    backgroundColor: colors.overprint,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Txt variant="mono" style={{ color: colors.paper, fontSize: 11 }}>
+                    {segment.badge}
+                  </Txt>
+                </View>
+              )}
+            </View>
           </Pressable>
         );
       })}
