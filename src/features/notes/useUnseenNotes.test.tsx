@@ -160,6 +160,40 @@ describe('the Notes tab badge', () => {
   });
 
   /*
+   * The first-run path, which the seed used to no-op on.
+   *
+   * A brand-new household has an empty board — the common first-run state —
+   * and seeding only when there was something to seed from left `lastSeenAt`
+   * null forever. The first note ever written then went unbadged: the render
+   * that saw it still had null (count zero), and the effect seeded straight to
+   * that note's own stamp, marking it seen without ever showing it. Every note
+   * after it badged, which is exactly the bug nobody reports.
+   */
+  it('badges the very first note written to a board that started empty', () => {
+    mockRows = [];
+    seenAt(null);
+
+    const view = render(<Badge />);
+    expect(screen.getByText(/badge:/).children.join('')).toBe('badge:none');
+
+    // The housemate writes the first note while you are on another tab.
+    mockRows = [THEIR_NOTE];
+    view.rerender(<Badge />);
+
+    expect(screen.getByText(/badge:/).children.join('')).toBe('badge:1');
+  });
+
+  it('does not seed an empty board that has not finished loading', () => {
+    mockRows = [];
+    mockLoading = true;
+    seenAt(null);
+
+    render(<Badge />);
+
+    expect(useNoteSeenStore.getState().lastSeenAt).toBeNull();
+  });
+
+  /*
    * The clock-skew case, which is why "seen" is a stamp copied off a note
    * rather than a reading of `Date.now()`.
    *

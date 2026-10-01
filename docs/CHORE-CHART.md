@@ -157,22 +157,45 @@ raise an "Open in Chorus?" alert that needs a tap nothing here can deliver, so
 the faster route is to temporarily point `(tabs)/index.tsx` at the screen under
 review and cold-start onto it.
 
-## Two things the review found that were older than this PR
+## The known defect this screen does not fix
 
-**A rescheduled interval occurrence re-anchored nothing.** `anchorToCompletion`
+**A rescheduled interval occurrence re-anchors nothing.** `anchorToCompletion`
 reads a completion's due date off its occurrence *key*, which still carries the
 date the rule produced — while the row shows the date somebody moved it to. A
-rescheduled occurrence is therefore off the chain by construction, and the
-"a completion has to sit on the chain to move it" guard threw it away. So an
-`every N days` chore that had been rescheduled and was then completed left its
+rescheduled occurrence is therefore off the chain by construction, and the "a
+completion has to sit on the chain to move it" guard throws it away. So an
+`every N days` chore that has been rescheduled and is then completed leaves its
 next occurrence exactly where the chain already had it, which in the test case
 is *the day after it was done*. That is the failure this screen exists to
-prevent, arriving through a door nobody had looked at.
+prevent, arriving through a door nobody had looked at. It is reachable from
+Today and Upcoming too; the chart is only what made ticking a past day routine
+enough to notice.
 
-The guard now makes an exception for a key that carries one. The stale-client
-case it was written for is untouched: a key nobody moved has no exception.
-Reachable from Today and Upcoming too — the chart is only what made ticking a
-past day routine enough to notice.
+**It was fixed, and the fix was reverted, and that is the interesting part.**
+Letting a key that carries an exception past the guard looked like a one-line
+change and passed the whole engine suite. A second review found two reasons it
+was worse than the defect:
+
+1. `hasException` is built from a **windowed** exceptions query, while interval
+   completions are deliberately unwindowed. Making the anchor depend on it makes
+   an interval chore's due dates depend on how far back the screen happens to
+   look — so Today, Upcoming, the chart and the reminder planner compute
+   different dates, and therefore different occurrence *keys*, for the same
+   chore. That is precisely the failure the key-derived-date design exists to
+   prevent, and it is in `dueOnFromKey`'s own docstring.
+2. `chainIndex += offset / everyNDays + 1` is fractional for an off-chain
+   offset, and the fractions accumulate. Two rescheduled-and-completed
+   occurrences make a rotation turn disappear — the defect that counter was
+   written to prevent, arriving from the other side. There is no correct integer
+   to add, because the occurrence is not on the chain at all.
+
+A real fix needs an unwindowed exceptions query for interval chores *and* a
+segment count derived from what was actually emitted rather than from
+arithmetic. Worth doing; not worth doing badly inside a feature branch. The test
+is left in place as `it.failing`, so it documents the defect and will alert if
+somebody fixes it.
+
+## One more the review found that was older than this PR
 
 **`/chores` had no way back.** It stopped being a tab in this PR and became a
 pushed stack route under a `Stack` with `headerShown: false`, so it covers the
@@ -188,6 +211,21 @@ of them asks whether there is a way off a screen. There are three that do now.
 - **`/stats` finally has a link.** It has existed since Phase 6 with nothing
   pointing at it — four phases of a screen nobody could reach. The chart gave it
   a neighbour on House.
+- **A shared day shows your half and the day's separately.** They disagree
+  whenever one of you has done your share and the other has not, and the first
+  version showed only the day's: the box read "not done", announced itself to a
+  screen reader as unchecked, and its only action deleted your completion
+  without changing anything on screen. It is now filled in your ink *and*
+  ringed — you have done yours, the day is still owed — and a box you cannot
+  act on is dimmed rather than drawn identically to one you can.
+
+- **A floating chore's slots are each reachable.** A "3× a week, any day" rule
+  emits several occurrences sharing one date, so they all land in one box.
+  Taking the first unconditionally meant the second tap un-ticked what the
+  first had ticked, with no visible change, and the later slots could never be
+  reached from this screen at all. The box now moves to your first unfinished
+  slot.
+
 - **Ticking a shared day ticks your own share.** An `everyone` chore fans out to
   one occurrence per person, and ticking somebody else's from a grid with no
   indication whose box it was is the wrong default. Theirs is one tap away on

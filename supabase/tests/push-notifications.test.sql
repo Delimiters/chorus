@@ -340,9 +340,12 @@ select is(
   'your housemate correcting what you just wrote is not throttled — it is the correction'
 );
 
-select is(
-  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'to' from net.http_request_queue limit 1),
-  'ExponentPushToken[alice]',
+-- Containment, not element zero. `jsonb_agg` has no defined order, so reading
+-- index 0 is right by luck whenever there is more than one recipient — which
+-- is the pattern the length assertion further up was added to stop relying on.
+select ok(
+  (select convert_from(body, 'utf8')::jsonb @> '[{"to": "ExponentPushToken[alice]"}]'
+     from net.http_request_queue limit 1),
   'and it goes to the person who wrote the thing being corrected'
 );
 

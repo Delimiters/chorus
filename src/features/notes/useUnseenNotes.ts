@@ -20,6 +20,13 @@ import { useLastSeenNotes, useNoteSeenStore } from '@/stores/noteSeenStore';
 import { useUserId } from '@/stores/sessionStore';
 
 /**
+ * Earlier than any timestamp Postgres will produce, and a valid ISO-8601 so it
+ * compares as a string like everything else. Means "this board was seen while
+ * it was empty".
+ */
+const EPOCH = '0000-01-01T00:00:00.000Z';
+
+/**
  * What the tab should show — `null` for no badge.
  *
  * Also where a phone that has never seen the board gets its starting point.
@@ -29,18 +36,36 @@ import { useUserId } from '@/stores/sessionStore';
  * what time it is.
  */
 export function useNoteBadge(): string | null {
+  const query = useNotes();
   const notes = useNoteList();
   const userId = useUserId();
   const lastSeenAt = useLastSeenNotes();
   const markSeen = useNoteSeenStore((s) => s.markSeen);
   const hydrated = useNoteSeenStore((s) => s.hydrated);
 
+  // Only seed once the board has actually been fetched. An empty list that is
+  // still loading is not an empty board.
+  const loaded = !query.isLoading && query.error === null;
   const latest = latestNoteStamp(notes);
 
+  /*
+   * Seed once, and seed an **empty** board too.
+   *
+   * The first version only seeded when there was a note to seed from, which
+   * meant a brand-new household — empty board, the common first-run state —
+   * stayed at `null` forever. The first note your housemate ever wrote then
+   * went unbadged: the render that saw it still had `lastSeenAt` null (count
+   * zero), and the effect seeded straight to that note's own stamp, so it was
+   * marked seen without ever having been shown. Every note after it badged
+   * correctly, which is the kind of bug nobody reports.
+   *
+   * The sentinel is a timestamp every real one exceeds, so an empty board is
+   * recorded as *seen and empty* rather than as *not yet asked*.
+   */
   useEffect(() => {
-    if (!hydrated || lastSeenAt !== null || latest === null) return;
-    markSeen(latest);
-  }, [hydrated, lastSeenAt, latest, markSeen]);
+    if (!hydrated || lastSeenAt !== null || !loaded) return;
+    markSeen(latest ?? EPOCH);
+  }, [hydrated, lastSeenAt, latest, loaded, markSeen]);
 
   return noteBadge(countUnseenNotes(notes, { userId, lastSeenAt }));
 }

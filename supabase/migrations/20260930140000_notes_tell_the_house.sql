@@ -92,9 +92,12 @@ $$;
 revoke all on function private.notify_on_note() from public;
 
 comment on function private.notify_on_note() is
-  'Tells the other phone that a note was written or edited. Throttled to one '
-  'push per author per ten minutes, so saving twice while you think is one '
-  'piece of news — but a housemate correcting what you just wrote still is.';
+  'Tells the other phone that a note was written or edited. An edit is quiet '
+  'only when the same person touched the note within the last ten minutes, so '
+  'saving twice while you think is one piece of news while a housemate '
+  'correcting what you just wrote is not. Two people tidying one note together '
+  'therefore do get a push each time the author changes, which is the right '
+  'trade: alternating edits are a conversation, and repeated saves are not.';
 
 create trigger household_notes_notify_insert
   after insert on public.household_notes

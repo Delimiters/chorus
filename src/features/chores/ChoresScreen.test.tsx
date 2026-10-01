@@ -40,11 +40,16 @@ const onceRule = { kind: 'once', dueOn: TODAY, granularity: 'day' } as const;
 let mockChores: Chore[] = [];
 let mockCompletions: { choreId: string; completedOn: string }[] = [];
 
+/** The two states that used to have no way off the screen. */
+let mockLoading = false;
+let mockError: Error | null = null;
+
 jest.mock('@/data/hooks/useChores', () => ({
   useChoreList: () => ({
     data: { chores: mockChores, unreadable: [] },
-    isLoading: false,
-    error: null,
+    isLoading: mockLoading,
+    error: mockError,
+    refetch: jest.fn(),
   }),
   useOneOffCompletions: () => ({ data: mockCompletions }),
   useToggleSomeday: () => ({ mutate: jest.fn() }),
@@ -174,6 +179,8 @@ describe('getting back off it', () => {
     mockBack.mockClear();
     mockReplace.mockClear();
     mockCanGoBack = true;
+    mockLoading = false;
+    mockError = null;
   });
 
   it('has a back control at all', () => {
@@ -187,6 +194,28 @@ describe('getting back off it', () => {
 
     expect(mockBack).toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The states that had no exit at all, which is the same stuck screen one
+   * query error away: `ChoreEditor` closes with `router.replace('/chores')`
+   * when it has no history, so a cold start into a chore plus a failed fetch
+   * left nothing to tap and nothing to swipe to.
+   */
+  it('keeps the back control while the chores are loading', () => {
+    mockLoading = true;
+    renderScreen();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('keeps the back control when the chores fail to load', () => {
+    mockError = new Error('offline');
+    renderScreen();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    expect(mockBack).toHaveBeenCalled();
   });
 
   it('falls through to House on a cold start, where `back` would do nothing', () => {

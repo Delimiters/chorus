@@ -198,8 +198,9 @@ describe('the chart', () => {
     ];
 
     renderChart();
-    // The cell reads as outstanding, because one share still is.
-    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, not done'));
+    // The cell reads as outstanding, because one share still is — but the box
+    // says whose half is done, and the tap acts on that half.
+    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, you have done yours'));
 
     // But the viewer is `me`, whose share is done — so the offer is the undo.
     expect(mockMutate).toHaveBeenCalledTimes(1);
@@ -213,7 +214,38 @@ describe('the chart', () => {
     mockItems = [occ({ dueOn: TUESDAY, subject: 'them' })];
 
     renderChart();
-    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, not done'));
+    // Announced as theirs, not as "not done" — and it does nothing when pressed.
+    fireEvent.press(screen.getByLabelText("Dishes, Tue 29 Sep, your housemate's"));
+
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The box that destroyed data. Your share done, your housemate's not: the
+   * cell reads outstanding and the only action is to undo *your* completion.
+   * It must not claim to be unchecked and must not call itself "not done".
+   */
+  it('says your share is done on a day that is not finished', () => {
+    mockItems = [
+      occ({ dueOn: TUESDAY, subject: 'me', status: 'completed', completedBy: 'me' }),
+      occ({ dueOn: TUESDAY, subject: 'them' }),
+    ];
+
+    renderChart();
+
+    const box = screen.getByLabelText('Dishes, Tue 29 Sep, you have done yours');
+    expect(box.props.accessibilityState).toMatchObject({ checked: true });
+    expect(screen.queryByLabelText('Dishes, Tue 29 Sep, not done')).toBeNull();
+  });
+
+  it('says you skipped yours, rather than that the day was skipped', () => {
+    mockItems = [
+      occ({ dueOn: TUESDAY, subject: 'me', status: 'skipped' }),
+      occ({ dueOn: TUESDAY, subject: 'them' }),
+    ];
+
+    renderChart();
+    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, you skipped yours'));
 
     expect(mockMutate).not.toHaveBeenCalled();
   });

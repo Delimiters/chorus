@@ -82,6 +82,20 @@ export function ChoreChartScreen() {
    * so it corrects itself the moment the household lands, and paging back stays
    * where you put it.
    */
+  /*
+   * How far back you may page.
+   *
+   * `projectOccurrences` pads its window by 31 days on each side and refuses
+   * anything over 400, by throwing — inside a `useMemo`, during render, which
+   * means the root error boundary and the **whole app** rather than this
+   * screen's error state. Forty taps of the back arrow reached it. The forward
+   * arrow had a clamp and this one did not.
+   *
+   * 400 - 62 of padding - the 7 days of the week itself, over 7, less the
+   * eight-week step below, worked out conservatively rather than exactly.
+   */
+  const MAX_WEEKS_BACK = 32;
+
   const [weeksBack, setWeeksBack] = useState(0);
   const weekStart = addDays(thisWeek, -7 * weeksBack);
   const isThisWeek = weeksBack === 0;
@@ -150,8 +164,9 @@ export function ChoreChartScreen() {
         >
           <PagerArrow
             label="Previous week"
+            disabled={weeksBack >= MAX_WEEKS_BACK}
             glyph="chevron-left"
-            onPress={() => setWeeksBack(weeksBack + 1)}
+            onPress={() => setWeeksBack(Math.min(MAX_WEEKS_BACK, weeksBack + 1))}
           />
           <Txt variant="heading" accessibilityRole="header">
             {isThisWeek ? 'This week' : weekLabel(weekStart)}
@@ -329,7 +344,27 @@ function Box({
     backgroundColor: 'transparent',
   };
 
+  /*
+   * Your share done on a day that is not finished.
+   *
+   * A shared chore fans out one occurrence per person, so the cell can be
+   * outstanding while your half of it is not. The first version drew that as a
+   * plain "Missed" ring, labelled it "not done", and wired it to an action that
+   * deleted your completion — a tap that destroyed data and changed nothing on
+   * screen. Filled in your ink *and* ringed says both things at once: you have
+   * done yours, the day is still owed.
+   */
+  const yoursDoneTheirsNot = cell.own === 'done' && cell.state !== 'done';
+
   const style = (() => {
+    if (yoursDoneTheirsNot) {
+      return {
+        ...base,
+        backgroundColor: ink ?? colors.overprint,
+        borderWidth: 1.6,
+        borderColor: colors.textMuted,
+      };
+    }
     switch (cell.state) {
       case 'done':
         // The doer's own ink; the overprint when they have since left, because
@@ -368,6 +403,13 @@ function Box({
   })();
 
   const mark = (() => {
+    if (yoursDoneTheirsNot) {
+      return (
+        <Txt variant="bodyStrong" style={{ color: colors.paper }}>
+          ✓
+        </Txt>
+      );
+    }
     switch (cell.state) {
       case 'done':
         return (
@@ -395,8 +437,21 @@ function Box({
   })();
 
   if (cell.tap === null) {
+    /*
+     * Dimmed, so a box you cannot act on does not look like one you can.
+     *
+     * A shared day holding only your housemate's share, or one where you have
+     * skipped yours, rendered pixel-identical to a live box and did nothing
+     * when pressed. The only remaining undimmed untappable states are `none`
+     * and `ahead`, which already read as absent or faint.
+     */
+    const inert = cell.own === 'skipped' || cell.own === 'none';
     return (
-      <View style={style} accessibilityLabel={describe(cell, title)} accessible>
+      <View
+        style={inert && cell.state !== 'none' ? { ...style, opacity: 0.45 } : style}
+        accessibilityLabel={describe(cell, title)}
+        accessible
+      >
         {mark}
       </View>
     );
@@ -407,7 +462,9 @@ function Box({
       onPress={onPress}
       style={style}
       accessibilityRole="checkbox"
-      accessibilityState={{ checked: cell.state === 'done' }}
+      // Your share, not the cell's. A box whose only action is "undo" must not
+      // announce itself as unchecked.
+      accessibilityState={{ checked: cell.own === 'done' }}
       accessibilityLabel={describe(cell, title)}
       accessibilityHint={
         cell.tap === 'complete'
@@ -420,9 +477,25 @@ function Box({
   );
 }
 
-/** What a screen reader says about one box. */
+/**
+ * What a screen reader says about one box.
+ *
+ * Reads your own share first where the two disagree, because that is what the
+ * tap acts on — a box announced as "not done" whose only action deletes your
+ * completion is worse than no label.
+ */
 function describe(cell: ChartCell, title: string): string {
   const day = formatDayShort(cell.date);
+  if (cell.own === 'done' && cell.state !== 'done') {
+    return `${title}, ${day}, you have done yours`;
+  }
+  if (cell.own === 'skipped' && cell.state !== 'skipped') {
+    return `${title}, ${day}, you skipped yours`;
+  }
+  if (cell.own === 'none' && cell.state !== 'none') {
+    return `${title}, ${day}, your housemate's`;
+  }
+
   switch (cell.state) {
     case 'done':
       return `${title}, ${day}, done`;

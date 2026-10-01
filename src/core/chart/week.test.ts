@@ -209,6 +209,37 @@ describe('what can be tapped', () => {
     expect(rows[0]?.cells[1]?.tap).toBe('complete');
   });
 
+  /*
+   * A floating "3x a week, any day" rule emits several occurrences sharing one
+   * `dueOn` with no subject, so they all land in one cell. Taking the first
+   * unconditionally meant the second tap un-ticked the slot the first had
+   * ticked — no visible change — and slots beyond the first were unreachable
+   * from this screen forever.
+   */
+  it('moves to your next unfinished slot when a day holds several', () => {
+    const slots = [
+      { ...occ({ dueOn: TUESDAY, status: 'completed' }), occurrenceKey: 'v1:c1:t:0:-' },
+      { ...occ({ dueOn: TUESDAY }), occurrenceKey: 'v1:c1:t:1:-' },
+      { ...occ({ dueOn: TUESDAY }), occurrenceKey: 'v1:c1:t:2:-' },
+    ];
+
+    const rows = weekChart(slots, { weekStart: MONDAY, today: TODAY, userId: ME });
+
+    expect(rows[0]?.cells[1]?.tap).toBe('complete');
+    expect(rows[0]?.cells[1]?.target?.occurrenceKey).toBe('v1:c1:t:1:-');
+  });
+
+  it('offers the undo only once every slot is finished', () => {
+    const slots = [
+      { ...occ({ dueOn: TUESDAY, status: 'completed' }), occurrenceKey: 'v1:c1:t:0:-' },
+      { ...occ({ dueOn: TUESDAY, status: 'completed' }), occurrenceKey: 'v1:c1:t:1:-' },
+    ];
+
+    const rows = weekChart(slots, { weekStart: MONDAY, today: TODAY, userId: ME });
+
+    expect(rows[0]?.cells[1]?.tap).toBe('undo');
+  });
+
   it('offers nothing on a skipped day', () => {
     const rows = weekChart([occ({ dueOn: TUESDAY, status: 'skipped' })], {
       weekStart: MONDAY,
@@ -217,6 +248,70 @@ describe('what can be tapped', () => {
     });
 
     expect(rows[0]?.cells[1]?.tap).toBeNull();
+  });
+});
+
+describe('how your own share stands, separately from the day', () => {
+  /*
+   * The screen needs both, because they disagree on a shared day — and when
+   * they did, the box said "not done", announced itself as unchecked, and was
+   * wired to an action that deleted the completion it was denying.
+   */
+  it('says your share is done even while the day is not', () => {
+    const rows = weekChart(
+      [
+        occ({ dueOn: TUESDAY, subject: ME, status: 'completed' }),
+        occ({ dueOn: TUESDAY, subject: THEM }),
+      ],
+      { weekStart: MONDAY, today: TODAY, userId: ME },
+    );
+
+    expect(rows[0]?.cells[1]?.state).toBe('missed');
+    expect(rows[0]?.cells[1]?.own).toBe('done');
+  });
+
+  it('says nothing on that day is yours when it is all theirs', () => {
+    const rows = weekChart([occ({ dueOn: TUESDAY, subject: THEM })], {
+      weekStart: MONDAY,
+      today: TODAY,
+      userId: ME,
+    });
+
+    expect(rows[0]?.cells[1]?.own).toBe('none');
+  });
+
+  it('marks your own skip as yours, not as the day being skipped', () => {
+    const rows = weekChart(
+      [
+        occ({ dueOn: TUESDAY, subject: ME, status: 'skipped' }),
+        occ({ dueOn: TUESDAY, subject: THEM }),
+      ],
+      { weekStart: MONDAY, today: TODAY, userId: ME },
+    );
+
+    expect(rows[0]?.cells[1]?.state).toBe('missed');
+    expect(rows[0]?.cells[1]?.own).toBe('skipped');
+  });
+
+  it('is ahead for a day still to come, and outstanding for one that is not', () => {
+    const rows = weekChart([occ({ dueOn: THURSDAY }), occ({ dueOn: TUESDAY })], {
+      weekStart: MONDAY,
+      today: TODAY,
+      userId: ME,
+    });
+
+    expect(rows[0]?.cells[3]?.own).toBe('ahead');
+    expect(rows[0]?.cells[1]?.own).toBe('outstanding');
+  });
+
+  it('is none where the chore was not due at all', () => {
+    const rows = weekChart([occ({ dueOn: TUESDAY })], {
+      weekStart: MONDAY,
+      today: TODAY,
+      userId: ME,
+    });
+
+    expect(rows[0]?.cells[0]?.own).toBe('none');
   });
 });
 

@@ -126,8 +126,31 @@ export function ChoresScreen() {
 
   const byId = useMemo(() => new Map(active.map((c) => [c.id, c])), [active]);
 
-  if (query.isLoading) return <LoadingState />;
-  if (query.error) return <ErrorState message={(query.error as Error).message} />;
+  /*
+   * Both states keep the back bar, which the loaded one grew when this stopped
+   * being a tab.
+   *
+   * Bare, they were the stuck screen all over again: `ChoreEditor` closes with
+   * `router.replace('/chores')` when it has no history, so a cold start into a
+   * chore plus a failed chores fetch left no back bar, no tab bar and no swipe
+   * target. One query error away from the bug the back bar was added to fix.
+   */
+  if (query.isLoading || query.error) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
+        <View style={{ padding: space.lg }}>
+          <BackBar
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))}
+          />
+        </View>
+        {query.error ? (
+          <ErrorState message={(query.error as Error).message} onRetry={query.refetch} />
+        ) : (
+          <LoadingState />
+        )}
+      </SafeAreaView>
+    );
+  }
 
   const row = (chore: Chore, dashed = false) => {
     const ink = inkFor(chore);

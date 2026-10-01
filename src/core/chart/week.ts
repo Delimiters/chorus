@@ -65,6 +65,19 @@ export interface ChartCell {
    */
   readonly target: AgendaItem | null;
   /**
+   * How **your** share stands, as distinct from how the day as a whole reads.
+   *
+   * The two differ on a shared day, and the screen has to show both or it
+   * lies. A cell where you have done yours and your housemate has not reads as
+   * outstanding — correctly, because it is — but the box was then labelled
+   * "not done", announced to a screen reader as an unchecked checkbox, and
+   * wired to an action that deleted your completion and changed nothing on
+   * screen.
+   *
+   * `'none'` when nothing on that day is yours to do.
+   */
+  readonly own: 'done' | 'skipped' | 'outstanding' | 'ahead' | 'none';
+  /**
    * What a tap does: record a completion, undo one, or nothing.
    *
    * Derived here rather than at the row, because "tappable" is three
@@ -117,7 +130,30 @@ function stateOf(items: readonly AgendaItem[], date: CivilDate, today: CivilDate
  * was, is the wrong default and in practice did not even work.
  */
 function ownItem(items: readonly AgendaItem[], userId: string | null): AgendaItem | null {
-  return items.find((item) => item.subject === null || item.subject === userId) ?? null;
+  const mine = items.filter((item) => item.subject === null || item.subject === userId);
+  if (mine.length === 0) return null;
+
+  /*
+   * The first of yours you have **not** finished, if there is one.
+   *
+   * Taking `mine[0]` blindly broke floating chores outright. A "3x a week, any
+   * day" rule emits several occurrences that all share one `dueOn` and have no
+   * subject, so they all land in the same cell — and `mine[0]` is always slot
+   * zero. Tick it, and the next tap silently *un*-ticked the same slot with no
+   * visible change, while slots one and two stayed unreachable from this screen
+   * forever.
+   */
+  return (
+    mine.find((item) => item.status !== 'completed' && item.status !== 'skipped') ?? mine[0] ?? null
+  );
+}
+
+/** Your own share's standing, for a screen that has to show it separately. */
+function ownStateOf(own: AgendaItem | null, date: CivilDate, today: CivilDate): ChartCell['own'] {
+  if (own === null) return 'none';
+  if (own.status === 'completed') return 'done';
+  if (own.status === 'skipped') return 'skipped';
+  return compareCivil(date, today) > 0 ? 'ahead' : 'outstanding';
 }
 
 /**
@@ -198,7 +234,14 @@ export function weekChart(
       const onDay = mine.filter((item) => item.dueOn === date);
       const state = stateOf(onDay, date, today);
       const target = ownItem(onDay, userId);
-      return { date, state, items: onDay, target, tap: tapOf(target, date, today) };
+      return {
+        date,
+        state,
+        items: onDay,
+        target,
+        own: ownStateOf(target, date, today),
+        tap: tapOf(target, date, today),
+      };
     });
 
     rows.push({

@@ -233,20 +233,40 @@ describe('an exception in the re-anchored gap', () => {
     expect(dates(out)).toContain(d('2026-09-09'));
   });
   /*
-   * The other half of the same story, and a defect for as long as the first
-   * half has existed.
+   * ── A known defect, deliberately left in ──────────────────────────────
    *
    * A rescheduled occurrence is off the chain by construction: its key carries
-   * the date the rule produced, the row shows the date it was moved to, and the
-   * test above keeps it alive after a re-anchor has deleted the original. But
-   * completing it hit the "must sit on the chain" guard and moved nothing — so
-   * the next occurrence stayed where the chain already had it, which here is
-   * the **day after** the chore was actually done.
+   * the date the *rule* produced, while the row shows the date somebody moved
+   * it to, and the test above keeps it alive after a re-anchor has deleted the
+   * original. Completing one hits the "must sit on the chain" guard and moves
+   * nothing — so the next occurrence stays where the chain already had it,
+   * which here is the **day after** the chore was actually done.
    *
-   * Reachable from Today and Upcoming too; the chore chart is what made ticking
-   * a past day routine enough to notice.
+   * `it.failing` rather than a fix, because the obvious fix is worse than the
+   * defect. Letting a key that carries an exception past the guard was tried,
+   * shipped to a branch, and reverted for two reasons found in review:
+   *
+   *   1. `hasException` is built from a **windowed** exceptions query, while
+   *      interval completions are deliberately unwindowed. Making the anchor
+   *      depend on it makes an interval chore's due dates depend on how far
+   *      back the screen happens to look — so Today, Upcoming, the chart and
+   *      the reminder planner compute different dates, and therefore different
+   *      occurrence keys, for the same chore. That is the exact failure the
+   *      key-derived-date design in `dueOnFromKey` exists to prevent.
+   *   2. `chainIndex += offset / everyNDays + 1` is fractional for an off-chain
+   *      offset, and the fractions accumulate. Two rescheduled-and-completed
+   *      occurrences make a rotation turn disappear — the defect the counter
+   *      was written to prevent, arriving from the other side. There is no
+   *      correct integer to add, because the occurrence is not on the chain at
+   *      all; the count would have to come from what was actually emitted.
+   *
+   * A real fix needs an unwindowed exceptions query for interval chores *and*
+   * a segment count derived from emitted occurrences rather than arithmetic.
+   * Worth doing; not worth doing badly inside a feature branch.
+   *
+   * This test fails on purpose and will alert if somebody fixes it.
    */
-  it('re-anchors from a rescheduled occurrence, rather than leaving the next one behind', () => {
+  it.failing('re-anchors from a rescheduled occurrence, which it does not yet', () => {
     const chore = every(6, '2026-09-01');
     const grid = project([chore], []);
     const first = grid.find((o) => o.dueOn === d('2026-09-01'));
