@@ -27,12 +27,24 @@ interface Row {
 let mockRows: Row[] = [];
 let mockLoading = false;
 let mockError: Error | null = null;
+/**
+ * A query that is disabled rather than loading — `useNotes` uses `skipToken`
+ * while there is no household, which in TanStack v5 is `pending` with
+ * `fetchStatus: 'idle'`: `isLoading` false, `error` null, `data` undefined.
+ */
+let mockDisabled = false;
 
+/*
+ * `isSuccess` included, because the hook reads it — a mock missing a field the
+ * caller uses is the shape AGENTS.md keeps warning about, and this one would
+ * have made the seeding silently never run.
+ */
 jest.mock('@/data/hooks/useNotes', () => ({
   useNotes: () => ({
-    data: mockRows,
+    data: mockDisabled ? undefined : mockRows,
     isLoading: mockLoading,
     error: mockError,
+    isSuccess: !mockDisabled && !mockLoading && mockError === null,
     refetch: jest.fn(),
   }),
   useNoteList: () => mockRows,
@@ -90,6 +102,7 @@ describe('the Notes tab badge', () => {
     mockFocuses = true;
     mockLoading = false;
     mockError = null;
+    mockDisabled = false;
     seenAt(null);
   });
 
@@ -186,6 +199,25 @@ describe('the Notes tab badge', () => {
   it('does not seed an empty board that has not finished loading', () => {
     mockRows = [];
     mockLoading = true;
+    seenAt(null);
+
+    render(<Badge />);
+
+    expect(useNoteSeenStore.getState().lastSeenAt).toBeNull();
+  });
+
+  /*
+   * "No household yet" is not "empty board".
+   *
+   * `!isLoading` cannot tell them apart — a `skipToken`-disabled query is
+   * pending and idle, so it reports not-loading with no error and no data.
+   * Seeding the empty-board sentinel there persists it, and the real board
+   * then arrives with every note newer than the sentinel: a "9+" on a fresh
+   * install, which is the noise the seeding exists to prevent.
+   */
+  it('does not seed while the notes query is disabled', () => {
+    mockRows = [];
+    mockDisabled = true;
     seenAt(null);
 
     render(<Badge />);

@@ -43,9 +43,23 @@ export function useNoteBadge(): string | null {
   const markSeen = useNoteSeenStore((s) => s.markSeen);
   const hydrated = useNoteSeenStore((s) => s.hydrated);
 
-  // Only seed once the board has actually been fetched. An empty list that is
-  // still loading is not an empty board.
-  const loaded = !query.isLoading && query.error === null;
+  /*
+   * `isSuccess`, which is what "the board has been fetched" actually means.
+   *
+   * `!isLoading` is not that. `useNotes` uses `skipToken` while there is no
+   * household, and a disabled query in TanStack v5 is `pending` with
+   * `fetchStatus: 'idle'` — so `isLoading` is false, `error` is null and `data`
+   * is undefined. "No household yet" was therefore indistinguishable from
+   * "empty board", and the sentinel below would have been persisted against it;
+   * the real board then arrives with every note newer than the sentinel, which
+   * is a `9+` on a fresh install — exactly the noise the seeding exists to
+   * prevent.
+   *
+   * Unreachable today only because `(app)/_layout.tsx` holds a loading screen
+   * until the household resolves, so the tab bar never mounts in that state.
+   * That is a load-bearing invariant two files away with nothing recording it.
+   */
+  const loaded = query.isSuccess;
   const latest = latestNoteStamp(notes);
 
   /*

@@ -144,7 +144,10 @@ export function ChoresScreen() {
           />
         </View>
         {query.error ? (
-          <ErrorState message={(query.error as Error).message} onRetry={query.refetch} />
+          <ErrorState
+            message={(query.error as Error).message}
+            onRetry={() => void query.refetch()}
+          />
         ) : (
           <LoadingState />
         )}

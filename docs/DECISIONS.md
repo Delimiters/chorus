@@ -871,6 +871,55 @@ where nothing competes with it.
 
 ---
 
+## Reversed: letting a rescheduled occurrence re-anchor an interval
+
+**2026-10-01.** Decided, implemented, shipped to a branch, and backed out
+within the day. Written up because the reasoning is the point, and because the
+defect it tried to fix is still there.
+
+**The defect.** `anchorToCompletion` reads a completion's due date off its
+occurrence *key*, which carries the date the rule produced — while a
+rescheduled row shows the date somebody moved it to. So a rescheduled
+occurrence is off the chain by construction, the "a completion has to sit on
+the chain to move it" guard throws it away, and an `every N days` chore that
+was rescheduled and then completed leaves its next occurrence where the chain
+already had it. In the reproducing case that is **the day after it was done** —
+which is "reset the cycle onto the wrong day", the exact thing the chore chart
+was built to prevent, arriving through a door nobody had looked at.
+
+**The fix, which looked like one line.** Let a completion whose key carries an
+exception past the guard. It passed the entire engine suite.
+
+**Why it was worse than the defect.** Two reasons, both found in review:
+
+1. `hasException` is built from a **windowed** exceptions query, while interval
+   completions are deliberately unwindowed. Making the anchor depend on it makes
+   an interval chore's due dates depend on how far back a screen happens to
+   look — so Today, Upcoming, the chart and the reminder planner compute
+   different dates, and therefore different occurrence *keys*, for the same
+   chore. A reminder could fire for an occurrence Today does not show. That is
+   the failure the key-derived-date design exists to prevent, named in
+   `dueOnFromKey`'s own docstring.
+2. `chainIndex += offset / everyNDays + 1` is fractional for an off-chain
+   offset, and the fractions accumulate. Two rescheduled-and-completed
+   occurrences make a rotation turn vanish — the defect that counter was
+   written to prevent, arriving from the other side. `Math.floor` does not
+   rescue it; the indices then go backwards. There is no correct integer to
+   add, because the occurrence is not on the chain at all.
+
+**What it cost.** The defect is still live, and reachable from Today and
+Upcoming as well as the chart. A real fix needs an unwindowed exceptions query
+for interval chores *and* a segment count derived from what was actually
+emitted rather than from arithmetic — a day's work in the engine, not a line.
+`anchor.test.ts` carries it as an `it.failing`, so it is documented in the suite
+and will alert whoever fixes it properly.
+
+**The lesson worth keeping.** A one-line change that makes the whole engine
+suite pass is not evidence, and window-dependence is invisible to a test that
+only ever projects one window.
+
+---
+
 ## Standing constraints that are not up for rediscovery
 
 - **44pt minimum on every touchable.** Use `MIN_TARGET` from

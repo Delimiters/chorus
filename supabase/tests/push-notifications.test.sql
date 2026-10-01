@@ -13,7 +13,7 @@ create extension if not exists pgtap with schema extensions;
 -- turning notifications off altogether.
 
 begin;
-select plan(24);
+select plan(25);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -340,9 +340,18 @@ select is(
   'your housemate correcting what you just wrote is not throttled — it is the correction'
 );
 
--- Containment, not element zero. `jsonb_agg` has no defined order, so reading
--- index 0 is right by luck whenever there is more than one recipient — which
--- is the pattern the length assertion further up was added to stop relying on.
+-- Containment, not element zero: `jsonb_agg` has no defined order, so reading
+-- index 0 is right by luck whenever there is more than one recipient.
+--
+-- Paired with a length check, because containment alone passes when the push
+-- *also* reaches somebody it should not — and "to exactly one person" is half
+-- of what this is claiming.
+select is(
+  (select jsonb_array_length(convert_from(body, 'utf8')::jsonb) from net.http_request_queue limit 1),
+  1,
+  'to exactly one person, not to the housemate who made the correction'
+);
+
 select ok(
   (select convert_from(body, 'utf8')::jsonb @> '[{"to": "ExponentPushToken[alice]"}]'
      from net.http_request_queue limit 1),

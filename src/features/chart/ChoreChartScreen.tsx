@@ -53,6 +53,38 @@ import { useTheme } from '@/design/theme';
 import { MIN_TARGET, radius, space } from '@/design/tokens';
 import { dayOfMonth, formatDayShort, monthName, weekdayShort } from '@/features/common/format';
 
+/**
+ * How far back the chart may page.
+ *
+ * `projectOccurrences` pads its window by `RESCHEDULE_PAD_DAYS` on each side
+ * and throws over `MAX_WINDOW_DAYS` — inside a `useMemo`, during render, which
+ * means the root error boundary and the **whole app** rather than this screen's
+ * error state. Forty taps of the back arrow reached it; the forward arrow had a
+ * clamp and this one did not.
+ *
+ * Exported because the arithmetic ties three constants together across two
+ * modules, and the test that checks the widest window this can ask for is the
+ * only thing standing between a change to `WEEKS_PER_STEP` and a crash nobody
+ * would see until they paged back far enough.
+ */
+export const MAX_WEEKS_BACK = 32;
+
+/** How many weeks the query window grows by at a time. See `spanFor`. */
+export const WEEKS_PER_STEP = 8;
+
+/**
+ * The query window's width, in weeks, for a given distance back.
+ *
+ * Deliberately coarse. A window of exactly the seven days on screen produced a
+ * new query key on every tap of the arrow, so `isLoading` went true and the
+ * whole screen — heading and both arrows included — was replaced by a spinner,
+ * taking away the arrow you needed to page again. `weekChart` ignores whatever
+ * falls outside its seven days, which is what makes over-fetching free.
+ */
+export function spanFor(weeksBack: number): number {
+  return (Math.floor(weeksBack / WEEKS_PER_STEP) + 1) * WEEKS_PER_STEP;
+}
+
 /** The gap between boxes. Hairline, so the week reads as one ruled strip. */
 const GUTTER = 3;
 
@@ -82,20 +114,6 @@ export function ChoreChartScreen() {
    * so it corrects itself the moment the household lands, and paging back stays
    * where you put it.
    */
-  /*
-   * How far back you may page.
-   *
-   * `projectOccurrences` pads its window by 31 days on each side and refuses
-   * anything over 400, by throwing — inside a `useMemo`, during render, which
-   * means the root error boundary and the **whole app** rather than this
-   * screen's error state. Forty taps of the back arrow reached it. The forward
-   * arrow had a clamp and this one did not.
-   *
-   * 400 - 62 of padding - the 7 days of the week itself, over 7, less the
-   * eight-week step below, worked out conservatively rather than exactly.
-   */
-  const MAX_WEEKS_BACK = 32;
-
   const [weeksBack, setWeeksBack] = useState(0);
   const weekStart = addDays(thisWeek, -7 * weeksBack);
   const isThisWeek = weeksBack === 0;
@@ -110,12 +128,12 @@ export function ChoreChartScreen() {
    * to page again had gone. `weekChart` already ignores occurrences outside its
    * seven days, which is what makes over-fetching free here.
    */
-  const span = (Math.floor(weeksBack / 8) + 1) * 8;
+  const span = spanFor(weeksBack);
   const window = useMemo(
     () => ({ start: addDays(thisWeek, -7 * span), end: addDays(thisWeek, 6) }),
     [thisWeek, span],
   );
-  const { items, isLoading, error } = useOccurrences(window);
+  const { items, isLoading, error, refetch } = useOccurrences(window);
 
   const rows = useMemo(
     () => weekChart(items, { weekStart, today, userId }),
@@ -139,7 +157,24 @@ export function ChoreChartScreen() {
     });
   };
 
-  if (error !== null) return <ErrorState message={error.message} />;
+  /*
+   * The back bar belongs here too. This screen is pushed from House under a
+   * `Stack` with `headerShown: false`, exactly like `/chores` — and the bare
+   * `ErrorState` was the same dead end, two lines above the clamp whose comment
+   * complains about bypassing it.
+   */
+  if (error !== null) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
+        <View style={{ padding: space.lg }}>
+          <BackBar
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))}
+          />
+        </View>
+        <ErrorState message={error.message} onRetry={() => void refetch()} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
@@ -318,7 +353,13 @@ function Box({
    * the app. Reading `items[0]` painted a shared day solid blue, so a box two
    * people had each done half of claimed one of them did it.
    */
-  const doers = new Set(cell.items.map((item) => item.completedBy));
+  const doers = new Set(
+    // Completed items only. Including the outstanding ones put a `null` in the
+    // set, so a day one of you had finished always had `size === 2` and fell
+    // through to the overprint — which means *both of you did it*, the
+    // opposite of what the box was trying to say.
+    cell.items.filter((item) => item.status === 'completed').map((item) => item.completedBy),
+  );
   const ink = doers.size === 1 ? inkFor([...doers][0] ?? null) : null;
 
   const base = {
@@ -410,6 +451,19 @@ function Box({
         </Txt>
       );
     }
+    /*
+     * A floating chore's slots share one box, so without a count the first two
+     * of three taps changed nothing on screen — the complaint this screen was
+     * built around, surviving its own fix. The box now says how far through you
+     * are, and fills on the last one.
+     */
+    if (cell.slots.total > 1 && cell.slots.done > 0 && cell.state !== 'done') {
+      return (
+        <Txt variant="mono" tone="muted" style={{ fontSize: 11 }}>
+          {`${cell.slots.done}/${cell.slots.total}`}
+        </Txt>
+      );
+    }
     switch (cell.state) {
       case 'done':
         return (
@@ -442,8 +496,13 @@ function Box({
      *
      * A shared day holding only your housemate's share, or one where you have
      * skipped yours, rendered pixel-identical to a live box and did nothing
-     * when pressed. The only remaining undimmed untappable states are `none`
-     * and `ahead`, which already read as absent or faint.
+     * when pressed.
+     *
+     * Left undimmed: `none` and `ahead`, which already read as absent or
+     * faint — and a completion dated in the future, which is untappable
+     * because `tapOf` checks the date before the status while `ownStateOf`
+     * checks the status first. That box is filled and ringed and does nothing,
+     * which is honest enough for a state the UI never offers.
      */
     const inert = cell.own === 'skipped' || cell.own === 'none';
     return (
@@ -480,36 +539,41 @@ function Box({
 /**
  * What a screen reader says about one box.
  *
- * Reads your own share first where the two disagree, because that is what the
- * tap acts on — a box announced as "not done" whose only action deletes your
- * completion is worse than no label.
+ * Two facts, in order: how the **day** stands, then what your own share of it
+ * is when the two differ. The first version returned early on the second,
+ * which collapsed every state into one string for anything that was not yours
+ * — so a housemate's chore read "your housemate's" whether it was done,
+ * missed, due today or still to come. Whether it got done is the one thing
+ * this screen exists to say, and it became unreadable for half the household.
  */
 function describe(cell: ChartCell, title: string): string {
   const day = formatDayShort(cell.date);
-  if (cell.own === 'done' && cell.state !== 'done') {
-    return `${title}, ${day}, you have done yours`;
-  }
-  if (cell.own === 'skipped' && cell.state !== 'skipped') {
-    return `${title}, ${day}, you skipped yours`;
-  }
-  if (cell.own === 'none' && cell.state !== 'none') {
-    return `${title}, ${day}, your housemate's`;
-  }
 
-  switch (cell.state) {
-    case 'done':
-      return `${title}, ${day}, done`;
-    case 'skipped':
-      return `${title}, ${day}, skipped`;
-    case 'today':
-      return `${title}, due today, not done`;
-    case 'missed':
-      return `${title}, ${day}, not done`;
-    case 'ahead':
-      return `${title}, due ${day}`;
-    case 'none':
-      return `${title}, not due ${day}`;
-  }
+  const dayReads = (() => {
+    switch (cell.state) {
+      case 'done':
+        return `${title}, ${day}, done`;
+      case 'skipped':
+        return `${title}, ${day}, skipped`;
+      case 'today':
+        return `${title}, due today, not done`;
+      case 'missed':
+        return `${title}, ${day}, not done`;
+      case 'ahead':
+        return `${title}, due ${day}`;
+      case 'none':
+        return `${title}, not due ${day}`;
+    }
+  })();
+
+  // Only when your share disagrees with the day — otherwise it would append
+  // "you have done yours" to every ordinary completed box.
+  if (cell.own === 'done' && cell.state !== 'done') return `${dayReads}, you have done yours`;
+  if (cell.own === 'skipped' && cell.state !== 'skipped') return `${dayReads}, you skipped yours`;
+  if (cell.own === 'none' && cell.state !== 'none') return `${dayReads}, your housemate's`;
+  if (cell.slots.total > 1) return `${dayReads}, ${cell.slots.done} of ${cell.slots.total} done`;
+
+  return dayReads;
 }
 
 /**

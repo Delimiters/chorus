@@ -78,6 +78,14 @@ export interface ChartCell {
    */
   readonly own: 'done' | 'skipped' | 'outstanding' | 'ahead' | 'none';
   /**
+   * Your own slots on that day, done out of total.
+   *
+   * `total` is one for almost everything. A floating rule is the exception and
+   * the reason this exists — several occurrences on one date, so the box has to
+   * be able to say "one of three" rather than staying blank until the third tap.
+   */
+  readonly slots: { readonly done: number; readonly total: number };
+  /**
    * What a tap does: record a completion, undo one, or nothing.
    *
    * Derived here rather than at the row, because "tappable" is three
@@ -144,8 +152,34 @@ function ownItem(items: readonly AgendaItem[], userId: string | null): AgendaIte
    * forever.
    */
   return (
-    mine.find((item) => item.status !== 'completed' && item.status !== 'skipped') ?? mine[0] ?? null
+    mine.find((item) => item.status !== 'completed' && item.status !== 'skipped') ??
+    // Then a completed one, so the undo stays reachable. First-in-list picked a
+    // skipped slot ahead of a completed one, which dimmed the box, labelled it
+    // "you skipped yours", and left the completion beside it with no way back.
+    mine.find((item) => item.status === 'completed') ??
+    mine[0] ??
+    null
   );
+}
+
+/**
+ * How many of your own slots on that day are done, out of how many there are.
+ *
+ * Only ever interesting above one, and that happens for a floating rule: a
+ * "3x a week, any day" chore emits several occurrences sharing one date, so
+ * they share a box. Without this the box could not change until all three were
+ * ticked — two taps in a row with no visible effect, which is the complaint
+ * that started this whole screen.
+ */
+function ownSlots(
+  items: readonly AgendaItem[],
+  userId: string | null,
+): { readonly done: number; readonly total: number } {
+  const mine = items.filter((item) => item.subject === null || item.subject === userId);
+  return {
+    done: mine.filter((item) => item.status === 'completed').length,
+    total: mine.length,
+  };
 }
 
 /** Your own share's standing, for a screen that has to show it separately. */
@@ -240,6 +274,7 @@ export function weekChart(
         items: onDay,
         target,
         own: ownStateOf(target, date, today),
+        slots: ownSlots(onDay, userId),
         tap: tapOf(target, date, today),
       };
     });

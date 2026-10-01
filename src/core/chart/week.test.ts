@@ -229,6 +229,37 @@ describe('what can be tapped', () => {
     expect(rows[0]?.cells[1]?.target?.occurrenceKey).toBe('v1:c1:t:1:-');
   });
 
+  /*
+   * Mixed: one slot skipped, one done. First-in-list picked the skipped one,
+   * which dimmed the box, labelled it "you skipped yours", and left the
+   * completion beside it with no way to undo it from this screen — a label
+   * denying something the same cell was holding.
+   */
+  it('reaches the completed slot rather than stopping at a skipped one', () => {
+    const slots = [
+      { ...occ({ dueOn: TUESDAY, status: 'skipped' }), occurrenceKey: 'v1:c1:t:0:-' },
+      { ...occ({ dueOn: TUESDAY, status: 'completed' }), occurrenceKey: 'v1:c1:t:1:-' },
+    ];
+
+    const rows = weekChart(slots, { weekStart: MONDAY, today: TODAY, userId: ME });
+
+    expect(rows[0]?.cells[1]?.own).toBe('done');
+    expect(rows[0]?.cells[1]?.tap).toBe('undo');
+    expect(rows[0]?.cells[1]?.target?.occurrenceKey).toBe('v1:c1:t:1:-');
+  });
+
+  it('counts your own done slots out of your own total', () => {
+    const slots = [
+      { ...occ({ dueOn: TUESDAY, status: 'completed' }), occurrenceKey: 'v1:c1:t:0:-' },
+      { ...occ({ dueOn: TUESDAY }), occurrenceKey: 'v1:c1:t:1:-' },
+      { ...occ({ dueOn: TUESDAY }), occurrenceKey: 'v1:c1:t:2:-' },
+    ];
+
+    expect(
+      weekChart(slots, { weekStart: MONDAY, today: TODAY, userId: ME })[0]?.cells[1]?.slots,
+    ).toEqual({ done: 1, total: 3 });
+  });
+
   it('offers the undo only once every slot is finished', () => {
     const slots = [
       { ...occ({ dueOn: TUESDAY, status: 'completed' }), occurrenceKey: 'v1:c1:t:0:-' },

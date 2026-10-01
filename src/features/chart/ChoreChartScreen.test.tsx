@@ -11,10 +11,12 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import type { AgendaItem } from '@/core/occurrence/agenda';
+import { RESCHEDULE_PAD_DAYS } from '@/core/occurrence/project';
+import { MAX_WINDOW_DAYS } from '@/core/recurrence/expand';
 import type { CivilDate } from '@/core/civil/types';
 import { ThemeProvider } from '@/design/theme';
 
-import { ChoreChartScreen } from './ChoreChartScreen';
+import { ChoreChartScreen, MAX_WEEKS_BACK, WEEKS_PER_STEP, spanFor } from './ChoreChartScreen';
 
 const MONDAY = '2026-09-28' as CivilDate;
 const TUESDAY = '2026-09-29' as CivilDate;
@@ -200,7 +202,7 @@ describe('the chart', () => {
     renderChart();
     // The cell reads as outstanding, because one share still is — but the box
     // says whose half is done, and the tap acts on that half.
-    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, you have done yours'));
+    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, not done, you have done yours'));
 
     // But the viewer is `me`, whose share is done — so the offer is the undo.
     expect(mockMutate).toHaveBeenCalledTimes(1);
@@ -215,9 +217,45 @@ describe('the chart', () => {
 
     renderChart();
     // Announced as theirs, not as "not done" — and it does nothing when pressed.
-    fireEvent.press(screen.getByLabelText("Dishes, Tue 29 Sep, your housemate's"));
+    fireEvent.press(screen.getByLabelText("Dishes, Tue 29 Sep, not done, your housemate's"));
 
     expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The regression the previous round introduced: returning early on your own
+   * share collapsed every state into one string for anything that was not
+   * yours, so a housemate's chore read the same whether it was done, missed,
+   * due today or still to come. Whether it got done is the one thing this
+   * screen exists to say.
+   */
+  it('still says whether a housemate’s chore got done', () => {
+    mockItems = [
+      occ({ dueOn: MONDAY, subject: 'them', status: 'completed', completedBy: 'them' }),
+      occ({ dueOn: TUESDAY, subject: 'them' }),
+    ];
+
+    renderChart();
+
+    expect(screen.getByLabelText("Dishes, Mon 28 Sep, done, your housemate's")).toBeTruthy();
+    expect(screen.getByLabelText("Dishes, Tue 29 Sep, not done, your housemate's")).toBeTruthy();
+  });
+
+  /*
+   * A floating "3x a week" chore puts every slot in one box, so without a
+   * count the first two of three taps changed nothing on screen.
+   */
+  it('shows how far through a day with several slots you are', () => {
+    mockItems = [
+      { ...occ({ dueOn: TUESDAY, status: 'completed', completedBy: 'me' }), occurrenceKey: 'k0' },
+      { ...occ({ dueOn: TUESDAY }), occurrenceKey: 'k1' },
+      { ...occ({ dueOn: TUESDAY }), occurrenceKey: 'k2' },
+    ];
+
+    renderChart();
+
+    expect(screen.getByText('1/3')).toBeTruthy();
+    expect(screen.getByLabelText('Dishes, Tue 29 Sep, not done, 1 of 3 done')).toBeTruthy();
   });
 
   /*
@@ -233,8 +271,10 @@ describe('the chart', () => {
 
     renderChart();
 
-    const box = screen.getByLabelText('Dishes, Tue 29 Sep, you have done yours');
+    const box = screen.getByLabelText('Dishes, Tue 29 Sep, not done, you have done yours');
     expect(box.props.accessibilityState).toMatchObject({ checked: true });
+    // The day's own state survives in the label rather than being replaced by
+    // yours — whether it got done is what the chart is for.
     expect(screen.queryByLabelText('Dishes, Tue 29 Sep, not done')).toBeNull();
   });
 
@@ -245,7 +285,7 @@ describe('the chart', () => {
     ];
 
     renderChart();
-    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, you skipped yours'));
+    fireEvent.press(screen.getByLabelText('Dishes, Tue 29 Sep, not done, you skipped yours'));
 
     expect(mockMutate).not.toHaveBeenCalled();
   });
@@ -340,5 +380,58 @@ describe('the chart', () => {
     // Already on this week, so the arrow is disabled and nothing moves.
     fireEvent.press(screen.getByLabelText('Next week'));
     expect(screen.getByText('This week')).toBeTruthy();
+  });
+});
+
+/*
+ * The clamp, pinned against the engine's own limit rather than against a number
+ * somebody typed.
+ *
+ * `projectOccurrences` throws inside a `useMemo` during render, so going over
+ * takes the whole app down through the root error boundary, not this screen's
+ * error state — and no test of this screen can see it, because they all mock
+ * `useOccurrences`. Change `WEEKS_PER_STEP` to 16 and the old arrangement went
+ * back over the limit silently with every test green.
+ */
+describe('how far back the window may reach', () => {
+  const windowDays = (weeksBack: number) => {
+    // start = thisWeek - 7 * span, end = thisWeek + 6, inclusive.
+    const span = spanFor(weeksBack);
+    return 7 * span + 7;
+  };
+
+  it('stays inside the projection limit at its widest', () => {
+    const padded = windowDays(MAX_WEEKS_BACK) + RESCHEDULE_PAD_DAYS * 2;
+
+    expect(padded).toBeLessThanOrEqual(MAX_WINDOW_DAYS);
+  });
+
+  /*
+   * Non-vacuity: the clamp has to be the thing holding it, not the arithmetic
+   * happening to be small. One step further has to breach the limit, or this
+   * is a test that would pass with the clamp set to anything.
+   */
+  it('would breach it one step further, so the clamp is load-bearing', () => {
+    const padded = windowDays(MAX_WEEKS_BACK + WEEKS_PER_STEP) + RESCHEDULE_PAD_DAYS * 2;
+
+    expect(padded).toBeGreaterThan(MAX_WINDOW_DAYS);
+  });
+
+  it('grows in steps rather than on every tap, so paging does not refetch', () => {
+    expect(spanFor(0)).toBe(WEEKS_PER_STEP);
+    expect(spanFor(WEEKS_PER_STEP - 1)).toBe(WEEKS_PER_STEP);
+    expect(spanFor(WEEKS_PER_STEP)).toBe(WEEKS_PER_STEP * 2);
+  });
+
+  it('stops the back arrow at the clamp', () => {
+    mockItems = [occ({ dueOn: TUESDAY })];
+    renderChart();
+
+    for (let i = 0; i < MAX_WEEKS_BACK + 5; i += 1) {
+      fireEvent.press(screen.getByLabelText('Previous week'));
+    }
+
+    // 32 weeks back from the week of 28 Sep 2026 is the week of 17 Feb 2026.
+    expect(screen.getByText('16–22 February')).toBeTruthy();
   });
 });
