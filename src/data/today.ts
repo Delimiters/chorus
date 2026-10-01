@@ -24,7 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
-import type { CivilDate } from '@/core/civil/types';
+import type { CivilDate, CivilTime } from '@/core/civil/types';
 
 /** True if the runtime recognises this IANA zone. */
 export function isValidTimeZone(timeZone: string): boolean {
@@ -54,6 +54,69 @@ export function todayIn(timeZone: string, now: Date): CivilDate {
     day: '2-digit',
   }).format(now);
   return civilDate(formatted);
+}
+
+/**
+ * The wall-clock time it currently is in `timeZone`, as a `CivilTime`.
+ *
+ * Same trick as `todayIn`, and the same reason: `en-GB` with `hour12: false`
+ * formats as `HH:MM`, which is exactly the `CivilTime` shape, so there is no
+ * manual assembly and no am/pm to get wrong.
+ *
+ * `% 24` on the hour because some runtimes render midnight as `24:00` under
+ * `en-GB`, which would be rejected by the engine's own time parser.
+ *
+ * @param now the instant to convert; injected so this is testable
+ */
+export function timeIn(timeZone: string, now: Date): CivilTime {
+  const zone = isValidTimeZone(timeZone) ? timeZone : 'UTC';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: zone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+
+  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '00';
+  const hour = String(Number(get('hour')) % 24).padStart(2, '0');
+  return `${hour}:${get('minute')}` as CivilTime;
+}
+
+/**
+ * The current civil time in the household's timezone, to the minute.
+ *
+ * Separate from `useToday` because it ticks on a completely different cadence:
+ * the date changes once a day and can be driven by a single timer, while the
+ * time changes constantly and has to be polled.
+ *
+ * Polled at a minute, and **only call this from a leaf**. Anything that
+ * re-renders on this tick re-renders once a minute for as long as the screen is
+ * open; the one caller is the small component that draws the routine badge, and
+ * putting it in `PlanScreen` instead would redraw the whole of Today sixty
+ * times an hour for a number that changes four times a day.
+ */
+export function useNowTime(timeZone: string): CivilTime {
+  const [now, setNow] = useState(() => new Date());
+  const time = useMemo(() => timeIn(timeZone, now), [timeZone, now]);
+
+  useEffect(() => {
+    const refresh = (): void => setNow(new Date());
+
+    // A backgrounded app's timers are unreliable, so foregrounding refreshes
+    // too — the same reasoning `useToday` gives for the date.
+    const onAppState = (state: AppStateStatus): void => {
+      if (state === 'active') refresh();
+    };
+    const subscription = AppState.addEventListener('change', onAppState);
+    const timer = setInterval(refresh, 60_000);
+
+    return () => {
+      subscription.remove();
+      clearInterval(timer);
+    };
+  }, []);
+
+  return time;
 }
 
 /**

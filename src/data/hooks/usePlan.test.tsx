@@ -47,6 +47,9 @@ const mockDeletes: { occurrenceKey: string; userId: string }[] = [];
 let mockServer: PlanEntryRow[] = [];
 
 let mockDismissals: { userId: string; occurrenceKey: string; dismissedOn: string }[] = [];
+let mockDismissFails = false;
+let mockDismissalGate: Promise<void> | null = null;
+let mockDismissalsFail = false;
 const mockDismissed: { occurrenceKey: string; userId: string }[] = [];
 const mockUndismissed: string[] = [];
 
@@ -62,13 +65,57 @@ jest.mock('../api/plan', () => ({
    * mutation throw and roll back, which reads as a position bug rather than a
    * mock that is shaped differently from the caller.
    */
-  listPlanDismissals: jest.fn(async () => mockDismissals),
-  dismissFromPlan: jest.fn(async (input: { occurrenceKey: string; userId: string }) => {
-    mockDismissed.push(input);
+  listPlanDismissals: jest.fn(async () => {
+    if (mockDismissalsFail) throw new Error('offline');
+    // Held open only when a test asks, and always released — a never-resolving
+    // promise hung the jest worker when this trick was used elsewhere.
+    if (mockDismissalGate !== null) await mockDismissalGate;
+    return mockDismissals;
   }),
-  undismissFromPlan: jest.fn(async (input: { occurrenceKeys: readonly string[] }) => {
-    mockUndismissed.push(...input.occurrenceKeys);
-  }),
+  /*
+   * These two keep `mockDismissals` up to date as well as recording the call.
+   *
+   * It used to only record, so a refetch after a successful dismissal returned
+   * a list that did not contain it — the mock server forgot every write. That
+   * is fine for "was it called", and useless for anything that asserts what
+   * happens once the round trip lands, which is where the bug this file is
+   * about actually lives.
+   */
+  dismissFromPlan: jest.fn(
+    async (input: { occurrenceKey: string; userId: string; dismissedOn: string }) => {
+      if (mockDismissFails) throw new Error('offline');
+      mockDismissed.push(input);
+      const already = mockDismissals.some(
+        (d) =>
+          d.userId === input.userId &&
+          d.occurrenceKey === input.occurrenceKey &&
+          d.dismissedOn === input.dismissedOn,
+      );
+      if (!already) {
+        mockDismissals = [
+          ...mockDismissals,
+          {
+            userId: input.userId,
+            occurrenceKey: input.occurrenceKey,
+            dismissedOn: input.dismissedOn,
+          },
+        ];
+      }
+    },
+  ),
+  undismissFromPlan: jest.fn(
+    async (input: { occurrenceKeys: readonly string[]; userId: string; dismissedOn: string }) => {
+      mockUndismissed.push(...input.occurrenceKeys);
+      mockDismissals = mockDismissals.filter(
+        (d) =>
+          !(
+            d.userId === input.userId &&
+            input.occurrenceKeys.includes(d.occurrenceKey) &&
+            d.dismissedOn === input.dismissedOn
+          ),
+      );
+    },
+  ),
   addToPlan: jest.fn(
     async (entries: readonly (Written & { userId: string; choreId: string })[]) => {
       for (const entry of entries) {
@@ -103,6 +150,7 @@ jest.mock('@/stores/sessionStore', () => ({
 // eslint-disable-next-line import/first
 import {
   useAddToPlan,
+  usePlanDismissals,
   useRemoveFromPlan,
   useReorderPlan,
   useTheirPlanEntries,
@@ -144,6 +192,9 @@ beforeEach(() => {
   mockDismissed.length = 0;
   mockUndismissed.length = 0;
   mockDismissals = [];
+  mockDismissFails = false;
+  mockDismissalGate = null;
+  mockDismissalsFail = false;
   mockServer = [];
 });
 
@@ -348,6 +399,194 @@ describe('taking something off the plan', () => {
 
     await waitFor(() => expect(mockDismissed).toHaveLength(1));
     expect(mockDismissed[0]?.userId).toBe(THEM);
+  });
+});
+
+/*
+ * ── Emily: "Chorus is glitching I keep taking things off today and they come
+ * back lol" ──────────────────────────────────────────────────────────────
+ *
+ * The removal is two facts — the entry goes, and a dismissal says it was
+ * deliberate — and only the first was patched into the cache. The second had to
+ * make a round trip.
+ *
+ * `isLoading` does not cover that gap. On an already-cached query it is false
+ * during a background refetch, so the fill's `dismissalsLoading` guard waves it
+ * through: the fill sees the entry gone, the dismissal not yet there, decides
+ * the chore is unplanned and un-dismissed, and puts it straight back. Then the
+ * re-add's `undismissFromPlan` deletes the dismissal that had just landed, so
+ * it sticks.
+ */
+describe('a removal is visible to the fill before the server answers', () => {
+  it('patches the dismissal into the cache, not only the entry', async () => {
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:a', 1)]);
+    client.setQueryData(qk.planDismissals(HOUSE, FROM, TODAY), []);
+    const { result } = renderHook(() => useRemoveFromPlan(TODAY), { wrapper });
+
+    act(() => result.current.mutate({ occurrenceKey: 'v1:a' }));
+
+    // Immediately: the same tick the entry disappears, not a round trip later.
+    const dismissals = client.getQueryData<{ userId: string; occurrenceKey: string }[]>(
+      qk.planDismissals(HOUSE, FROM, TODAY),
+    );
+    expect(dismissals).toEqual([
+      expect.objectContaining({ userId: ME, occurrenceKey: 'v1:a', dismissedOn: TODAY }),
+    ]);
+  });
+
+  it('records it against whoever’s day it came off', async () => {
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:a', 1, THEM)]);
+    client.setQueryData(qk.planDismissals(HOUSE, FROM, TODAY), []);
+    const { result } = renderHook(() => useRemoveFromPlan(TODAY), { wrapper });
+
+    act(() => result.current.mutate({ occurrenceKey: 'v1:a', ownerId: THEM }));
+
+    const dismissals = client.getQueryData<{ userId: string }[]>(
+      qk.planDismissals(HOUSE, FROM, TODAY),
+    );
+    expect(dismissals?.[0]?.userId).toBe(THEM);
+  });
+
+  it('puts the dismissal back if the write fails, like the entry', async () => {
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:a', 1)]);
+    client.setQueryData(qk.planDismissals(HOUSE, FROM, TODAY), []);
+    mockDismissFails = true;
+    const { result } = renderHook(() => useRemoveFromPlan(TODAY), { wrapper });
+
+    act(() => result.current.mutate({ occurrenceKey: 'v1:a' }));
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(client.getQueryData(qk.planDismissals(HOUSE, FROM, TODAY))).toEqual([]);
+  });
+});
+
+/*
+ * The other half of Emily's report, for the case where the removal happened on
+ * the *other* phone.
+ *
+ * `isLoading` is only ever true for a query that has never resolved. Once the
+ * dismissals are cached, every invalidation — her removal arriving over
+ * realtime, or any household-wide one — refetches in the background with
+ * `isLoading` false and the **old** rows still being handed out. The fill's
+ * guard waved that through, so this phone filled from a dismissal set it knew
+ * was out of date, and `add` then deleted the dismissal as it landed.
+ */
+describe('the dismissals hook while it is catching up', () => {
+  it('reports itself loading during a refetch, not only on the first fetch', async () => {
+    const { client, wrapper } = harness();
+    mockDismissals = [{ userId: ME, occurrenceKey: 'v1:a', dismissedOn: TODAY }];
+
+    const { result } = renderHook(() => usePlanDismissals(TODAY), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.dismissals).toHaveLength(1);
+
+    // What a realtime change from the other phone does — with the refetch held
+    // open, so the in-flight window is observable rather than a lucky frame.
+    let release = () => {};
+    mockDismissalGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await act(async () => {
+      void client.invalidateQueries({ queryKey: qk.planDismissals(HOUSE, FROM, TODAY) });
+    });
+
+    // Stale rows are still being handed out here, so the fill must not act.
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    // Still handing out the old rows while it says so, which is the point: the
+    // fill must not read these and conclude nothing was taken off.
+    expect(result.current.dismissals).toHaveLength(1);
+
+    await act(async () => {
+      release();
+      await mockDismissalGate;
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+  });
+});
+
+/*
+ * The third face of the same mistake. A failed fetch and a fetch that has not
+ * happened are indistinguishable to the fill, because both hand it an empty
+ * list — and the fill does not merely render that answer, it writes plan rows
+ * from it and deletes dismissals as it goes.
+ */
+/*
+ * What "written first, cancelled second" actually claims, with a fetch open to
+ * cancel.
+ *
+ * The two tests above never mount `usePlanDismissals`, so the query has no
+ * observer, there is no fetch in flight, and `cancelQueries` has nothing to do
+ * — the harness is shaped differently from the real caller in exactly the
+ * dimension the ordering comment is about. Here both hooks are mounted and the
+ * fetch is held open, which is the arrangement the app is actually in when
+ * somebody taps remove a moment after opening Today.
+ */
+describe('removing while the dismissals are still in flight', () => {
+  it('keeps the optimistic dismissal rather than letting the cancel revert it', async () => {
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:a', 1)]);
+
+    let release = () => {};
+    mockDismissalGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const { result } = renderHook(
+      () => ({ dismissals: usePlanDismissals(TODAY), remove: useRemoveFromPlan(TODAY) }),
+      { wrapper },
+    );
+
+    // The first fetch is open, so the removal's `cancelQueries` has a real
+    // fetch to abort — which is the case that could revert the patch.
+    await waitFor(() => expect(result.current.dismissals.isLoading).toBe(true));
+
+    act(() => result.current.remove.mutate({ occurrenceKey: 'v1:a' }));
+
+    expect(
+      client.getQueryData<{ occurrenceKey: string }[]>(qk.planDismissals(HOUSE, FROM, TODAY)),
+    ).toEqual([expect.objectContaining({ occurrenceKey: 'v1:a' })]);
+
+    await act(async () => {
+      release();
+      await mockDismissalGate;
+    });
+
+    // And it survives the fetch settling, rather than being overwritten by the
+    // answer to a question asked before the removal happened.
+    await waitFor(() => expect(mockDismissed).toHaveLength(1));
+    expect(
+      client.getQueryData<{ occurrenceKey: string }[]>(qk.planDismissals(HOUSE, FROM, TODAY)),
+    ).toEqual([expect.objectContaining({ occurrenceKey: 'v1:a' })]);
+  });
+});
+
+describe('the dismissals hook when the fetch fails', () => {
+  it('reports itself loading rather than handing back an empty list', async () => {
+    const { client, wrapper } = harness();
+    mockDismissalsFail = true;
+
+    const { result } = renderHook(() => usePlanDismissals(TODAY), { wrapper });
+
+    /*
+     * Waits for the query to actually be *in* its error state.
+     *
+     * The first version waited for `dismissals` to equal `[]`, which is true on
+     * the very first render — before the fetch has even failed — so it passed
+     * while the query was still in flight and `isFetching` was carrying the
+     * assertion. Dropping `isError` left it green. The simplest fixture was the
+     * vacuous one, again.
+     */
+    await waitFor(() =>
+      expect(client.getQueryState(qk.planDismissals(HOUSE, FROM, TODAY))?.status).toBe('error'),
+    );
+
+    // Empty, but never presented as "nothing was taken off".
+    expect(result.current.dismissals).toEqual([]);
+    expect(result.current.isLoading).toBe(true);
   });
 });
 
