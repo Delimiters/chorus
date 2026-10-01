@@ -11,7 +11,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { addDays, compareCivil } from '@/core/civil/date';
@@ -28,8 +28,8 @@ import { SegmentedControl } from '@/design/controls';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { useTheme } from '@/design/theme';
-import { MIN_TARGET, space } from '@/design/tokens';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { PagerArrow } from '@/design/PagerArrow';
+import { space } from '@/design/tokens';
 import { formatDayLong } from '@/features/common/format';
 import { ModeSwitch } from '@/features/common/ModeSwitch';
 import {
@@ -162,7 +162,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
             paddingHorizontal: space.sm,
           }}
         >
-          <Arrow
+          <PagerArrow
             label="Previous day"
             glyph="chevron-left"
             onPress={() => setDay(addDays(day, -1))}
@@ -177,7 +177,7 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
           </Stack>
           {/* Disabled rather than hidden, so the header does not reflow as you
               page back and forth. */}
-          <Arrow
+          <PagerArrow
             label="Next day"
             glyph="chevron-right"
             disabled={isToday}
@@ -287,41 +287,5 @@ export function RoutinesView({ today, onAdd, onOpen, myInk }: Props) {
 
       <AddChoreButton onPress={onAdd} ink={myInk} label="Add a routine" />
     </SafeAreaView>
-  );
-}
-
-function Arrow({
-  label,
-  glyph,
-  onPress,
-  disabled = false,
-}: {
-  label: string;
-  glyph: 'chevron-left' | 'chevron-right';
-  onPress: () => void;
-  disabled?: boolean;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      style={{
-        minWidth: MIN_TARGET,
-        minHeight: MIN_TARGET,
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: disabled ? 0.3 : 1,
-      }}
-    >
-      {/*
-        An icon rather than a ‹ character: the glyph rendered small and thin at
-        every text size, which made a 44pt target look like a 10pt one.
-      */}
-      <MaterialCommunityIcons name={glyph} size={28} color={colors.textMuted} />
-    </Pressable>
   );
 }

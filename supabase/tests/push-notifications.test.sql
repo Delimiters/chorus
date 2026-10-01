@@ -13,7 +13,7 @@ create extension if not exists pgtap with schema extensions;
 -- turning notifications off altogether.
 
 begin;
-select plan(14);
+select plan(25);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -205,5 +205,180 @@ select is(
   'taking something off somebody else''s day says so too'
 );
 
+-- ═══ Notes ════════════════════════════════════════════════════════════════
+--
+-- These have to run *as* somebody. A note's `updated_by` is stamped from
+-- `auth.uid()` by its own trigger, and the notification reads that column
+-- rather than calling `auth.uid()` again — so with no JWT the stamp is null,
+-- the notifier correctly declines to name a ghost, and nothing is sent. Which
+-- is exactly what the first version of this test proved, at some length.
+create or replace function pg_temp.become(uid text) returns void
+language plpgsql as $$
+begin
+  execute 'set local role authenticated';
+  execute format(
+    'set local request.jwt.claims = %L',
+    json_build_object('sub', uid, 'role', 'authenticated')::text
+  );
+end;
+$$;
+
+delete from net.http_request_queue;
+select pg_temp.become('e1111111-1111-1111-1111-111111111111');
+
+insert into public.household_notes (id, household_id, title, body, created_by)
+values ('ef000000-0000-0000-0000-000000000001', 'ed000000-0000-0000-0000-00000000000a',
+        'Boiler', 'Landlord said he would send someone.',
+        'e1111111-1111-1111-1111-111111111111');
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'title' from net.http_request_queue limit 1),
+  'Boiler',
+  'writing a note leads with its title'
+);
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'body' from net.http_request_queue limit 1),
+  'Alice wrote a note.',
+  'and says who wrote it'
+);
+
+-- Array *length*, not element zero. `jsonb_agg` over a join has no defined
+-- order, so "element 0 is bob" would still hold — sometimes — if the author
+-- stopped being excluded. The count cannot.
+select is(
+  (select jsonb_array_length(convert_from(body, 'utf8')::jsonb) from net.http_request_queue limit 1),
+  1,
+  'to exactly one person — not back to the author'
+);
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'to' from net.http_request_queue limit 1),
+  'ExponentPushToken[bob]',
+  'and that person is the housemate'
+);
+
+-- A note with no title falls back to its first line, the same promotion the
+-- card on the board does — so the push and the row it opens agree.
+reset role;
+delete from net.http_request_queue;
+select pg_temp.become('e1111111-1111-1111-1111-111111111111');
+
+insert into public.household_notes (id, household_id, body, created_by)
+values ('ef000000-0000-0000-0000-000000000002', 'ed000000-0000-0000-0000-00000000000a',
+        E'Ask about the gutters\nand the fence', 'e1111111-1111-1111-1111-111111111111');
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'title' from net.http_request_queue limit 1),
+  'Ask about the gutters',
+  'an untitled note is announced by its first line'
+);
+
+-- ═══ Editing ══════════════════════════════════════════════════════════════
+--
+-- Straight after writing, so the ten-minute throttle is what is being tested:
+-- one person saving twice while thinking is one piece of news.
+reset role;
+delete from net.http_request_queue;
+select pg_temp.become('e1111111-1111-1111-1111-111111111111');
+
+update public.household_notes
+   set body = 'Landlord said he would send someone. Chase him Friday.'
+ where id = 'ef000000-0000-0000-0000-000000000001';
+
+select is(
+  (select count(*)::int from net.http_request_queue),
+  0,
+  'editing a note somebody just wrote says nothing — it is the same news'
+);
+
+-- Now with the note left alone for a while.
+--
+-- The stamp trigger has to come off to age a note: it sets `updated_at :=
+-- now()` on every update, so an `update ... set updated_at = <2 hours ago>`
+-- lands as *now* and the throttle keeps firing. Which is what the first
+-- version of this test measured, and read as the throttle being wrong.
+reset role;
+alter table public.household_notes disable trigger household_notes_stamp_editor;
+update public.household_notes
+   set updated_at = now() - interval '2 hours'
+ where id = 'ef000000-0000-0000-0000-000000000001';
+alter table public.household_notes enable trigger household_notes_stamp_editor;
+delete from net.http_request_queue;
+select pg_temp.become('e1111111-1111-1111-1111-111111111111');
+
+update public.household_notes
+   set body = 'He came. Fixed.'
+ where id = 'ef000000-0000-0000-0000-000000000001';
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'body' from net.http_request_queue limit 1),
+  'Alice updated a note.',
+  'but coming back to it later is news again'
+);
+
+-- The throttle is per author, not per note.
+--
+-- Bob correcting what Alice wrote four minutes ago is news to Alice — she is
+-- the one who will otherwise act on the wrong version. A throttle that looked
+-- only at `updated_at` silenced exactly that.
+update public.household_notes
+   set title = 'Boiler', body = 'Landlord said he would send someone.'
+ where id = 'ef000000-0000-0000-0000-000000000001';
+
+reset role;
+delete from net.http_request_queue;
+select pg_temp.become('e2222222-2222-2222-2222-222222222222');
+
+update public.household_notes
+   set body = 'Landlord is coming Wednesday, not Tuesday.'
+ where id = 'ef000000-0000-0000-0000-000000000001';
+
+select is(
+  (select convert_from(body, 'utf8')::jsonb -> 0 ->> 'body' from net.http_request_queue limit 1),
+  'Bob updated a note.',
+  'your housemate correcting what you just wrote is not throttled — it is the correction'
+);
+
+-- Containment, not element zero: `jsonb_agg` has no defined order, so reading
+-- index 0 is right by luck whenever there is more than one recipient.
+--
+-- Paired with a length check, because containment alone passes when the push
+-- *also* reaches somebody it should not — and "to exactly one person" is half
+-- of what this is claiming.
+select is(
+  (select jsonb_array_length(convert_from(body, 'utf8')::jsonb) from net.http_request_queue limit 1),
+  1,
+  'to exactly one person, not to the housemate who made the correction'
+);
+
+select ok(
+  (select convert_from(body, 'utf8')::jsonb @> '[{"to": "ExponentPushToken[alice]"}]'
+     from net.http_request_queue limit 1),
+  'and it goes to the person who wrote the thing being corrected'
+);
+
+-- Touching a note without changing what it says is not news at all. Aged
+-- first, so the throttle is not the thing suppressing it.
+reset role;
+alter table public.household_notes disable trigger household_notes_stamp_editor;
+update public.household_notes
+   set updated_at = now() - interval '2 hours'
+ where id = 'ef000000-0000-0000-0000-000000000001';
+alter table public.household_notes enable trigger household_notes_stamp_editor;
+delete from net.http_request_queue;
+select pg_temp.become('e1111111-1111-1111-1111-111111111111');
+
+update public.household_notes
+   set title = title
+ where id = 'ef000000-0000-0000-0000-000000000001';
+
+select is(
+  (select count(*)::int from net.http_request_queue),
+  0,
+  'and an edit that changes neither the title nor the body is not an edit'
+);
+
+reset role;
 select * from finish();
 rollback;

@@ -84,6 +84,19 @@ describe('where a link stops', () => {
     expect(links('(see https://example.com)')).toEqual(['https://example.com']);
   });
 
+  /*
+   * Square brackets get the same treatment as round ones, and had no test at
+   * all until a coverage threshold on this directory pointed at the branch.
+   */
+  it('drops a square bracket that was wrapping the address', () => {
+    expect(links('[https://example.com]')).toEqual(['https://example.com']);
+  });
+
+  it('keeps a square bracket the address actually needs', () => {
+    const note = 'https://example.com/a[0]';
+    expect(links(note)).toEqual([note]);
+  });
+
   it('keeps a trailing slash, which is part of the address', () => {
     expect(links('https://example.com/')).toEqual(['https://example.com/']);
   });

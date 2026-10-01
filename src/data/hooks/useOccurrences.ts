@@ -14,7 +14,7 @@
 import { useQuery, useQueryClient, useMutation, skipToken } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
-import { addDays, startOfWeek } from '@/core/civil/date';
+import { addDays, compareCivil, startOfWeek } from '@/core/civil/date';
 import type { CalendarConfig, CivilDate, DateWindow } from '@/core/civil/types';
 import {
   buildTodayView,
@@ -474,6 +474,34 @@ export function useToday_View() {
 interface ToggleInput {
   readonly item: AgendaItem;
   readonly complete: boolean;
+  /**
+   * The day it was actually done. Defaults to today.
+   *
+   * Passed by the chore chart, and the reason the chart exists. Jake: *"allow
+   * you to check off chores from an earlier day in there in case you did it and
+   * just forgot to check it off and don't want to reset the cycle onto the wrong
+   * day"*. For an `every N days` chore that is not cosmetic — `anchorToCompletion`
+   * restarts the interval from `completedOn`, so ticking Tuesday's occurrence on
+   * Friday with today's date moves the next one to Friday + N. Which is exactly
+   * the wrong day he means.
+   *
+   * Clamped to today below: a completion in the future is not a thing that
+   * happened.
+   */
+  readonly completedOn?: CivilDate;
+}
+
+/**
+ * The day to record, given what the caller asked for.
+ *
+ * Clamped rather than rejected: a future completion cannot have happened, and
+ * the honest reading of "tick tomorrow's box" is "I have done it", not an
+ * error dialog. Nothing in the UI offers a future cell, so this is the floor
+ * under a caller that gets it wrong rather than a path anyone walks.
+ */
+function completionDay(asked: CivilDate | undefined, today: CivilDate): CivilDate {
+  if (asked === undefined) return today;
+  return compareCivil(asked, today) > 0 ? today : asked;
 }
 
 /**
@@ -491,7 +519,7 @@ export function useToggleCompletion() {
   const today = useToday(household.data?.timeZone ?? 'UTC');
 
   return useMutation({
-    mutationFn: async ({ item, complete }: ToggleInput) => {
+    mutationFn: async ({ item, complete, completedOn }: ToggleInput) => {
       if (householdId === null || userId === null) throw new Error('Please sign in again.');
       if (complete) {
         await completeOccurrence({
@@ -499,7 +527,7 @@ export function useToggleCompletion() {
           choreId: item.choreId,
           occurrenceKey: item.occurrenceKey,
           dueOn: item.dueOn,
-          completedOn: today,
+          completedOn: completionDay(completedOn, today),
           userId,
         });
       } else {
@@ -507,7 +535,7 @@ export function useToggleCompletion() {
       }
     },
 
-    onMutate: async ({ item, complete }) => {
+    onMutate: async ({ item, complete, completedOn }) => {
       if (householdId === null || userId === null) return;
       /**
        * Every completions query, whatever its window — the occurrence may appear
@@ -533,7 +561,11 @@ export function useToggleCompletion() {
           {
             choreId: item.choreId,
             occurrenceKey: item.occurrenceKey,
-            completedOn: today,
+            // The same day the write will use. Patching `today` here while
+            // sending a backdated date would make the grid redraw once
+            // optimistically and again differently on settle — and for an
+            // interval chore the two drawings disagree about the next due date.
+            completedOn: completionDay(completedOn, today),
             completedBy: userId,
           },
         ];

@@ -1,0 +1,242 @@
+# The chore chart, the notes tab, and the badge
+
+What shipped on 30 September 2026, and the reasoning that is not obvious from
+the diff. Jake does not read the code, so this is where it lives.
+
+## What he asked for
+
+> "the note board needs to be more visible. I think maybe we take off the chores
+> tab and move that into the house tab somewhere and replace it with the notes
+> tab, and then have a little notification count on the tab icon when there are
+> updates as well as sending notifications whenever somebody creates or updates
+> a note. I also would like a chore chart that just has the list of chores and
+> when they were due that week and whether they got done or not, maybe also
+> allow you to check off chores from an earlier day in there in case you did it
+> and just forgot to check it off and don't want to reset the cycle onto the
+> wrong day or whatever. Do you think 5 tabs is too many?"
+
+Four things. Yes, five tabs is too many — see below.
+
+## Why four tabs and not five
+
+Every tab currently wears the same placeholder square icon, so the **labels** do
+all the work of telling them apart. A fifth drops each from roughly 98pt to 78pt
+on an iPhone 14, squeezing the one thing that differentiates them.
+
+So Chores moved to House rather than Notes being added alongside it. That is not
+just a space argument: the chore library is something you open while *setting
+things up*, and House is already where the reference material lives. The note
+board is the opposite — it is worth seeing daily, which is the whole reason Jake
+asked.
+
+The chart went to House for the same reason. It is a thing you consult, not a
+thing you work from.
+
+**If a fifth tab is ever wanted, real icons come first.**
+
+## The badge
+
+There is no unread column, and there is not going to be one. Storing "who has
+seen which note" means a row per person per note and a write on every glance, to
+answer a question that is worth one small integer.
+
+Instead each phone remembers the moment it last had the board open, and the
+count is a comparison against the `updated_at` the list already carries. The
+cost is that it does not follow you to a second phone: reading the board on an
+iPad would leave the iPhone badged. That is the same trade the view and reminder
+preferences already make.
+
+Three details worth knowing:
+
+- **Your own edits never count.** Obvious in hindsight, easy to get wrong.
+- **A fresh install counts nothing.** The tab bar seeds from the newest note as
+  soon as a list is in hand. A "9+" on a phone that has never shown the board is
+  noise dressed as news.
+- **"Seen" is a stamp copied off a note, never a reading of the phone's clock.**
+  The first version recorded device time, which compared two clocks that can
+  disagree — and broke in both directions. A phone running ninety seconds slow
+  left a badge on a board it was looking at. A phone that briefly read 2027 — a
+  manual set, a bad sync — wrote a moment nothing would ever exceed, and since
+  the value only moves forward, that killed the badge for a year with no way to
+  reset it from inside the app. Marking the newest note's own stamp costs
+  nothing: a note saved after the list was fetched is later than it, so it is
+  still news.
+
+The badge clears **while the board is focused**, not while it is mounted. That
+distinction is the one defect that got through review here: a tab screen stays
+mounted after you leave it, so the first version cleared the badge the instant a
+note arrived over realtime — while you were on Today, looking at the badge that
+had just failed to appear. Found by mutating the guard away and noticing the
+suite stayed green.
+
+## Note notifications
+
+Reuses the notifier the completion and plan triggers already share. Two
+decisions:
+
+- **The headline is the title, else the note's first line.** The same promotion
+  the card on the board does, so the push and the row it opens agree.
+- **An edit within ten minutes of *your own* last one says nothing.** Saving
+  twice while you think is one piece of news, not two. The author test is not
+  optional: a throttle on the note alone silenced your housemate's *correction*
+  to something you had just written, which is the one message you most need.
+  Jake writes "Landlord coming Tuesday", Emily fixes it to Wednesday four
+  minutes later, and the person who would otherwise be out on the wrong day
+  hears nothing.
+
+Both are mutation-verified, along with the clause that ignores an edit changing
+neither title nor body.
+
+## The chart, and the thing it exists to prevent
+
+> "don't want to reset the cycle onto the wrong day"
+
+**This is a real mechanism in this codebase, not a worry.** `anchorToCompletion`
+restarts an `every N days` interval from the *completion* date — that is
+deliberate and Jake asked for it ("if it's every 6 days, and I complete it 3
+days late, the next occurrence shouldn't happen until 6 days after I completed
+it"). It means ticking Tuesday's occurrence on Friday with today's date pushes
+the next one to Friday + N.
+
+So `useToggleCompletion` takes an optional `completedOn`, clamped to today, and
+each box on the chart passes its own day. Calendar rules — every Tuesday, the
+15th — are unaffected either way; only intervals re-anchor.
+
+### Why a grid rather than a list
+
+Today and Upcoming collapse a chore's superseded misses so a neglected daily
+chore cannot fill the screen. That collapse is exactly wrong here: a chore
+missed on Monday and done on Tuesday is two facts, and merging them removes the
+only thing the chart is for. So it reads `useOccurrences(...).items` —
+uncollapsed — rather than `.agenda`.
+
+### What the boxes mean
+
+Three weights, not three colours:
+
+| Box | Means |
+| --- | --- |
+| Filled, in somebody's ink | Done, by them |
+| White with a heavy ring | Due today, not done |
+| A firm grey ring | Was due, not done |
+| A hairline ring | Still to come |
+| A hairline ring with a dash | Skipped |
+| A faint dot | Not due that day |
+
+`colors.overdue` is deliberately the *same value* as `colors.text` — the design
+system's position is that a red wash makes an ordinary Tuesday feel like an
+incident. On a list that works, because lateness is spelled out beside the row.
+On a grid there is no text, so the first version rendered missed and due-today
+as literally the same box, and the legend showed two identical swatches. Weights
+rather than a new colour keeps that decision intact.
+
+Skipped days are not tappable. Un-skipping is a different decision from
+completing, and the occurrence sheet has room to explain it. Future days are not
+tappable either, because a completion in the future did not happen.
+
+## What running it actually found
+
+The suite was green for all three of these. They were found by building the JS
+bundle, swapping it into the simulator's installed app, and looking:
+
+1. **The week was seeded before the household arrived.** `weekStartsOn` comes
+   with the household query, a render after the first, so `useState(thisWeek)`
+   captured the placeholder — this house starts its week on Monday and the chart
+   opened Sunday-to-Saturday, with "This week" unreachable for the life of the
+   screen. The state is now an offset and the week is derived.
+2. **Missed and due-today were the same box**, as above.
+3. **The today column was tinted twice, wrongly.** `sunken` against `paper` is a
+   one-unit difference that renders as nothing; `raised` was visible and worse,
+   painting a grey block on days the chore was *not* due that outweighed every
+   real box on the row.
+
+The technique is worth keeping: `npx expo export:embed`, copy the bundle over
+`Chorus.app/main.jsbundle` in the simulator container, relaunch. No native
+rebuild, about 30 seconds, and it runs against the real household. Deep links
+raise an "Open in Chorus?" alert that needs a tap nothing here can deliver, so
+the faster route is to temporarily point `(tabs)/index.tsx` at the screen under
+review and cold-start onto it.
+
+## The known defect this screen does not fix
+
+**A rescheduled interval occurrence re-anchors nothing.** `anchorToCompletion`
+reads a completion's due date off its occurrence *key*, which still carries the
+date the rule produced — while the row shows the date somebody moved it to. A
+rescheduled occurrence is therefore off the chain by construction, and the "a
+completion has to sit on the chain to move it" guard throws it away. So an
+`every N days` chore that has been rescheduled and is then completed leaves its
+next occurrence exactly where the chain already had it, which in the test case
+is *the day after it was done*. That is the failure this screen exists to
+prevent, arriving through a door nobody had looked at. It is reachable from
+Today and Upcoming too; the chart is only what made ticking a past day routine
+enough to notice.
+
+**It was fixed, and the fix was reverted, and that is the interesting part.**
+Letting a key that carries an exception past the guard looked like a one-line
+change and passed the whole engine suite. A second review found two reasons it
+was worse than the defect:
+
+1. `hasException` is built from a **windowed** exceptions query, while interval
+   completions are deliberately unwindowed. Making the anchor depend on it makes
+   an interval chore's due dates depend on how far back the screen happens to
+   look — so Today, Upcoming, the chart and the reminder planner compute
+   different dates, and therefore different occurrence *keys*, for the same
+   chore. That is precisely the failure the key-derived-date design exists to
+   prevent, and it is in `dueOnFromKey`'s own docstring.
+2. `chainIndex += offset / everyNDays + 1` is fractional for an off-chain
+   offset, and the fractions accumulate. Two rescheduled-and-completed
+   occurrences make a rotation turn disappear — the defect that counter was
+   written to prevent, arriving from the other side. There is no correct integer
+   to add, because the occurrence is not on the chain at all.
+
+A real fix needs an unwindowed exceptions query for interval chores *and* a
+segment count derived from what was actually emitted rather than from
+arithmetic. Worth doing; not worth doing badly inside a feature branch. The test
+is left in place as `it.failing`, so it documents the defect and will alert if
+somebody fixes it.
+
+## One more the review found that was older than this PR
+
+**`/chores` had no way back.** It stopped being a tab in this PR and became a
+pushed stack route under a `Stack` with `headerShown: false`, so it covers the
+tab bar — with no back bar, no header and no tab bar. The only exit was the iOS
+edge-swipe, on a screen that is a scroll view full of pressable rows. Worse,
+`ChoreEditor` closes with `router.replace('/chores')` when it has no history,
+which leaves no swipe target either: a cold start into a chore, then Cancel, and
+the app was stuck until it was killed. Every app suite was green, because none
+of them asks whether there is a way off a screen. There are three that do now.
+
+## What is not here
+
+- **`/stats` finally has a link.** It has existed since Phase 6 with nothing
+  pointing at it — four phases of a screen nobody could reach. The chart gave it
+  a neighbour on House.
+- **A shared day shows your half and the day's separately.** They disagree
+  whenever one of you has done your share and the other has not, and the first
+  version showed only the day's: the box read "not done", announced itself to a
+  screen reader as unchecked, and its only action deleted your completion
+  without changing anything on screen. It is now filled in your ink *and*
+  ringed — you have done yours, the day is still owed — and a box you cannot
+  act on is dimmed rather than drawn identically to one you can.
+
+- **A floating chore's slots are each reachable.** A "3× a week, any day" rule
+  emits several occurrences sharing one date, so they all land in one box.
+  Taking the first unconditionally meant the second tap un-ticked what the
+  first had ticked, with no visible change, and the later slots could never be
+  reached from this screen at all. The box now moves to your first unfinished
+  slot.
+
+- **Ticking a shared day ticks your own share.** An `everyone` chore fans out to
+  one occurrence per person, and ticking somebody else's from a grid with no
+  indication whose box it was is the wrong default. Theirs is one tap away on
+  the occurrence sheet.
+
+  The first version tapped `items[0]`, which read as "yours" and is not. The
+  projector's last sort key is the subject's **user id**, so `items[0]` is the
+  same person for every fan-out chore in the household, forever — and for
+  whichever housemate's id sorts second, every shared box tapped the other
+  person's share. The write hit a duplicate `occurrence_key`, was swallowed as
+  idempotent, and the box never changed. A silent no-op, every time, invisible
+  to the person whose id sorted first. Found in review.
+- **A chore not due at all gets no row.** Seven blank boxes are noise, and the
+  full list is one tap away on House.

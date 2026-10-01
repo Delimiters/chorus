@@ -20,7 +20,7 @@ import { useUserId } from '@/stores/sessionStore';
 import { ADD_BUTTON_CLEARANCE, AddChoreButton } from '@/design/AddButton';
 import { useToday } from '@/data/today';
 import { Checkbox, SectionHeader } from '@/design/ChoreRow';
-import { ErrorState, LoadingState, Stack, Txt } from '@/design/components';
+import { BackBar, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
 import { formatDayShort } from '@/features/common/format';
 import { groupItems, type Groupable } from '@/core/occurrence/grouping';
 import { useCategoryList } from '@/data/hooks/useCategories';
@@ -126,8 +126,34 @@ export function ChoresScreen() {
 
   const byId = useMemo(() => new Map(active.map((c) => [c.id, c])), [active]);
 
-  if (query.isLoading) return <LoadingState />;
-  if (query.error) return <ErrorState message={(query.error as Error).message} />;
+  /*
+   * Both states keep the back bar, which the loaded one grew when this stopped
+   * being a tab.
+   *
+   * Bare, they were the stuck screen all over again: `ChoreEditor` closes with
+   * `router.replace('/chores')` when it has no history, so a cold start into a
+   * chore plus a failed chores fetch left no back bar, no tab bar and no swipe
+   * target. One query error away from the bug the back bar was added to fix.
+   */
+  if (query.isLoading || query.error) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
+        <View style={{ padding: space.lg }}>
+          <BackBar
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))}
+          />
+        </View>
+        {query.error ? (
+          <ErrorState
+            message={(query.error as Error).message}
+            onRetry={() => void query.refetch()}
+          />
+        ) : (
+          <LoadingState />
+        )}
+      </SafeAreaView>
+    );
+  }
 
   const row = (chore: Chore, dashed = false) => {
     const ink = inkFor(chore);
@@ -230,6 +256,19 @@ export function ChoresScreen() {
           paddingBottom: space.xxxl + ADD_BUTTON_CLEARANCE,
         }}
       >
+        {/*
+          Added when this stopped being a tab.
+          As a tab it needed no way back — there is nowhere to go. Pushed from
+          House under a `Stack` with `headerShown: false`, it covers the tab bar
+          and had no back bar, no header and no tab bar: the only exit was the
+          edge-swipe gesture, on a screen that is a scroll view full of
+          pressable rows. Worse, `ChoreEditor` closes with
+          `router.replace('/chores')` when it has no history, which leaves no
+          swipe target either — a cold start into a chore, then Cancel, and the
+          app was stuck until it was killed.
+        */}
+        <BackBar onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))} />
+
         <Stack gap={2} style={{ paddingHorizontal: space.sm, paddingBottom: space.sm }}>
           <Txt variant="display" accessibilityRole="header">
             Chores

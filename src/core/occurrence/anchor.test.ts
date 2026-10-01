@@ -232,6 +232,76 @@ describe('an exception in the re-anchored gap', () => {
 
     expect(dates(out)).toContain(d('2026-09-09'));
   });
+  /*
+   * ── A known defect, deliberately left in ──────────────────────────────
+   *
+   * A rescheduled occurrence is off the chain by construction: its key carries
+   * the date the *rule* produced, while the row shows the date somebody moved
+   * it to, and the test above keeps it alive after a re-anchor has deleted the
+   * original. Completing one hits the "must sit on the chain" guard and moves
+   * nothing — so the next occurrence stays where the chain already had it,
+   * which here is the **day after** the chore was actually done.
+   *
+   * `it.failing` rather than a fix, because the obvious fix is worse than the
+   * defect. Letting a key that carries an exception past the guard was tried,
+   * shipped to a branch, and reverted for two reasons found in review:
+   *
+   *   1. `hasException` is built from a **windowed** exceptions query, while
+   *      interval completions are deliberately unwindowed. Making the anchor
+   *      depend on it makes an interval chore's due dates depend on how far
+   *      back the screen happens to look — so Today, Upcoming, the chart and
+   *      the reminder planner compute different dates, and therefore different
+   *      occurrence keys, for the same chore. That is the exact failure the
+   *      key-derived-date design in `dueOnFromKey` exists to prevent.
+   *   2. `chainIndex += offset / everyNDays + 1` is fractional for an off-chain
+   *      offset, and the fractions accumulate. Two rescheduled-and-completed
+   *      occurrences make a rotation turn disappear — the defect the counter
+   *      was written to prevent, arriving from the other side. There is no
+   *      correct integer to add, because the occurrence is not on the chain at
+   *      all; the count would have to come from what was actually emitted.
+   *
+   * A real fix needs an unwindowed exceptions query for interval chores *and*
+   * a segment count derived from emitted occurrences rather than arithmetic.
+   * Worth doing; not worth doing badly inside a feature branch.
+   *
+   * This test fails on purpose and will alert if somebody fixes it.
+   */
+  it.failing('re-anchors from a rescheduled occurrence, which it does not yet', () => {
+    const chore = every(6, '2026-09-01');
+    const grid = project([chore], []);
+    const first = grid.find((o) => o.dueOn === d('2026-09-01'));
+    const thirteenth = grid.find((o) => o.dueOn === d('2026-09-13'));
+
+    const exceptions = [
+      {
+        choreId: 'plants',
+        occurrenceKey: thirteenth?.occurrenceKey ?? '',
+        kind: 'reschedule' as const,
+        movedTo: d('2026-09-14'),
+      },
+    ];
+
+    const out = projectOccurrences(
+      {
+        chores: [chore],
+        completions: [
+          // Done late, which moves the chain to 9, 15, 21 and orphans the 13th.
+          done(first?.occurrenceKey ?? '', '2026-09-03'),
+          // Then the moved row itself, on the day it was moved to.
+          done(thirteenth?.occurrenceKey ?? '', '2026-09-14'),
+        ],
+        exceptions,
+        memberIds: ['user-me'],
+        today: d('2026-09-20'),
+      },
+      CAL,
+      { start: d('2026-09-01'), end: d('2026-09-30') },
+    );
+
+    // Six days after the 14th, not the 15th.
+    expect(dates(out)).toContain(d('2026-09-20'));
+    expect(dates(out)).not.toContain(d('2026-09-15'));
+  });
 });
 
 describe('doing it early', () => {

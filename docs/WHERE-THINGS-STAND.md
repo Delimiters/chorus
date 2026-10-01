@@ -82,3 +82,37 @@ that fixture to make the assertion vacuous — the answer is usually "not much".
 
 The other habit worth keeping is in AGENTS.md: read `Test Suites:`, not `Tests:`.
 A suite that throws at import reports every test inside it as passing.
+
+## Addendum, 30 September 2026
+
+Four things Jake asked for after the notification work landed: Notes takes the
+Chores tab's place, a badge on it for unread notes, pushes when somebody writes
+or edits a note, and a weekly chore chart with backdated ticking. All four are
+in. **`docs/CHORE-CHART.md` is the one to read** — it covers why four tabs and
+not five, why the badge is derived rather than stored, and why a backdated tick
+has to carry its own date.
+
+Two things worth adding to the list above, because both are new shapes of the
+same old lesson.
+
+**A defect can be invisible to every test *and* to review, and still be obvious
+on a screen.** Three of them were, on the chart alone: a week seeded from a
+household that had not loaded yet, two of the three box states rendering
+identically because `colors.overdue` is the same value as `colors.text`, and a
+"today" tint that was either a one-unit colour difference or a grey block louder
+than the real content. The suite was green for all three.
+
+The cheap way to look is worth writing down. `npx expo export:embed`, copy the
+result over `Chorus.app/main.jsbundle` inside the simulator's app container,
+relaunch. No native rebuild, about thirty seconds, and it runs against the real
+household. To land on the screen under review, temporarily point
+`(tabs)/index.tsx` at it and cold-start — a deep link raises an "Open in
+Chorus?" alert that needs a tap, and driving the simulator's UI from a script
+needs an Accessibility grant that is not there.
+
+**Mutation testing found a defect that review did not.** The badge cleared while
+the notes board was *mounted* rather than *focused*, and a tab screen stays
+mounted after you leave it — so a note arriving over realtime cleared a badge
+that had never appeared. The wiring test passed with the focus effect deleted
+outright, which is what gave it away. Deleting the thing under test and watching
+the suite stay green is now the last step before every commit here.

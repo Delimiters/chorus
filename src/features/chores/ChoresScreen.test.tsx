@@ -8,7 +8,7 @@
  * chore was indistinguishable from an outstanding one.
  */
 
-import { render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { Chore } from '@/data/api/chores';
@@ -40,11 +40,16 @@ const onceRule = { kind: 'once', dueOn: TODAY, granularity: 'day' } as const;
 let mockChores: Chore[] = [];
 let mockCompletions: { choreId: string; completedOn: string }[] = [];
 
+/** The two states that used to have no way off the screen. */
+let mockLoading = false;
+let mockError: Error | null = null;
+
 jest.mock('@/data/hooks/useChores', () => ({
   useChoreList: () => ({
     data: { chores: mockChores, unreadable: [] },
-    isLoading: false,
-    error: null,
+    isLoading: mockLoading,
+    error: mockError,
+    refetch: jest.fn(),
   }),
   useOneOffCompletions: () => ({ data: mockCompletions }),
   useToggleSomeday: () => ({ mutate: jest.fn() }),
@@ -60,7 +65,18 @@ jest.mock('@/data/hooks/useHousehold', () => ({
 let mockCategories: { id: string; name: string; ink: string | null; position: number }[] = [];
 jest.mock('@/data/hooks/useCategories', () => ({ useCategoryList: () => mockCategories }));
 jest.mock('@/data/today', () => ({ useToday: () => '2026-03-15' }));
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
+const mockBack = jest.fn();
+const mockReplace = jest.fn();
+let mockCanGoBack = true;
+
+jest.mock('expo-router', () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    back: mockBack,
+    replace: mockReplace,
+    canGoBack: () => mockCanGoBack,
+  }),
+}));
 const renderScreen = () =>
   render(
     <ThemeProvider>
@@ -143,5 +159,70 @@ describe('a one-time chore that has been done', () => {
     renderScreen();
 
     expect(screen.queryByRole('header', { name: /Done/ })).toBeNull();
+  });
+});
+
+/*
+ * This screen stopped being a tab and became a pushed stack route, under a
+ * `Stack` with `headerShown: false` — so it covers the tab bar. It shipped for
+ * an afternoon with no back bar, no header and no tab bar: the only way off was
+ * the iOS edge-swipe, on a screen that is a scroll view full of pressable rows.
+ * And `ChoreEditor` closes with `router.replace('/chores')` when it has no
+ * history, which leaves no swipe target either — a cold start into a chore,
+ * then Cancel, and the app was stuck until it was killed.
+ *
+ * Every one of the suites here was green throughout, because none of them asks
+ * whether there is a way off the screen.
+ */
+describe('getting back off it', () => {
+  beforeEach(() => {
+    mockBack.mockClear();
+    mockReplace.mockClear();
+    mockCanGoBack = true;
+    mockLoading = false;
+    mockError = null;
+  });
+
+  it('has a back control at all', () => {
+    renderScreen();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
+  });
+
+  it('goes back when there is somewhere to go back to', () => {
+    renderScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+
+    expect(mockBack).toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The states that had no exit at all, which is the same stuck screen one
+   * query error away: `ChoreEditor` closes with `router.replace('/chores')`
+   * when it has no history, so a cold start into a chore plus a failed fetch
+   * left nothing to tap and nothing to swipe to.
+   */
+  it('keeps the back control while the chores are loading', () => {
+    mockLoading = true;
+    renderScreen();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('keeps the back control when the chores fail to load', () => {
+    mockError = new Error('offline');
+    renderScreen();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+    expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('falls through to House on a cold start, where `back` would do nothing', () => {
+    mockCanGoBack = false;
+    renderScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+
+    expect(mockReplace).toHaveBeenCalledWith('/house');
   });
 });
