@@ -156,7 +156,35 @@ export function PlanPicker({
   };
 
   return (
-    <Sheet visible={open} onClose={close} title="Add to today">
+    <Sheet
+      visible={open}
+      onClose={close}
+      title="Add to today"
+      /*
+        Pinned, like the other sheets.
+      
+        The count is on the button, not above it: you are about to commit to a
+        number of things, and that number is the whole decision — reading it
+        off a heading somewhere else is one glance too many.
+      
+        It sat at the bottom of the body until the sheet learned to scroll, at
+        which point one Dynamic Type notch would have pushed it off the end of
+        a scroll you cannot reach by dragging the list — RN does not chain a
+        pan from an inner scroll view to its parent, and the list has its own.
+      */
+      footer={
+        <Button
+          label={
+            chosenItems.length === 0 ? 'Nothing selected' : `Add ${chosenItems.length} to today`
+          }
+          disabled={chosenItems.length === 0}
+          onPress={() => {
+            onAdd(chosenItems);
+            close();
+          }}
+        />
+      }
+    >
       {groups.length === 0 ? null : (
         <Field
           label=""
@@ -216,6 +244,10 @@ export function PlanPicker({
         </View>
       ) : (
         <ScrollView
+          // Named, because the sheet around this one grew a scroll view of its
+          // own when it was capped — and a test reaching for "the ScrollView"
+          // then found the wrong one.
+          testID="plan-picker-list"
           style={{ maxHeight: listMaxHeight }}
           contentContainerStyle={{ gap: space.md }}
           /*
@@ -332,24 +364,6 @@ export function PlanPicker({
           ))}
         </ScrollView>
       )}
-
-      {/*
-        The count is on the button, not above it. You are about to commit to a
-        number of things, and that number is the whole decision — reading it off
-        a heading somewhere else is one glance too many.
-      */}
-      <View style={{ paddingTop: space.md }}>
-        <Button
-          label={
-            chosenItems.length === 0 ? 'Nothing selected' : `Add ${chosenItems.length} to today`
-          }
-          disabled={chosenItems.length === 0}
-          onPress={() => {
-            onAdd(chosenItems);
-            close();
-          }}
-        />
-      </View>
     </Sheet>
   );
 }
