@@ -214,17 +214,34 @@ export function Sheet({ visible, onClose, title, subtitle, children, footer }: P
                   maxHeight: sheetCap * MAX_FOOTER_FRACTION,
                   borderTopWidth: 1,
                   borderTopColor: colors.rule,
-                  // So a tall header and a tall footer cannot between them push
-                  // past the cap and take the backdrop with them. The body
-                  // shrinks first; this is what stops it being the only thing
-                  // that can.
-                  flexShrink: 1,
+                  /*
+                   * Deliberately **not** `flexShrink: 1`.
+                   *
+                   * With both the body and the footer able to shrink, flexbox
+                   * takes from each in proportion — so the footer scrolled too,
+                   * and its last row sat clipped against the bottom of the
+                   * screen looking broken. The body is what should give way:
+                   * it is the part you scroll, and the actions are the part
+                   * that must stay whole.
+                   *
+                   * The cap above is what stops a long action list eating the
+                   * sheet, which is the job `flexShrink` was reached for.
+                   */
                 }}
               >
                 <ScrollView
                   contentContainerStyle={{
                     paddingHorizontal: space.lg,
-                    paddingBottom: space.lg,
+                    /*
+                     * Clear of the home indicator, which draws over the app
+                     * whatever the sheet thinks its bounds are. The
+                     * `SafeAreaView` inset is not reliable here — inside a
+                     * `Modal` the provider's measurements do not always reach
+                     * the subtree — and the last row of the footer landing
+                     * under the bar reads as a clipped sheet rather than as a
+                     * scroll that has more below it.
+                     */
+                    paddingBottom: space.xxl,
                     paddingTop: space.sm,
                     gap: 2,
                   }}
