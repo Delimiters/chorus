@@ -9,7 +9,7 @@
  */
 
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Keyboard, ScrollView } from 'react-native';
+import { Keyboard } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { AgendaItem } from '@/core/occurrence/agenda';
@@ -170,7 +170,9 @@ describe('the keyboard', () => {
    * can pin is the two decisions, both of which are one prop each and both of
    * which were silently absent.
    */
-  const listOf = () => screen.UNSAFE_getByType(ScrollView);
+  // By id, not by type: the `Sheet` around this picker has its own scroll view
+  // since it was capped, and `UNSAFE_getByType(ScrollView)` found that one.
+  const listOf = () => screen.getByTestId('plan-picker-list');
 
   it('lets a tap through instead of only dismissing itself', () => {
     // Without this the first tap on a row is eaten dismissing the keyboard and

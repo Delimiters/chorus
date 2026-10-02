@@ -216,6 +216,10 @@ export function PlanPicker({
         </View>
       ) : (
         <ScrollView
+          // Named, because the sheet around this one grew a scroll view of its
+          // own when it was capped — and a test reaching for "the ScrollView"
+          // then found the wrong one.
+          testID="plan-picker-list"
           style={{ maxHeight: listMaxHeight }}
           contentContainerStyle={{ gap: space.md }}
           /*

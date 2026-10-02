@@ -11,9 +11,31 @@
  * The backdrop is a real button, not a bare `Pressable` with no label: dismissal
  * has to be reachable without sight of the screen, and a modal you can only
  * leave by aiming at empty space is a trap.
+ *
+ * ── Why the height is capped ──────────────────────────────────────────────
+ *
+ * That backdrop is a `flex: 1` sibling above a bottom-anchored sheet, so a tall
+ * sheet squeezes it to **nothing** — and the way out goes with it. Jake, on a
+ * chore with a lot of subtasks: *"it took up the whole screen and was too big
+ * for it and I couldn't back out of it without either closing the app or
+ * picking one of the options that actually showed up on the screen."* The
+ * actions had been pushed off the bottom and the backdrop off the top.
+ *
+ * So the sheet is capped, its body scrolls, and anything the caller passes as
+ * `footer` stays pinned below the scroll. The cap is what guarantees there is
+ * always backdrop left to tap, which makes it a correctness rule rather than a
+ * matter of taste — do not remove it to let one more row fit.
  */
 
-import { KeyboardAvoidingView, Modal, Platform, Pressable, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Txt } from './components';
@@ -27,10 +49,39 @@ interface Props {
   /** A quiet line under the title — what this sheet is about. */
   subtitle?: string | undefined;
   children: React.ReactNode;
+  /**
+   * Rows that stay put while the body scrolls.
+   *
+   * For the actions, when a sheet has enough content to need scrolling at all.
+   * Jake's suggestion, and the right one: *"maybe the buttons sit at the bottom
+   * statically and you can scroll the preview area with the subtasks."* What
+   * you came to the sheet to **do** should not be the thing that scrolls away.
+   */
+  footer?: React.ReactNode;
 }
 
-export function Sheet({ visible, onClose, title, subtitle, children }: Props) {
+/**
+ * How much of the screen a sheet may take.
+ *
+ * The remainder is backdrop, and the backdrop is the way out — so this is the
+ * number that decides whether the sheet can be dismissed at all. On an iPhone
+ * 16 Pro that leaves about 120pt of it, which is a comfortable target rather
+ * than a sliver to aim at.
+ */
+const MAX_SHEET_FRACTION = 0.86;
+
+/**
+ * How much of the sheet the pinned footer may take.
+ *
+ * The rest belongs to the body. Without this the actions grew to whatever they
+ * wanted and the preview — the reason the sheet was opened — got whatever was
+ * left, which on a chore with eighteen steps was five rows.
+ */
+const MAX_FOOTER_FRACTION = 0.55;
+
+export function Sheet({ visible, onClose, title, subtitle, children, footer }: Props) {
   const { colors } = useTheme();
+  const { height } = useWindowDimensions();
 
   return (
     <Modal
@@ -61,16 +112,21 @@ export function Sheet({ visible, onClose, title, subtitle, children }: Props) {
           style={{ flex: 1 }}
         />
 
-        <SafeAreaView edges={['bottom']} style={{ backgroundColor: colors.surface }}>
+        <SafeAreaView
+          edges={['bottom']}
+          style={{ backgroundColor: colors.surface, maxHeight: height * MAX_SHEET_FRACTION }}
+        >
           <View
             style={{
               borderTopLeftRadius: radius.lg,
               borderTopRightRadius: radius.lg,
               backgroundColor: colors.surface,
-              paddingHorizontal: space.lg,
               paddingTop: space.md,
-              paddingBottom: space.lg,
               gap: space.md,
+              // `flexShrink`, so the cap above actually bites: without it this
+              // view keeps its content's full height and overflows the parent
+              // rather than letting the scroll view inside do its job.
+              flexShrink: 1,
             }}
           >
             {/* The grabber is decoration; it is not the way out, so it is hidden
@@ -87,7 +143,7 @@ export function Sheet({ visible, onClose, title, subtitle, children }: Props) {
               }}
             />
 
-            <View style={{ gap: 2 }}>
+            <View style={{ gap: 2, paddingHorizontal: space.lg }}>
               <Txt variant="bodyStrong" accessibilityRole="header">
                 {title}
               </Txt>
@@ -98,7 +154,58 @@ export function Sheet({ visible, onClose, title, subtitle, children }: Props) {
               )}
             </View>
 
-            {children}
+            {/*
+              The body scrolls; the title above and the footer below do not.
+
+              `flexShrink` again rather than `flex: 1`: a short sheet should be
+              as tall as its content, not stretched to the cap, so the scroll
+              view only takes over once there is more than fits.
+            */}
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{
+                paddingHorizontal: space.lg,
+                paddingBottom: footer === undefined ? space.lg : space.md,
+                gap: space.md,
+              }}
+              keyboardShouldPersistTaps="handled"
+            >
+              {children}
+            </ScrollView>
+
+            {footer === undefined ? null : (
+              /*
+                Pinned, but not unbounded.
+              
+                The occurrence sheet has seven actions, each with a hint, and
+                letting them take whatever they wanted left five subtask rows
+                visible above them — the preview Jake opened the sheet to read,
+                squeezed to nothing by the thing meant to stay put for him. So
+                the footer gets at most this much and scrolls within it, which
+                means the common case (a few actions, no scrolling anywhere) is
+                unchanged and the pathological one degrades into two halves
+                rather than one half and a sliver.
+              */
+              <View
+                style={{
+                  maxHeight: height * MAX_SHEET_FRACTION * MAX_FOOTER_FRACTION,
+                  borderTopWidth: 1,
+                  borderTopColor: colors.rule,
+                }}
+              >
+                <ScrollView
+                  contentContainerStyle={{
+                    paddingHorizontal: space.lg,
+                    paddingBottom: space.lg,
+                    paddingTop: space.sm,
+                    gap: 2,
+                  }}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {footer}
+                </ScrollView>
+              </View>
+            )}
           </View>
         </SafeAreaView>
       </KeyboardAvoidingView>

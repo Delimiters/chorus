@@ -174,6 +174,175 @@ export function OccurrenceSheet({
 
   const ticked = tickedSubtasks ?? EMPTY_TICKS;
 
+  /*
+   * The actions, lifted out so they can be pinned below the scroll.
+   *
+   * Jake, on a chore with a lot of subtasks: *"it took up the whole screen
+   * and was too big for it and I couldn't back out of it without either
+   * closing the app or picking one of the options that actually showed up on
+   * the screen."* The detail pushed these off the bottom and the backdrop off
+   * the top, so neither the way out nor most of the way forward was reachable.
+   *
+   * What you opened the sheet to *do* is the part that must not scroll away.
+   */
+  const actions = moving ? (
+    <View style={{ gap: space.md }}>
+      <FieldGroup label="Move it to">
+        <DateField
+          value={movedTo}
+          onChange={setMovedTo}
+          today={today}
+          label="New date"
+          weekStartsOn={weekStartsOn}
+        />
+      </FieldGroup>
+      <SheetAction
+        label={`Move to ${formatDayShort(movedTo)}`}
+        hint="Only this one. Whose turn it is does not change."
+        onPress={() => {
+          onReschedule(item, movedTo);
+          close();
+        }}
+      />
+      <SheetAction label="Back" onPress={() => setMoving(false)} />
+    </View>
+  ) : (
+    <View style={{ gap: 2 }}>
+      {/*
+            Whose turn, as a row of names rather than a menu.
+            
+            One tap is the whole request, so anything that opens a picker and
+            then asks you to confirm has already lost. The names sit above the
+            verbs because this one says what the chore *is* — the rest of the
+            sheet does things to it.
+
+            "Rotation" is the way back rather than a separate "clear" action:
+            the override is a deviation, and removing it is not an undo so much
+            as choosing the original answer again.
+          */}
+      {onSetTurn === undefined || turnMembers.length < 2 ? null : (
+        <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm, gap: space.xs }}>
+          <Txt variant="label" tone="faint">
+            WHOSE TURN
+          </Txt>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
+            {turnMembers.map((member) => (
+              <TurnChip
+                key={member.userId}
+                label={member.displayName}
+                selected={currentTurnUserId === member.userId}
+                onPress={() => onSetTurn(member.userId)}
+              />
+            ))}
+            {/*
+                  An action, not a fourth name, and only when there is
+                  something to undo. Showing it beside the names with nothing
+                  overridden would ask "rotation or Sam?" — which are not
+                  alternatives, since the rotation's answer *is* somebody.
+                */}
+            {hasTurnOverride ? (
+              <TurnChip label="Back to rotation" selected={false} onPress={() => onSetTurn(null)} />
+            ) : null}
+          </View>
+        </View>
+      )}
+
+      {onToggleFlag === undefined ? null : (
+        <SheetAction
+          label={flagged ? 'Unflag it' : 'Flag it'}
+          hint={
+            flagged
+              ? 'It will stop standing out.'
+              : 'Pins it to the top until it is done or either of you unflags it. Both of you can see it.'
+          }
+          onPress={() => {
+            onToggleFlag(item.choreId);
+            close();
+          }}
+        />
+      )}
+
+      <SheetAction
+        label={done ? 'Mark as not done' : 'Mark as done'}
+        onPress={() => {
+          onToggleComplete(item);
+          close();
+        }}
+      />
+
+      {/* Turning a chore into something you actually do at a time of day.
+              Already-linked reads differently rather than offering a second
+              link, which the partial unique index would refuse anyway. */}
+      {onAddToRoutine === undefined ? null : (
+        <SheetAction
+          label={inRoutine === true ? 'In your routine' : 'Add to my routine'}
+          hint={
+            inRoutine === true
+              ? 'Open it to change when in the day it sits.'
+              : 'Ticking it there will also tick this chore.'
+          }
+          onPress={() => {
+            onAddToRoutine(item);
+            close();
+          }}
+        />
+      )}
+
+      {!canSchedule ? null : skipped || item.rescheduled ? (
+        <SheetAction
+          label={skipped ? 'Un-skip it' : 'Put it back'}
+          hint={
+            skipped
+              ? 'It counts again.'
+              : `Back to ${item.originalDueOn === null ? 'its original date' : formatDayShort(item.originalDueOn)}.`
+          }
+          onPress={() => {
+            onClearException(item);
+            close();
+          }}
+        />
+      ) : (
+        <>
+          <SheetAction
+            label="Move it"
+            hint="Just this one, to another day."
+            onPress={() => {
+              setMovedTo(addDays(today, 1));
+              setMoving(true);
+            }}
+          />
+          <SheetAction
+            label="Skip it"
+            hint="This one doesn't count. The next one comes as scheduled."
+            onPress={() => {
+              onSkip(item);
+              close();
+            }}
+          />
+        </>
+      )}
+
+      <View style={{ paddingTop: space.sm }}>
+        <SheetAction
+          label="Edit the chore"
+          hint="Changes every time it comes round, not just this one."
+          onPress={() => {
+            close();
+            onEditChore(item.choreId);
+          }}
+        />
+      </View>
+
+      {item.missedBefore > 0 ? (
+        <Txt variant="small" tone="faint" style={{ paddingHorizontal: space.md, paddingTop: 4 }}>
+          {item.missedBefore === 1
+            ? 'The last one was missed.'
+            : `The last ${item.missedBefore} were missed.`}
+        </Txt>
+      ) : null}
+    </View>
+  );
+
   return (
     <Sheet
       visible
@@ -184,6 +353,7 @@ export function OccurrenceSheet({
           ? `Moved to ${formatDayShort(item.dueOn)}, from ${formatDayShort(item.originalDueOn)}`
           : `Due ${formatDayShort(item.dueOn)}`
       }
+      footer={actions}
     >
       {error === null ? null : (
         <View style={{ paddingHorizontal: space.md, paddingBottom: space.xs }}>
@@ -203,172 +373,6 @@ export function OccurrenceSheet({
           scheduleLabel={scheduleLabel}
           turnLabel={turnLabel}
         />
-      )}
-
-      {moving ? (
-        <View style={{ gap: space.md }}>
-          <FieldGroup label="Move it to">
-            <DateField
-              value={movedTo}
-              onChange={setMovedTo}
-              today={today}
-              label="New date"
-              weekStartsOn={weekStartsOn}
-            />
-          </FieldGroup>
-          <SheetAction
-            label={`Move to ${formatDayShort(movedTo)}`}
-            hint="Only this one. Whose turn it is does not change."
-            onPress={() => {
-              onReschedule(item, movedTo);
-              close();
-            }}
-          />
-          <SheetAction label="Back" onPress={() => setMoving(false)} />
-        </View>
-      ) : (
-        <View style={{ gap: 2 }}>
-          {/*
-            Whose turn, as a row of names rather than a menu.
-            
-            One tap is the whole request, so anything that opens a picker and
-            then asks you to confirm has already lost. The names sit above the
-            verbs because this one says what the chore *is* — the rest of the
-            sheet does things to it.
-
-            "Rotation" is the way back rather than a separate "clear" action:
-            the override is a deviation, and removing it is not an undo so much
-            as choosing the original answer again.
-          */}
-          {onSetTurn === undefined || turnMembers.length < 2 ? null : (
-            <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm, gap: space.xs }}>
-              <Txt variant="label" tone="faint">
-                WHOSE TURN
-              </Txt>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-                {turnMembers.map((member) => (
-                  <TurnChip
-                    key={member.userId}
-                    label={member.displayName}
-                    selected={currentTurnUserId === member.userId}
-                    onPress={() => onSetTurn(member.userId)}
-                  />
-                ))}
-                {/*
-                  An action, not a fourth name, and only when there is
-                  something to undo. Showing it beside the names with nothing
-                  overridden would ask "rotation or Sam?" — which are not
-                  alternatives, since the rotation's answer *is* somebody.
-                */}
-                {hasTurnOverride ? (
-                  <TurnChip
-                    label="Back to rotation"
-                    selected={false}
-                    onPress={() => onSetTurn(null)}
-                  />
-                ) : null}
-              </View>
-            </View>
-          )}
-
-          {onToggleFlag === undefined ? null : (
-            <SheetAction
-              label={flagged ? 'Unflag it' : 'Flag it'}
-              hint={
-                flagged
-                  ? 'It will stop standing out.'
-                  : 'Pins it to the top until it is done or either of you unflags it. Both of you can see it.'
-              }
-              onPress={() => {
-                onToggleFlag(item.choreId);
-                close();
-              }}
-            />
-          )}
-
-          <SheetAction
-            label={done ? 'Mark as not done' : 'Mark as done'}
-            onPress={() => {
-              onToggleComplete(item);
-              close();
-            }}
-          />
-
-          {/* Turning a chore into something you actually do at a time of day.
-              Already-linked reads differently rather than offering a second
-              link, which the partial unique index would refuse anyway. */}
-          {onAddToRoutine === undefined ? null : (
-            <SheetAction
-              label={inRoutine === true ? 'In your routine' : 'Add to my routine'}
-              hint={
-                inRoutine === true
-                  ? 'Open it to change when in the day it sits.'
-                  : 'Ticking it there will also tick this chore.'
-              }
-              onPress={() => {
-                onAddToRoutine(item);
-                close();
-              }}
-            />
-          )}
-
-          {!canSchedule ? null : skipped || item.rescheduled ? (
-            <SheetAction
-              label={skipped ? 'Un-skip it' : 'Put it back'}
-              hint={
-                skipped
-                  ? 'It counts again.'
-                  : `Back to ${item.originalDueOn === null ? 'its original date' : formatDayShort(item.originalDueOn)}.`
-              }
-              onPress={() => {
-                onClearException(item);
-                close();
-              }}
-            />
-          ) : (
-            <>
-              <SheetAction
-                label="Move it"
-                hint="Just this one, to another day."
-                onPress={() => {
-                  setMovedTo(addDays(today, 1));
-                  setMoving(true);
-                }}
-              />
-              <SheetAction
-                label="Skip it"
-                hint="This one doesn't count. The next one comes as scheduled."
-                onPress={() => {
-                  onSkip(item);
-                  close();
-                }}
-              />
-            </>
-          )}
-
-          <View style={{ paddingTop: space.sm }}>
-            <SheetAction
-              label="Edit the chore"
-              hint="Changes every time it comes round, not just this one."
-              onPress={() => {
-                close();
-                onEditChore(item.choreId);
-              }}
-            />
-          </View>
-
-          {item.missedBefore > 0 ? (
-            <Txt
-              variant="small"
-              tone="faint"
-              style={{ paddingHorizontal: space.md, paddingTop: 4 }}
-            >
-              {item.missedBefore === 1
-                ? 'The last one was missed.'
-                : `The last ${item.missedBefore} were missed.`}
-            </Txt>
-          ) : null}
-        </View>
       )}
     </Sheet>
   );

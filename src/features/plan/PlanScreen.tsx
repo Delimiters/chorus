@@ -830,6 +830,130 @@ export function PlanScreen({
       />
     );
 
+  /*
+   * Pinned below the scroll, like Today's sheet.
+   *
+   * A chore with a lot of steps pushed these off the bottom of the screen
+   * and the backdrop off the top, which left no way out of the sheet at all.
+   * See `design/Sheet.tsx` for the mechanism.
+   */
+  const removeActions = (
+    <View style={{ gap: 2 }}>
+      <SheetAction
+        label="Take off today"
+        hint="It goes back to the list with its date and lateness unchanged. Nothing is skipped or completed."
+        onPress={() => {
+          if (removing !== null) {
+            remove.mutate({
+              occurrenceKey: removing.item.occurrenceKey,
+              ownerId: removing.ownerId,
+              // So the notification can name the chore: a dismissal is
+              // keyed by occurrence, and that key is a string the database
+              // cannot parse back into a chore.
+              choreId: removing.item.choreId,
+            });
+          }
+          setRemoving(null);
+        }}
+      />
+      {/*
+              Below "Take off today", not above it.
+            
+              This sheet's own reasoning is that on the plan the question is
+              almost always *not today*, so that is the reflex tap. Putting the
+              rarer action first means the muscle memory that used to clear a row
+              flags it instead.
+
+              Flagging from here moves the row to the top of its list, rather
+              than sorting flagged work above everything and holding it there.
+            
+              Jake asked for exactly that distinction: *"Cells with !! should go
+              to the top automatically... That can just be their default
+              position, and if you add it to one from the plan it should jump to
+              the top (but allow you to move it afterwards if needed)."* A sort
+              rule would win over every later drag, so the flag would quietly
+              take the ordering away from you. A written position is a starting
+              point you can then argue with.
+
+              Today sorts rather than writes, and that is right there: nothing on
+              that screen is hand-ordered, so there is no order to overrule.
+
+              Unflagging leaves the position alone. Where it sits is now a
+              decision you have made, and undoing the flag is not a request to
+              undo that too.
+
+              A flag belongs to the household, raising and lowering alike, so
+              there are two states rather than four and the button means what it
+              says. It used to be personal, which meant "Unflag it" could
+              visibly do nothing while your housemate's flag held the row up.
+            */}
+      <SheetAction
+        label={isFlagged ? 'Unflag it' : 'Flag it'}
+        hint={
+          isFlagged
+            ? 'It drops back in with the rest of the day, for both of you.'
+            : 'Marks it "!!" and lifts it to the top of the day, for both of you. It stays until it is done or either of you unflags it.'
+        }
+        onPress={() => {
+          if (removing !== null) {
+            toggleFlag.mutate(removing.item.choreId);
+
+            /*
+             * When you are adding your flag and the row is not already the
+             * top of the day.
+             *
+             * Keyed on *where the row is*, not on whether somebody else
+             * has also flagged it. Gating on `theirsToo` looked right — a
+             * row they had flagged is already lifted, so why write? —
+             * and quietly broke the promise the position exists to keep:
+             * flagging from Today writes no position at all, so a row your
+             * housemate flagged there sits mid-day underneath its lift.
+             * Skip the write and, once both flags lapse, it drops back into
+             * the middle rather than staying where the flag had put it.
+             *
+             * The drift that gate was added to stop is real but harmless:
+             * `stored` includes this row's own position, so a second write
+             * makes it the minimum again — the number falls, nothing moves.
+             * Comparing against the minimum stops the write instead.
+             *
+             * Above everything stored for that day, not just above the
+             * draggable part: finished rows keep their positions while
+             * they sit below the list, so "the smallest of what is
+             * showing" can tie with something already done.
+             *
+             * It is also what survives the flag being lifted: the row
+             * drops back among the rest wherever this put it, rather than
+             * springing back to where it was a week ago.
+             */
+            if (!isFlagged) {
+              const day = removing.ownerId === myOwnerId ? mySections : theirSections;
+              const stored = day.all.map((p) => p.position);
+              const here = day.all.find(
+                (p) => p.item.occurrenceKey === removing.item.occurrenceKey,
+              )?.position;
+              if (stored.length > 0 && here !== Math.min(...stored)) {
+                reorderPlan.mutate(
+                  removing.item.occurrenceKey,
+                  Math.min(...stored) - 1,
+                  removing.ownerId,
+                );
+              }
+            }
+          }
+          setRemoving(null);
+        }}
+      />
+
+      <SheetAction
+        label="Edit the chore"
+        onPress={() => {
+          const choreId = removing?.item.choreId;
+          setRemoving(null);
+          if (choreId !== undefined) router.push(`/chore/${choreId}`);
+        }}
+      />
+    </View>
+  );
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <ScrollView
@@ -1164,6 +1288,7 @@ export function PlanScreen({
         onClose={() => setRemoving(null)}
         title={removing?.item.choreTitle ?? ''}
         subtitle="On today's plan"
+        footer={removeActions}
       >
         {/*
           The same mini-chore block Today's sheet grew, for the same reason:
@@ -1212,121 +1337,6 @@ export function PlanScreen({
             }
           />
         )}
-        <View style={{ gap: 2 }}>
-          <SheetAction
-            label="Take off today"
-            hint="It goes back to the list with its date and lateness unchanged. Nothing is skipped or completed."
-            onPress={() => {
-              if (removing !== null) {
-                remove.mutate({
-                  occurrenceKey: removing.item.occurrenceKey,
-                  ownerId: removing.ownerId,
-                  // So the notification can name the chore: a dismissal is
-                  // keyed by occurrence, and that key is a string the database
-                  // cannot parse back into a chore.
-                  choreId: removing.item.choreId,
-                });
-              }
-              setRemoving(null);
-            }}
-          />
-          {/*
-            Below "Take off today", not above it.
-            
-            This sheet's own reasoning is that on the plan the question is
-            almost always *not today*, so that is the reflex tap. Putting the
-            rarer action first means the muscle memory that used to clear a row
-            flags it instead.
-
-            Flagging from here moves the row to the top of its list, rather
-            than sorting flagged work above everything and holding it there.
-            
-            Jake asked for exactly that distinction: *"Cells with !! should go
-            to the top automatically... That can just be their default
-            position, and if you add it to one from the plan it should jump to
-            the top (but allow you to move it afterwards if needed)."* A sort
-            rule would win over every later drag, so the flag would quietly
-            take the ordering away from you. A written position is a starting
-            point you can then argue with.
-
-            Today sorts rather than writes, and that is right there: nothing on
-            that screen is hand-ordered, so there is no order to overrule.
-
-            Unflagging leaves the position alone. Where it sits is now a
-            decision you have made, and undoing the flag is not a request to
-            undo that too.
-
-            A flag belongs to the household, raising and lowering alike, so
-            there are two states rather than four and the button means what it
-            says. It used to be personal, which meant "Unflag it" could
-            visibly do nothing while your housemate's flag held the row up.
-          */}
-          <SheetAction
-            label={isFlagged ? 'Unflag it' : 'Flag it'}
-            hint={
-              isFlagged
-                ? 'It drops back in with the rest of the day, for both of you.'
-                : 'Marks it "!!" and lifts it to the top of the day, for both of you. It stays until it is done or either of you unflags it.'
-            }
-            onPress={() => {
-              if (removing !== null) {
-                toggleFlag.mutate(removing.item.choreId);
-
-                /*
-                 * When you are adding your flag and the row is not already the
-                 * top of the day.
-                 *
-                 * Keyed on *where the row is*, not on whether somebody else
-                 * has also flagged it. Gating on `theirsToo` looked right — a
-                 * row they had flagged is already lifted, so why write? —
-                 * and quietly broke the promise the position exists to keep:
-                 * flagging from Today writes no position at all, so a row your
-                 * housemate flagged there sits mid-day underneath its lift.
-                 * Skip the write and, once both flags lapse, it drops back into
-                 * the middle rather than staying where the flag had put it.
-                 *
-                 * The drift that gate was added to stop is real but harmless:
-                 * `stored` includes this row's own position, so a second write
-                 * makes it the minimum again — the number falls, nothing moves.
-                 * Comparing against the minimum stops the write instead.
-                 *
-                 * Above everything stored for that day, not just above the
-                 * draggable part: finished rows keep their positions while
-                 * they sit below the list, so "the smallest of what is
-                 * showing" can tie with something already done.
-                 *
-                 * It is also what survives the flag being lifted: the row
-                 * drops back among the rest wherever this put it, rather than
-                 * springing back to where it was a week ago.
-                 */
-                if (!isFlagged) {
-                  const day = removing.ownerId === myOwnerId ? mySections : theirSections;
-                  const stored = day.all.map((p) => p.position);
-                  const here = day.all.find(
-                    (p) => p.item.occurrenceKey === removing.item.occurrenceKey,
-                  )?.position;
-                  if (stored.length > 0 && here !== Math.min(...stored)) {
-                    reorderPlan.mutate(
-                      removing.item.occurrenceKey,
-                      Math.min(...stored) - 1,
-                      removing.ownerId,
-                    );
-                  }
-                }
-              }
-              setRemoving(null);
-            }}
-          />
-
-          <SheetAction
-            label="Edit the chore"
-            onPress={() => {
-              const choreId = removing?.item.choreId;
-              setRemoving(null);
-              if (choreId !== undefined) router.push(`/chore/${choreId}`);
-            }}
-          />
-        </View>
       </Sheet>
 
       {/*
