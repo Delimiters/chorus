@@ -17,8 +17,8 @@
  * is a scroll view, the footer sits outside it, and the labelled way out exists
  * no matter how much goes in.
  */
-import { fireEvent, render, screen } from '@testing-library/react-native';
-import { ScrollView, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { Keyboard, ScrollView, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Sheet, SheetAction } from './Sheet';
 import { ThemeProvider } from './theme';
@@ -94,6 +94,19 @@ describe('a sheet with more in it than fits', () => {
 
     expect(capped.length).toBeGreaterThan(0);
     expect(maxHeightOf(capped[0] as Node)).toBeLessThan(WINDOW_HEIGHT * 0.9);
+
+    /*
+     * A shape assertion rather than a behavioural one, and deliberately so.
+     *
+     * React Native defaults `flexShrink` to **0**, unlike CSS — so without this
+     * the sheet keeps its content's height inside a container that has become
+     * smaller than the cap (the keyboard case) and the backdrop absorbs the
+     * whole loss. jest-expo runs no layout engine, so nothing here can observe
+     * the consequence; pinning the property is the most this suite can do, and
+     * it is worth doing because the default is the trap.
+     */
+    const style = (capped[0] as Node).props.style as { flexShrink?: number };
+    expect(style.flexShrink).toBe(1);
   });
 
   it('can still be dismissed, which is the whole bug', () => {
@@ -140,5 +153,50 @@ describe('the pinned footer', () => {
     renderSheet();
 
     expect(screen.queryByText('Mark it done')).toBeNull();
+  });
+});
+
+/*
+ * The keyboard, which is the case the first version of the cap got wrong.
+ *
+ * `KeyboardAvoidingView` shrinks the container the sheet lives in, but a
+ * `maxHeight` measured against the whole window does not notice — it keeps that
+ * height inside the smaller container and overflows it, taking the backdrop
+ * with it. `useKeyboardHeight`'s docblock says exactly this, about exactly this
+ * mistake, and the cap was written without it.
+ */
+describe('with the keyboard up', () => {
+  const capsOf = () => {
+    const found = screen.UNSAFE_root.findAll((node: Node) => {
+      const style = node.props.style as { maxHeight?: number } | undefined;
+      return typeof style?.maxHeight === 'number';
+    });
+    return found.map((node: Node) => (node.props.style as { maxHeight: number }).maxHeight);
+  };
+
+  it('measures the cap against what is left of the screen, not the whole of it', () => {
+    const listeners = new Map<string, (payload: unknown) => void>();
+    const spy = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+      event: string,
+      handler: (payload: unknown) => void,
+    ) => {
+      listeners.set(event, handler);
+      return { remove: () => listeners.delete(event) };
+    }) as never);
+
+    renderSheet();
+    const before = capsOf()[0] as number;
+
+    act(() => {
+      listeners.get('keyboardWillShow')?.({ endCoordinates: { height: 336 } });
+    });
+
+    const after = capsOf()[0] as number;
+    expect(after).toBeLessThan(before);
+    // And by the keyboard's share of it, not some arbitrary amount — the
+    // backdrop's existence is the thing this arithmetic is protecting.
+    expect(before - after).toBeCloseTo(336 * 0.86, 1);
+
+    spy.mockRestore();
   });
 });

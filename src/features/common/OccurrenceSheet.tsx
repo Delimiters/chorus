@@ -185,17 +185,29 @@ export function OccurrenceSheet({
    *
    * What you opened the sheet to *do* is the part that must not scroll away.
    */
+  /*
+   * The calendar scrolls; its two buttons do not.
+   *
+   * The whole move form was the footer at first, which is capped at a little
+   * over half the sheet — so expanding the date picker pushed "Move to …" and
+   * "Back" below the fold with no cue, while a third of the sheet's allowed
+   * height sat unused above them. Exactly the "actions off the bottom" the
+   * cap exists to prevent, two taps from Today.
+   */
+  const movePicker = (
+    <FieldGroup label="Move it to">
+      <DateField
+        value={movedTo}
+        onChange={setMovedTo}
+        today={today}
+        label="New date"
+        weekStartsOn={weekStartsOn}
+      />
+    </FieldGroup>
+  );
+
   const actions = moving ? (
-    <View style={{ gap: space.md }}>
-      <FieldGroup label="Move it to">
-        <DateField
-          value={movedTo}
-          onChange={setMovedTo}
-          today={today}
-          label="New date"
-          weekStartsOn={weekStartsOn}
-        />
-      </FieldGroup>
+    <View style={{ gap: 2 }}>
       <SheetAction
         label={`Move to ${formatDayShort(movedTo)}`}
         hint="Only this one. Whose turn it is does not change."
@@ -362,6 +374,8 @@ export function OccurrenceSheet({
           </Txt>
         </View>
       )}
+
+      {moving ? movePicker : null}
 
       {moving ? null : (
         <ChoreDetail

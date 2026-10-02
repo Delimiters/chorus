@@ -25,6 +25,14 @@
  * `footer` stays pinned below the scroll. The cap is what guarantees there is
  * always backdrop left to tap, which makes it a correctness rule rather than a
  * matter of taste — do not remove it to let one more row fit.
+ *
+ * The cap is measured against the screen **minus the keyboard**, which is not
+ * the same as the screen. `useKeyboardHeight`'s own docblock says why, and it
+ * says it about this exact mistake: *"a child with a fixed `maxHeight` keeps
+ * that height inside the smaller container and simply overflows it."* The first
+ * version capped against the full window, so with the keyboard up the picker
+ * sheet came back to within a few points of filling its container and the
+ * backdrop went with it — the original bug, one text size from returning.
  */
 
 import {
@@ -40,6 +48,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Txt } from './components';
 import { useTheme } from './theme';
+import { useKeyboardHeight } from './useKeyboardHeight';
 import { radius, space } from './tokens';
 
 interface Props {
@@ -65,8 +74,8 @@ interface Props {
  *
  * The remainder is backdrop, and the backdrop is the way out — so this is the
  * number that decides whether the sheet can be dismissed at all. On an iPhone
- * 16 Pro that leaves about 120pt of it, which is a comfortable target rather
- * than a sliver to aim at.
+ * 16 Pro that leaves about 118pt, roughly half of which is clear of the status
+ * bar — well past the project's 44pt floor rather than a sliver to aim at.
  */
 const MAX_SHEET_FRACTION = 0.86;
 
@@ -82,6 +91,13 @@ const MAX_FOOTER_FRACTION = 0.55;
 export function Sheet({ visible, onClose, title, subtitle, children, footer }: Props) {
   const { colors } = useTheme();
   const { height } = useWindowDimensions();
+  const keyboard = useKeyboardHeight();
+
+  // What the sheet is actually laid out in: the screen less whatever the
+  // keyboard is covering, because `KeyboardAvoidingView` shrinks the container
+  // and a `maxHeight` measured against the whole window would not notice.
+  const available = height - keyboard;
+  const sheetCap = available * MAX_SHEET_FRACTION;
 
   return (
     <Modal
@@ -114,7 +130,14 @@ export function Sheet({ visible, onClose, title, subtitle, children, footer }: P
 
         <SafeAreaView
           edges={['bottom']}
-          style={{ backgroundColor: colors.surface, maxHeight: height * MAX_SHEET_FRACTION }}
+          style={{
+            backgroundColor: colors.surface,
+            maxHeight: sheetCap,
+            // Not RN's default of 0: without this the sheet keeps its content's
+            // height inside a container that has become smaller than the cap —
+            // the keyboard case — and the backdrop absorbs the whole loss.
+            flexShrink: 1,
+          }}
         >
           <View
             style={{
@@ -188,9 +211,14 @@ export function Sheet({ visible, onClose, title, subtitle, children, footer }: P
               */
               <View
                 style={{
-                  maxHeight: height * MAX_SHEET_FRACTION * MAX_FOOTER_FRACTION,
+                  maxHeight: sheetCap * MAX_FOOTER_FRACTION,
                   borderTopWidth: 1,
                   borderTopColor: colors.rule,
+                  // So a tall header and a tall footer cannot between them push
+                  // past the cap and take the backdrop with them. The body
+                  // shrinks first; this is what stops it being the only thing
+                  // that can.
+                  flexShrink: 1,
                 }}
               >
                 <ScrollView

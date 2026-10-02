@@ -12,6 +12,7 @@
  */
 
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { ScrollView } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
@@ -283,5 +284,48 @@ describe('flagging from the sheet', () => {
 
     expect(h.onToggleFlag).toHaveBeenCalledWith('dishes');
     expect(h.onClose).toHaveBeenCalled();
+  });
+});
+
+/*
+ * Where the actions live, tested because nothing did.
+ *
+ * `Sheet` grew a `footer` so a chore with a lot of steps could not push its
+ * buttons off the bottom — but both suites for `Sheet` and for `ChoreDetail`
+ * test those pieces alone. Move these back into the body and every test still
+ * passes, which is the "test the wiring where the wiring lives" shape AGENTS.md
+ * names: the components were right and the composition was what mattered.
+ */
+describe('where the actions sit', () => {
+  /** Everything inside the sheet's scrolling body. */
+  const bodyText = () => {
+    const body = screen.UNSAFE_getAllByType(ScrollView)[0];
+    return (body?.findAll(() => true) ?? [])
+      .map((node: { props: { children?: unknown } }) => node.props.children)
+      .filter((child: unknown): child is string => typeof child === 'string');
+  };
+
+  it('pins them below the scroll rather than at the end of it', async () => {
+    const h = renderSheet();
+    await h.rendered;
+
+    // On screen, and deliberately not in the part that scrolls.
+    expect(screen.getByRole('button', { name: /Mark as done/ })).toBeOnTheScreen();
+    expect(bodyText()).not.toContain('Mark as done');
+    expect(bodyText()).not.toContain('Skip it');
+  });
+
+  /*
+   * The move form is the other way round: the calendar scrolls and its two
+   * buttons are pinned. Putting the whole form in the footer clamped it to half
+   * the sheet, so expanding the date picker hid the confirm button.
+   */
+  it('scrolls the calendar but pins the buttons that act on it', async () => {
+    const h = renderSheet();
+    await h.rendered;
+    await fireEvent.press(screen.getByRole('button', { name: /Move it/ }));
+
+    expect(bodyText()).toContain('Move it to');
+    expect(bodyText()).not.toContain('Back');
   });
 });
