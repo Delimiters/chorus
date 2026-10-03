@@ -30,9 +30,10 @@ import {
   usePlanEntries,
   usePlanLoading,
 } from '@/data/hooks/usePlan';
-import { ErrorState, LoadingState } from '@/design/components';
+import { ErrorState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
 import { PlanScreen } from './PlanScreen';
+import { PlanSkeleton } from './PlanSkeleton';
 
 /**
  * How far ahead the picker can see.
@@ -431,6 +432,23 @@ export function PlanView() {
    * moment it had run.
    */
   const { dismissals, isLoading: dismissalsLoading } = usePlanDismissals(today);
+
+  /*
+   * Latched, and that is the load-bearing part.
+   *
+   * `dismissalsLoading` is true for every *refetch* as well as the first fetch
+   * — deliberately, because the fill must not act on stale removals — and
+   * realtime invalidates on every change either phone makes. Gating the render
+   * on it directly would flash the skeleton back every time anybody ticked
+   * anything, which is a worse jump than the one being fixed.
+   *
+   * So readiness only ever goes from false to true: once the three queries
+   * have each answered once, the screen renders whatever it has, stale or not,
+   * for the rest of the session.
+   */
+  const settledRef = useRef(false);
+  if (!isLoading && !entriesLoading && !dismissalsLoading) settledRef.current = true;
+  const settled = settledRef.current;
 
   /*
    * In flight, and failed-today, both as refs.
@@ -868,7 +886,19 @@ export function PlanView() {
     entriesLoading,
   ]);
 
-  if (isLoading) return <LoadingState label="Loading your day" />;
+  /*
+   * One paint, not three.
+   *
+   * Jake: *"the plan screen like has nothing on it and then loads some stuff
+   * and everything kind of jumps around."* This gate waited only on the
+   * occurrences, so the screen painted with the plan still loading — an empty
+   * day — then again when the entries landed, then again when the fill wrote
+   * rows from them. Three different layouts in about a second.
+   *
+   * It now waits for all three queries, and shows a skeleton the same shape as
+   * what replaces it, so the swap moves nothing.
+   */
+  if (!settled) return <PlanSkeleton />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;
 
   return (

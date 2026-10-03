@@ -1166,7 +1166,13 @@ describe('the bulk-add button waits for the plan', () => {
     mockChores = [recurring('litter'), recurring('bins')];
     renderView();
 
-    await screen.findByText('Start the day');
+    /*
+     * The skeleton, not the screen: the first paint waits for the plan query
+     * too now, so a day whose entries are in flight shows the placeholder
+     * rather than an empty plan. The claim is unchanged — there is no bulk-add
+     * button to press while the plan is unknown.
+     */
+    await screen.findByLabelText('Loading your day');
     expect(screen.queryByText(/Add everything due or late/)).toBeNull();
   });
 });
@@ -1614,7 +1620,9 @@ describe('the fill waits for the record of what was taken off', () => {
     mockChores = [recurring('litter')];
     renderView();
 
-    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    // The screen is a skeleton while any of its three queries is in flight;
+    // what matters here is that the fill did not run.
+    await screen.findByLabelText('Loading your day');
     expect(mockAdd).not.toHaveBeenCalled();
   });
 
@@ -1639,7 +1647,7 @@ describe('the fill waits for the record of what was taken off', () => {
     mockChores = [recurring('bins')];
     renderView();
 
-    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    await screen.findByLabelText('Loading your day');
     expect(mockAdd).not.toHaveBeenCalled();
   });
 });
@@ -1689,5 +1697,67 @@ describe('what the fill records about who chose it', () => {
     fireEvent.press(await screen.findByText(/Add everything due or late/));
 
     expect(automaticOf(undefined)).toContain(false);
+  });
+});
+
+/*
+ * Jake: *"there is a kind of ugly moment sometimes when you open the app and
+ * the plan screen like has nothing on it and then loads some stuff and
+ * everything kind of jumps around."*
+ *
+ * The screen used to paint as soon as the occurrences landed, with the plan
+ * itself still loading — so an empty day, then rows, then whatever the fill
+ * added. Three layouts in about a second.
+ */
+describe('opening the plan', () => {
+  it('shows a placeholder rather than an empty day while the plan is still loading', async () => {
+    mockAutoPlan = false;
+    mockEntriesLoading = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByLabelText('Loading your day');
+    // The empty-day sentence is what used to flash up before the rows arrived.
+    expect(screen.queryByText('Start the day')).toBeNull();
+  });
+
+  it('waits for the record of removals too, not just the rows', async () => {
+    mockAutoPlan = false;
+    mockDismissalsLoading = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByLabelText('Loading your day');
+  });
+
+  /*
+   * The regression this could so easily have been.
+   *
+   * `dismissalsLoading` is true for every *refetch* as well as the first
+   * fetch — deliberately, so the fill cannot act on stale removals — and
+   * realtime invalidates whenever either phone changes anything. Gating the
+   * render on it directly would flash the skeleton back every time somebody
+   * ticked something: a worse jump than the one being fixed.
+   */
+  it('never goes back to the placeholder once it has painted', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    const view = renderView();
+
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+
+    // What a realtime change from the other phone does to this screen.
+    mockDismissalsLoading = true;
+    view.rerender(
+      <ThemeProvider>
+        <PlanView />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByLabelText('Loading your day')).toBeNull();
+    expect(screen.getByText(/Doing today|Start the day|Nothing planned yet/)).toBeTruthy();
   });
 });
