@@ -30,9 +30,10 @@ import {
   usePlanEntries,
   usePlanLoading,
 } from '@/data/hooks/usePlan';
-import { ErrorState, LoadingState } from '@/design/components';
+import { ErrorState } from '@/design/components';
 import { PlanPicker, type PickerGroup } from './PlanPicker';
 import { PlanScreen } from './PlanScreen';
+import { PlanSkeleton } from './PlanSkeleton';
 
 /**
  * How far ahead the picker can see.
@@ -430,7 +431,30 @@ export function PlanView() {
    * survive the other phone, and together they meant the plan went stale the
    * moment it had run.
    */
-  const { dismissals, isLoading: dismissalsLoading } = usePlanDismissals(today);
+  const {
+    dismissals,
+    isLoading: dismissalsLoading,
+    answered: dismissalsAnswered,
+  } = usePlanDismissals(today);
+
+  /*
+   * Ready means "every query has come back", not "nothing is in flight".
+   *
+   * The distinction is the whole of this gate. `dismissalsLoading` stays true
+   * through every refetch and through a permanent failure — deliberately,
+   * because the fill must not act on a stale or absent answer — so waiting on
+   * *that* would hold the screen hostage to it. `answered` is the other
+   * question, and the one a first paint actually needs.
+   *
+   * Reading the cache rather than latching a ref is what makes this survive a
+   * remount: switching to Routines unmounts this screen, and a ref would reset
+   * with it, so coming back after the 30-second stale window put the whole
+   * screen behind the placeholder again with every row already in hand. It
+   * also keeps the component compilable — a ref written during render makes
+   * the React Compiler bail out of the entire function, silently, costing this
+   * screen all 49 of its memo blocks.
+   */
+  const ready = !isLoading && !entriesLoading && dismissalsAnswered;
 
   /*
    * In flight, and failed-today, both as refs.
@@ -868,8 +892,21 @@ export function PlanView() {
     entriesLoading,
   ]);
 
-  if (isLoading) return <LoadingState label="Loading your day" />;
+  /*
+   * One paint, not three.
+   *
+   * Jake: *"the plan screen like has nothing on it and then loads some stuff
+   * and everything kind of jumps around."* This gate waited only on the
+   * occurrences, so the screen painted with the plan still loading — an empty
+   * day — then again when the entries landed, then again when the fill wrote
+   * rows from them. Three different layouts in about a second.
+   *
+   * The error comes first. Behind the placeholder it was unreachable: a
+   * dismissals query that failed for good left the screen grey forever with no
+   * message and no retry.
+   */
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;
+  if (!ready) return <PlanSkeleton />;
 
   return (
     <>
