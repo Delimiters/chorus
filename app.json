@@ -10,7 +10,13 @@
     "ios": {
       "bundleIdentifier": "com.delimiters.chorus",
       "buildNumber": "49",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "appleTeamId": "SY59JGZ44Y",
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.delimiters.chorus"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -41,7 +47,8 @@
         }
       ],
       "expo-localization",
-      "expo-secure-store"
+      "expo-secure-store",
+      "@bacons/apple-targets"
     ],
     "experiments": {
       "typedRoutes": true,
