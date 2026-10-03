@@ -33,7 +33,7 @@ import { Checkbox } from '@/design/ChoreRow';
 import { Txt } from '@/design/components';
 import { NoteText } from '@/design/NoteText';
 import { useColors } from '@/design/theme';
-import { MIN_TARGET, radius, space } from '@/design/tokens';
+import { MIN_TARGET, radius, space, type Palette } from '@/design/tokens';
 
 interface Props {
   readonly notes?: string | null;
@@ -66,6 +66,22 @@ const NO_TICKS: ReadonlySet<string> = new Set();
  * gesture that sometimes moves the wrong thing.
  */
 const STEPS_BEFORE_COLLAPSE = 5;
+
+/**
+ * The expander's ground, resting and under the finger.
+ *
+ * A function, and exported, because the first version pressed to `colors.rule`
+ * — a 10%-alpha divider colour that composites over the sheet's white surface
+ * to within 1.01:1 of the resting ground. The press was invisible in the light
+ * theme, which is the default and half of what this control was changed for,
+ * and nothing could see that: `Pressable` resolves its style function before a
+ * test can reach it, so the pressed branch is unreachable from a render.
+ *
+ * Pulled out here, both branches are checkable in both themes.
+ */
+export function expanderGround(colors: Palette, pressed: boolean): string {
+  return pressed ? colors.sunken : colors.raised;
+}
 
 export function ChoreDetail({
   notes = null,
@@ -180,15 +196,15 @@ export function ChoreDetail({
                 minHeight: MIN_TARGET,
                 paddingHorizontal: space.md,
                 borderRadius: radius.pill,
-                backgroundColor: pressed ? colors.rule : colors.raised,
+                backgroundColor: expanderGround(colors, pressed),
               })}
             >
               <MaterialCommunityIcons
                 name={collapsed ? 'chevron-down' : 'chevron-up'}
                 size={18}
-                color={colors.textMuted}
+                color={colors.textFaint}
               />
-              <Txt variant="small" style={{ color: colors.text, fontWeight: '600' }}>
+              <Txt variant="small" style={{ fontWeight: '600' }}>
                 {collapsed ? `Show all ${subtasks.length} steps` : 'Show fewer'}
               </Txt>
             </Pressable>
