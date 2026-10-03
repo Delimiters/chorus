@@ -381,6 +381,22 @@ export function useAddToPlan(
 export function usePlanDismissals(today: CivilDate): {
   readonly dismissals: readonly PlanDismissalRow[];
   readonly isLoading: boolean;
+  /**
+   * Whether this query has ever come back — answered or failed.
+   *
+   * Separate from `isLoading` because they are needed for opposite jobs. The
+   * *fill* must not act on a stale or absent answer, so it waits on
+   * `isLoading`, which stays true through refetches and through a permanent
+   * failure. The *screen* must not be held hostage to that: gating the first
+   * paint on it stranded the user on a placeholder forever when the query
+   * errored, with the error state unreachable behind it — and flashed the
+   * placeholder back on every remount once the cache went stale.
+   *
+   * A failure counts as answered. It means "we asked and we know how that
+   * went", which is enough to draw a screen, and the fill stays blocked on
+   * `isLoading` regardless.
+   */
+  readonly answered: boolean;
 } {
   const householdId = useActiveHouseholdId();
   const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
@@ -439,6 +455,7 @@ export function usePlanDismissals(today: CivilDate): {
   return {
     dismissals: query.data ?? EMPTY_DISMISSALS,
     isLoading: query.isLoading || query.isFetching || query.isError,
+    answered: query.data !== undefined || query.isError,
   };
 }
 
