@@ -36,6 +36,7 @@ let mockView: {
 let mockChores: { id: string; title: string; schedule: unknown }[];
 let mockEntries: { occurrenceKey: string; choreId: string; plannedFor: string; position: number }[];
 let mockIsLoading = false;
+let mockError: Error | null = null;
 let mockPlanUnknown = false;
 let mockEntriesLoading = false;
 /** The household's whole plan. Defaults to yours; set apart where it matters. */
@@ -51,6 +52,8 @@ let mockMembers: { userId: string; displayName: string; accent: string }[] = [];
 let mockDismissals: { userId: string; occurrenceKey: string; dismissedOn: string }[] = [];
 /** Whether the dismissals query has landed. The fill must wait for it. */
 let mockDismissalsLoading = false;
+/** Whether it has ever come back — answered or failed. What the screen waits for. */
+let mockDismissalsAnswered = true;
 let mockPlanOnCreate: { choreId: string; queuedOn: string }[] = [];
 
 let mockHorizon: AgendaItem[] = [];
@@ -61,7 +64,9 @@ jest.mock('@/data/hooks/useOccurrences', () => ({
     chores: mockChores,
     today: mockToday,
     isLoading: mockIsLoading,
-    error: null,
+    // Settable: hard-coded null made the screen's error path unreachable from
+    // this suite, which is how it came to sit behind the loading gate unseen.
+    error: mockError,
     refetch: async () => {},
   }),
   // A real horizon, not an empty one. Mocked empty, every assertion about
@@ -90,7 +95,18 @@ jest.mock('@/data/hooks/usePlan', () => ({
    * markers, and it is what lets the fill run on every render: it records the
    * removals rather than the fact that a fill happened.
    */
-  usePlanDismissals: () => ({ dismissals: mockDismissals, isLoading: mockDismissalsLoading }),
+  usePlanDismissals: () => ({
+    dismissals: mockDismissals,
+    isLoading: mockDismissalsLoading,
+    /*
+     * `answered` and `isLoading` are separate on purpose and have to stay
+     * separate here: the fill waits on `isLoading` (true through refetches and
+     * through a permanent failure), the screen waits on `answered`. Defaulting
+     * one from the other would make the two states this mock exists to
+     * distinguish indistinguishable.
+     */
+    answered: mockDismissalsAnswered,
+  }),
   usePlanUnavailable: () => mockPlanUnknown,
   usePlanLoading: () => mockEntriesLoading,
   useTheirPlanCount: () => 0,
@@ -286,6 +302,8 @@ beforeEach(() => {
   mockAdd.mockClear();
   mockDismissals = [];
   mockDismissalsLoading = false;
+  mockDismissalsAnswered = true;
+  mockError = null;
   mockClearPlanOnCreate.mockClear();
   // Flags were the one group of fixtures this reset had missed, so a test that
   // set them leaked into every test written after it — and the proposal test
@@ -1159,22 +1177,17 @@ describe('the bulk-add button waits for the plan', () => {
    * ignores conflicts. But the whole reason the count is in the label is to
    * say how large the commitment is before you accept it.
    */
-  it('offers nothing while the plan query is still in flight', async () => {
-    mockAutoPlan = false;
-    mockEntriesLoading = true;
-    mockView.mine = [item('litter'), item('bins')];
-    mockChores = [recurring('litter'), recurring('bins')];
-    renderView();
-
-    /*
-     * The skeleton, not the screen: the first paint waits for the plan query
-     * too now, so a day whose entries are in flight shows the placeholder
-     * rather than an empty plan. The claim is unchanged — there is no bulk-add
-     * button to press while the plan is unknown.
-     */
-    await screen.findByLabelText('Loading your day');
-    expect(screen.queryByText(/Add everything due or late/)).toBeNull();
-  });
+  /*
+   * Deleted rather than repaired: `offers nothing while the plan query is
+   * still in flight` set `entriesLoading`, which now means the screen does not
+   * paint at all — so "there is no bulk-add button" was true by construction
+   * and stayed green with the guard it existed to protect removed.
+   *
+   * What it was guarding (`if (entriesLoading) return []` on the due-or-late
+   * list) is now unreachable from a rendered screen, because the screen waits
+   * for that query. Said plainly rather than left as a test that proves
+   * nothing.
+   */
 });
 
 describe('flagged work lands by itself even when nothing else does', () => {
@@ -1620,9 +1633,12 @@ describe('the fill waits for the record of what was taken off', () => {
     mockChores = [recurring('litter')];
     renderView();
 
-    // The screen is a skeleton while any of its three queries is in flight;
-    // what matters here is that the fill did not run.
-    await screen.findByLabelText('Loading your day');
+    /*
+     * The screen paints — a refetch is not a reason to hide it — and the fill
+     * stays put. That split is the point: the fill waits on `isLoading`, which
+     * covers refetches, while the screen waits only on the first answer.
+     */
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
     expect(mockAdd).not.toHaveBeenCalled();
   });
 
@@ -1647,7 +1663,7 @@ describe('the fill waits for the record of what was taken off', () => {
     mockChores = [recurring('bins')];
     renderView();
 
-    await screen.findByLabelText('Loading your day');
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
     expect(mockAdd).not.toHaveBeenCalled();
   });
 });
@@ -1742,12 +1758,77 @@ describe('opening the plan', () => {
 
   it('waits for the record of removals too, not just the rows', async () => {
     mockAutoPlan = false;
+    // Never answered, as opposed to answering again — the first is a reason to
+    // hold the screen back, the second is not.
+    mockDismissalsAnswered = false;
     mockDismissalsLoading = true;
     mockView.mine = [item('litter')];
     mockChores = [recurring('litter')];
     renderView();
 
     await screen.findByLabelText('Loading your day');
+    expect(screen.queryByText('Start the day')).toBeNull();
+  });
+
+  /*
+   * A dismissals query that fails for good used to strand the screen on the
+   * placeholder forever: its `isLoading` stays true on error — deliberately,
+   * so the fill cannot act on an answer nobody got — and the gate sat above
+   * the error state, so there was no message and no retry either.
+   */
+  it('still paints when the record of removals cannot be fetched', async () => {
+    mockAutoPlan = false;
+    mockDismissalsLoading = true;
+    mockDismissalsAnswered = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    expect(screen.queryByLabelText('Loading your day')).toBeNull();
+    // And the fill still will not touch a day it cannot see the removals for.
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The error has to come before the placeholder, not after it.
+   *
+   * Reachable whenever one query fails and another is still in flight: the
+   * screen is not ready, and the thing it should say is why. Behind the gate
+   * that was a grey rectangle with no message and no retry.
+   */
+  it('shows the error even when something else is still loading', async () => {
+    mockAutoPlan = false;
+    mockEntriesLoading = true;
+    mockError = new Error('network request failed');
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    expect(await screen.findByText('network request failed')).toBeTruthy();
+    expect(screen.queryByLabelText('Loading your day')).toBeNull();
+  });
+
+  /*
+   * Switching to Routines unmounts this screen. A ref-based latch reset with
+   * it, so coming back after the stale window put the whole screen behind the
+   * placeholder again with every row already in cache. Readiness is read from
+   * the cache now, so a remount with data paints immediately.
+   */
+  it('paints immediately on remount when the data is already in hand', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    const first = renderView();
+    await screen.findByText(/Doing today|Start the day|Nothing planned yet/);
+    first.unmount();
+
+    // What a remount after the stale window looks like: refetching, but the
+    // cache still holds every answer.
+    mockDismissalsLoading = true;
+    renderView();
+
+    expect(screen.queryByLabelText('Loading your day')).toBeNull();
   });
 
   /*

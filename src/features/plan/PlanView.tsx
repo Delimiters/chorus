@@ -431,24 +431,30 @@ export function PlanView() {
    * survive the other phone, and together they meant the plan went stale the
    * moment it had run.
    */
-  const { dismissals, isLoading: dismissalsLoading } = usePlanDismissals(today);
+  const {
+    dismissals,
+    isLoading: dismissalsLoading,
+    answered: dismissalsAnswered,
+  } = usePlanDismissals(today);
 
   /*
-   * Latched, and that is the load-bearing part.
+   * Ready means "every query has come back", not "nothing is in flight".
    *
-   * `dismissalsLoading` is true for every *refetch* as well as the first fetch
-   * — deliberately, because the fill must not act on stale removals — and
-   * realtime invalidates on every change either phone makes. Gating the render
-   * on it directly would flash the skeleton back every time anybody ticked
-   * anything, which is a worse jump than the one being fixed.
+   * The distinction is the whole of this gate. `dismissalsLoading` stays true
+   * through every refetch and through a permanent failure — deliberately,
+   * because the fill must not act on a stale or absent answer — so waiting on
+   * *that* would hold the screen hostage to it. `answered` is the other
+   * question, and the one a first paint actually needs.
    *
-   * So readiness only ever goes from false to true: once the three queries
-   * have each answered once, the screen renders whatever it has, stale or not,
-   * for the rest of the session.
+   * Reading the cache rather than latching a ref is what makes this survive a
+   * remount: switching to Routines unmounts this screen, and a ref would reset
+   * with it, so coming back after the 30-second stale window put the whole
+   * screen behind the placeholder again with every row already in hand. It
+   * also keeps the component compilable — a ref written during render makes
+   * the React Compiler bail out of the entire function, silently, costing this
+   * screen all 49 of its memo blocks.
    */
-  const settledRef = useRef(false);
-  if (!isLoading && !entriesLoading && !dismissalsLoading) settledRef.current = true;
-  const settled = settledRef.current;
+  const ready = !isLoading && !entriesLoading && dismissalsAnswered;
 
   /*
    * In flight, and failed-today, both as refs.
@@ -895,11 +901,12 @@ export function PlanView() {
    * day — then again when the entries landed, then again when the fill wrote
    * rows from them. Three different layouts in about a second.
    *
-   * It now waits for all three queries, and shows a skeleton the same shape as
-   * what replaces it, so the swap moves nothing.
+   * The error comes first. Behind the placeholder it was unreachable: a
+   * dismissals query that failed for good left the screen grey forever with no
+   * message and no retry.
    */
-  if (!settled) return <PlanSkeleton />;
   if (error) return <ErrorState message={error.message} onRetry={refetch} />;
+  if (!ready) return <PlanSkeleton />;
 
   return (
     <>
