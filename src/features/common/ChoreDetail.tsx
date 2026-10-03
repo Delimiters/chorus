@@ -25,12 +25,15 @@
  * sheet keeps the shape it has always had instead of growing an empty region.
  */
 
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { Checkbox } from '@/design/ChoreRow';
 import { Txt } from '@/design/components';
 import { NoteText } from '@/design/NoteText';
+import { useColors } from '@/design/theme';
+import { raisedGround } from '@/design/grounds';
 import { MIN_TARGET, radius, space } from '@/design/tokens';
 
 interface Props {
@@ -74,6 +77,7 @@ export function ChoreDetail({
   scheduleLabel = null,
   turnLabel = null,
 }: Props) {
+  const colors = useColors();
   const [showAllSteps, setShowAllSteps] = useState(false);
 
   const note = (notes ?? '').trim();
@@ -147,16 +151,46 @@ export function ChoreDetail({
           })}
 
           {subtasks.length <= STEPS_BEFORE_COLLAPSE ? null : (
+            /*
+              A control that looks like one.
+            
+              It began as a line of muted text, which Jake read as prose:
+              *"it hardly looks like something clickable."* So it has a ground,
+              a pill edge and a chevron — the same chevron a chore row already
+              uses to open its steps, so the two disclosures read as the same
+              gesture in two places.
+            
+              `raised` rather than `sunken` for the ground. On the light theme
+              `sunken` is #F4F4F1 against #F3F2EE paper, a one-unit difference
+              that renders as nothing — which is exactly how an earlier
+              "subtle" background on the chore chart disappeared.
+            
+              `alignSelf: 'flex-start'` so it is as wide as its label. A
+              full-width bar would read as a section, not a button.
+            */
             <Pressable
               onPress={() => setShowAllSteps(!showAllSteps)}
               accessibilityRole="button"
+              accessibilityState={{ expanded: showAllSteps }}
               hitSlop={8}
-              style={{ minHeight: MIN_TARGET, justifyContent: 'center' }}
+              style={({ pressed }) => ({
+                alignSelf: 'flex-start',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.xs,
+                minHeight: MIN_TARGET,
+                paddingHorizontal: space.md,
+                borderRadius: radius.pill,
+                backgroundColor: raisedGround(colors, pressed),
+              })}
             >
-              <Txt variant="small" tone="muted">
-                {collapsed
-                  ? `Show all ${subtasks.length} steps`
-                  : `Show fewer (${STEPS_BEFORE_COLLAPSE} of ${subtasks.length})`}
+              <MaterialCommunityIcons
+                name={collapsed ? 'chevron-down' : 'chevron-up'}
+                size={18}
+                color={colors.textFaint}
+              />
+              <Txt variant="small" style={{ fontWeight: '600' }}>
+                {collapsed ? `Show all ${subtasks.length} steps` : 'Show fewer'}
               </Txt>
             </Pressable>
           )}

@@ -13,6 +13,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { ThemeProvider } from '@/design/theme';
+import { MIN_TARGET, palette, radius } from '@/design/tokens';
 
 import { ChoreDetail } from './ChoreDetail';
 
@@ -53,7 +54,7 @@ describe('a long list of steps', () => {
     fireEvent.press(screen.getByText('Show all 18 steps'));
     expect(screen.getByText('Step 18')).toBeTruthy();
 
-    fireEvent.press(screen.getByText('Show fewer (5 of 18)'));
+    fireEvent.press(screen.getByText('Show fewer'));
     expect(screen.queryByText('Step 18')).toBeNull();
   });
 
@@ -67,6 +68,45 @@ describe('a long list of steps', () => {
 
     const toggle = screen.getByRole('button', { name: 'Show all 18 steps' });
 
-    expect(toggle.props.style).toMatchObject({ minHeight: 44 });
+    expect(toggle.props.style).toMatchObject({ minHeight: MIN_TARGET });
+  });
+
+  /*
+   * Jake: *"it hardly looks like something clickable."* A ground and a pill
+   * edge are what make it read as a control rather than as prose, so they are
+   * worth pinning — a later tidy that drops them puts the complaint back.
+   */
+  it('looks like a control rather than a line of text', () => {
+    renderDetail(18);
+
+    const toggle = screen.getByRole('button', { name: /Show all 18 steps/ });
+
+    /*
+     * The real values, not `expect.any`.
+     *
+     * `expect.any(Number)` passes against `borderRadius: 0` and
+     * `expect.any(String)` against `'transparent'` — so the test written to
+     * stop a later tidy dropping the ground would have stayed green through
+     * exactly that tidy. jest resolves to the light theme, so the expected
+     * values are deterministic.
+     */
+    expect(toggle.props.style).toMatchObject({
+      borderRadius: radius.pill,
+      backgroundColor: palette.light.raised,
+      // As wide as its label, so it does not read as a section header.
+      alignSelf: 'flex-start',
+    });
+  });
+
+  it('announces whether it is open, for anyone not looking at the chevron', () => {
+    renderDetail(18);
+
+    const toggle = screen.getByRole('button', { name: /Show all 18 steps/ });
+    expect(toggle.props.accessibilityState).toMatchObject({ expanded: false });
+
+    fireEvent.press(toggle);
+    expect(
+      screen.getByRole('button', { name: /Show fewer/ }).props.accessibilityState,
+    ).toMatchObject({ expanded: true });
   });
 });

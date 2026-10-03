@@ -24,6 +24,21 @@ export interface Palette {
   readonly surface: string;
   readonly sunken: string;
   readonly raised: string;
+  /**
+   * A control's ground while a finger is on it.
+   *
+   * A token rather than a per-control choice, because every control that
+   * needed one picked it by eye and two of them picked wrong. The steps
+   * expander pressed to `rule` — a 10%-alpha divider colour that composited to
+   * within 1.01:1 of its resting ground — and the obvious correction,
+   * `sunken`, is 1.05:1 in the dark theme: the same invisibility, one theme
+   * over. There was no right answer in the palette to reach for.
+   *
+   * Always *deeper* than `raised`, in both themes: darker on paper, lighter on
+   * a dark ground. Same direction, so a press never reads as the control
+   * fading out — which is what pressing toward `surface` looked like.
+   */
+  readonly pressed: string;
   readonly text: string;
   readonly textMuted: string;
   readonly textFaint: string;
@@ -48,6 +63,9 @@ const light: Palette = {
   surface: '#FFFFFF',
   sunken: '#F4F4F1',
   raised: '#EAE8E2',
+  // 1.18:1 against `raised` — a real step, well clear of the 1.05 that was
+  // invisible, without becoming a second surface.
+  pressed: '#D9D7CE',
 
   // Ink
   text: '#17171F',
@@ -86,6 +104,9 @@ const dark: Palette = {
   surface: '#1A1A23',
   sunken: '#22222D',
   raised: '#262631',
+  // 1.20:1 the other way: lighter, because on a dark ground that is what
+  // "deeper" looks like.
+  pressed: '#333340',
 
   text: '#ECEBE6',
   textMuted: '#A9A8B2',
