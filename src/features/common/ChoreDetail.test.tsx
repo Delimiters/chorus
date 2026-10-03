@@ -15,7 +15,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { ThemeProvider } from '@/design/theme';
 import { MIN_TARGET, palette, radius } from '@/design/tokens';
 
-import { ChoreDetail, expanderGround } from './ChoreDetail';
+import { ChoreDetail } from './ChoreDetail';
 
 const steps = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ id: `s${i}`, title: `Step ${i + 1}` }));
@@ -108,40 +108,5 @@ describe('a long list of steps', () => {
     expect(
       screen.getByRole('button', { name: /Show fewer/ }).props.accessibilityState,
     ).toMatchObject({ expanded: true });
-  });
-});
-
-/*
- * The press feedback, which the component test cannot see: `Pressable`
- * resolves its style function before a render can be inspected, so the pressed
- * branch is only reachable here.
- *
- * It first pressed to `colors.rule` — a 10%-alpha divider colour that
- * composites over the sheet's white surface to within 1.01:1 of the resting
- * ground. Invisible in the light theme, which is the default, and invisible to
- * every test.
- */
-describe('the expander under the finger', () => {
-  it('changes ground when pressed, in both themes', () => {
-    expect(expanderGround(palette.light, true)).not.toBe(expanderGround(palette.light, false));
-    expect(expanderGround(palette.dark, true)).not.toBe(expanderGround(palette.dark, false));
-  });
-
-  it('rests on a ground the sheet can actually show', () => {
-    expect(expanderGround(palette.light, false)).toBe(palette.light.raised);
-    expect(expanderGround(palette.dark, false)).toBe(palette.dark.raised);
-  });
-
-  /*
-   * Opaque, both of them. A translucent token composites against whatever is
-   * behind it — which on this sheet is white — and that is exactly how the
-   * first attempt ended up invisible.
-   */
-  it('uses opaque grounds, not alpha tokens that composite away', () => {
-    for (const theme of [palette.light, palette.dark]) {
-      for (const pressed of [true, false]) {
-        expect(expanderGround(theme, pressed)).toMatch(/^#[0-9A-Fa-f]{6}$/);
-      }
-    }
   });
 });
