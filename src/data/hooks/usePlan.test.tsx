@@ -565,6 +565,44 @@ describe('removing while the dismissals are still in flight', () => {
 });
 
 describe('the dismissals hook when the fetch fails', () => {
+  /*
+   * A failure counts as *answered*, which is what lets the screen paint. The
+   * two flags carry opposite jobs: the fill waits on `isLoading` so it cannot
+   * act on an answer nobody got, and the screen waits on `answered` so a
+   * permanent failure does not strand it on a placeholder with the error state
+   * unreachable behind it.
+   */
+  it('counts a failure as answered, so the screen is not held hostage', async () => {
+    const { client, wrapper } = harness();
+    mockDismissalsFail = true;
+
+    const { result } = renderHook(() => usePlanDismissals(TODAY), { wrapper });
+
+    await waitFor(() =>
+      expect(client.getQueryState(qk.planDismissals(HOUSE, FROM, TODAY))?.status).toBe('error'),
+    );
+
+    expect(result.current.answered).toBe(true);
+    expect(result.current.isLoading).toBe(true);
+  });
+
+  it('is not answered before the first fetch comes back', async () => {
+    const { wrapper } = harness();
+    let release = () => {};
+    mockDismissalGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const { result } = renderHook(() => usePlanDismissals(TODAY), { wrapper });
+    expect(result.current.answered).toBe(false);
+
+    await act(async () => {
+      release();
+      await mockDismissalGate;
+    });
+    await waitFor(() => expect(result.current.answered).toBe(true));
+  });
+
   it('reports itself loading rather than handing back an empty list', async () => {
     const { client, wrapper } = harness();
     mockDismissalsFail = true;
