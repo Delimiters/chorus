@@ -23,6 +23,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
+import { ModeSwitch } from '@/features/common/ModeSwitch';
+import { useRoutineStore } from '@/stores/routineStore';
 
 /** One grey block. `rule` is the faintest token, which is what a placeholder wants. */
 function Bar({ w, h = 14 }: { w: DimensionValue; h?: number }) {
@@ -71,6 +73,7 @@ function Row() {
 
 export function PlanSkeleton() {
   const { colors } = useTheme();
+  const setTodayMode = useRoutineStore((state) => state.setTodayMode);
 
   return (
     <SafeAreaView
@@ -80,6 +83,17 @@ export function PlanSkeleton() {
       accessible
     >
       <View style={{ padding: space.lg, gap: space.md }}>
+        {/*
+          The real switch, not a grey block standing in for one.
+        
+          It sits above the plan on the loaded screen, so leaving it out made
+          everything below it start ~110pt too high and drop when the real
+          thing arrived — the jump this component exists to remove, reintroduced
+          by the thing removing it. And it works while the plan loads: you can
+          go to Routines without waiting, which you could not before.
+        */}
+        <ModeSwitch mode="plan" onChange={setTodayMode} />
+
         <View style={{ paddingHorizontal: space.sm, gap: space.sm }}>
           <Bar w={140} h={30} />
           <Bar w={220} h={13} />

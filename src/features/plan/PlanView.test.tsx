@@ -1722,6 +1722,24 @@ describe('opening the plan', () => {
     expect(screen.queryByText('Start the day')).toBeNull();
   });
 
+  /*
+   * The switch belongs to the screen, not to the plan — leaving it out of the
+   * placeholder made everything below it start about 110pt too high and drop
+   * when the real thing arrived, which is the jump this is meant to remove.
+   * It is also live while the plan loads: you can go to Routines without
+   * waiting, which you could not before.
+   */
+  it('keeps the Plan/Routines switch usable while the plan loads', async () => {
+    mockAutoPlan = false;
+    mockEntriesLoading = true;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+
+    await screen.findByLabelText('Loading your day');
+    expect(screen.getByRole('tab', { name: 'Routines' })).toBeTruthy();
+  });
+
   it('waits for the record of removals too, not just the rows', async () => {
     mockAutoPlan = false;
     mockDismissalsLoading = true;
