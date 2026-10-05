@@ -503,6 +503,39 @@ export function PlanView() {
    * fill, so it can run whenever and a flag lands as soon as either phone
    * notices it.
    */
+  /**
+   * Every occurrence this screen has already auto-planned, this mount.
+   *
+   * The automatic fills write, and writing invalidates the queries they read,
+   * which runs them again. That is fine exactly as long as the second pass
+   * sees its own write and proposes nothing — and when it does not, the two
+   * steps become a cycle with no exit. Jake, on his phone: *"this one time
+   * task is disappearing and reappearing in a loop, making everything below it
+   * jump up and down repeatedly."* Measured on his own data it was about four
+   * renders and three round trips a second, indefinitely, writing nothing the
+   * database kept.
+   *
+   * There are several ways for a pass to miss its own write — an occurrence
+   * key that is computed one way and stored another, a row that lands on the
+   * other person's day, a refetch that has not come back yet — and this does
+   * not try to tell them apart. It makes the fill *idempotent per mount*
+   * instead: a key it has already offered is never offered again, so whatever
+   * the disagreement, the cycle runs once and stops.
+   *
+   * Keyed by **whose day plus the occurrence**, not by the occurrence alone.
+   * Shared work — a chore anybody can do — has one occurrence key for both
+   * people, because the key carries no subject; a single set therefore let the
+   * fill claim it for you and then skip it for your housemate, which is the
+   * "plans shared work onto both days" guarantee, undone. The tests caught
+   * that, which is the whole reason they are written against both people.
+   *
+   * Deliberately a ref rather than state: it must not itself cause a render,
+   * and it is not derived from anything the user can see. Deliberately per
+   * mount rather than persisted: reopening the app is a legitimate reason to
+   * try again, and the day's real work has not changed.
+   */
+  const autoPlanned = useRef<Set<string>>(new Set());
+
   const theirInFlight = useRef(false);
   const theirFailedFor = useRef<CivilDate | null>(null);
 
@@ -569,9 +602,16 @@ export function PlanView() {
 
     if (due.length === 0) return;
 
+    // Never twice, for the same reason as your own day, under their id.
+    const fresh = due.filter(
+      (item) => !autoPlanned.current.has(`${housemateId}|${item.occurrenceKey}`),
+    );
+    if (fresh.length === 0) return;
+    for (const item of fresh) autoPlanned.current.add(`${housemateId}|${item.occurrenceKey}`);
+
     theirInFlight.current = true;
     addForThem.mutate(
-      due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+      fresh.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
       {
         onError: () => {
           theirFailedFor.current = today;
@@ -734,7 +774,11 @@ export function PlanView() {
 
     const due = [...wanted.values()].filter((item) => !dismissed.has(item.occurrenceKey));
 
-    if (due.length === 0) return;
+    // Never twice. See `autoPlanned`: a pass that cannot see its own write
+    // would otherwise propose the same row for as long as the screen is open.
+    const fresh = due.filter((item) => !autoPlanned.current.has(`${userId}|${item.occurrenceKey}`));
+    if (fresh.length === 0) return;
+    for (const item of fresh) autoPlanned.current.add(`${userId}|${item.occurrenceKey}`);
 
     /*
      * `inFlight` is the only thing between a constantly re-evaluating effect
@@ -744,7 +788,7 @@ export function PlanView() {
      */
     inFlight.current = true;
     add.mutate(
-      due.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
+      fresh.map((i) => ({ occurrenceKey: i.occurrenceKey, choreId: i.choreId })),
       {
         onError: () => {
           failedFor.current = today;

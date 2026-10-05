@@ -1860,3 +1860,65 @@ describe('opening the plan', () => {
     expect(screen.getByText(/Doing today|Start the day|Nothing planned yet/)).toBeTruthy();
   });
 });
+
+/*
+ * Jake: *"this one time task is disappearing and reappearing in a loop, making
+ * everything below it jump up and down repeatedly."* Measured on his own data
+ * it was about four renders and three round trips a second, forever, writing
+ * nothing the database kept.
+ *
+ * The fills write, and writing invalidates the queries they read, which runs
+ * them again. That is fine as long as the second pass sees its own write — and
+ * when it does not, the two steps are a cycle with no exit. There are several
+ * ways to miss your own write, so rather than guess at which, the fill is
+ * idempotent per mount: a row it has already offered is never offered twice.
+ */
+describe('the fill cannot loop on its own writes', () => {
+  it('offers a row once, even if the plan never shows it as planned', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    // The loop condition: the write never comes back as a plan entry, so every
+    // pass sees the row as still unplanned.
+    mockEntries = [];
+    const view = renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(1));
+
+    // Whatever re-runs the effect next — a refetch, a realtime invalidation,
+    // the write's own settle — must not produce a second identical write.
+    for (let i = 0; i < 3; i += 1) {
+      view.rerender(
+        <ThemeProvider>
+          <PlanView />
+        </ThemeProvider>,
+      );
+    }
+
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it('still fills the housemate’s day for the same shared row', async () => {
+    mockAutoPlan = false;
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    mockEntries = [];
+    renderView();
+
+    /*
+     * Shared work has one occurrence key for both people, so a ledger keyed on
+     * the key alone claimed it for you and skipped it for her — which is the
+     * "plans shared work onto both days" guarantee, undone. The mock records
+     * the owner each call was made for, which is what separates the two.
+     */
+    await waitFor(() => {
+      const owners = mockAdd.mock.calls.map((call) => call[2]);
+      expect(owners).toContain(undefined);
+      expect(owners).toContain(mockThem);
+    });
+  });
+});
