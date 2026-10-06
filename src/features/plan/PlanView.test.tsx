@@ -33,7 +33,7 @@ let mockView: {
   upcoming: AgendaItem[];
   floating: never[];
 };
-let mockChores: { id: string; title: string; schedule: unknown }[];
+let mockChores: { id: string; title: string; schedule: unknown; assignment: unknown }[];
 let mockEntries: { occurrenceKey: string; choreId: string; plannedFor: string; position: number }[];
 let mockIsLoading = false;
 let mockError: Error | null = null;
@@ -265,9 +265,10 @@ const item = (id: string, over: Partial<AgendaItem> = {}): AgendaItem =>
     ...over,
   }) as unknown as AgendaItem;
 
-const recurring = (id: string) => ({
+const recurring = (id: string, assignment: unknown = { kind: 'anyone' }) => ({
   id,
   title: id,
+  assignment,
   schedule: {
     rule: { kind: 'daily', everyNDays: 1 },
     startsOn: mockToday,
@@ -275,9 +276,10 @@ const recurring = (id: string) => ({
     timesOfDay: [],
   },
 });
-const oneOff = (id: string) => ({
+const oneOff = (id: string, assignment: unknown = { kind: 'anyone' }) => ({
   id,
   title: id,
+  assignment,
   schedule: {
     rule: { kind: 'once', dueOn: mockToday, granularity: 'day' },
     startsOn: mockToday,
@@ -526,9 +528,10 @@ describe('a chore created with "put it on today"', () => {
   });
 });
 
-const undated = (id: string) => ({
+const undated = (id: string, assignment: unknown = { kind: 'anyone' }) => ({
   id,
   title: id,
+  assignment,
   schedule: {
     rule: { kind: 'unscheduled' },
     startsOn: mockToday,
@@ -1920,5 +1923,184 @@ describe('the fill cannot loop on its own writes', () => {
       expect(owners).toContain(undefined);
       expect(owners).toContain(mockThem);
     });
+  });
+});
+
+describe('an “everyone” chore', () => {
+  /*
+   * A fan-out is one occurrence per member, each independently completable, so
+   * both copies carry the same title and nothing on the row tells them apart.
+   * Jake saw the result and reported it as a duplicate: *"sometimes when
+   * searching something to add to the plan I see two copies"*.
+   */
+  const everyone = { kind: 'everyone' } as const;
+  const openPicker = () =>
+    fireEvent.press(
+      screen.getByRole('button', { name: /Choose what to do today|Pick my own|^Add something$/ }),
+    );
+
+  it('is offered once — your copy, not both', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [
+      item('meds', {
+        occurrenceKey: `v1:meds:${mockToday}:0:${mockMe}`,
+        assignee: { kind: 'member', memberId: mockMe, turn: 0 },
+      }),
+    ];
+    mockView.theirs = [
+      item('meds', {
+        occurrenceKey: `v1:meds:${mockToday}:0:${mockThem}`,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+    ];
+    mockChores = [oneOff('meds', everyone)];
+    renderView();
+    /*
+     * Counted as a delta, because the row is also on the screen behind the
+     * sheet — asserting a bare total would pass for the wrong reason the first
+     * time the plan stopped rendering it.
+     */
+    const behind = screen.queryAllByText('meds').length;
+    openPicker();
+    await waitFor(() => expect(screen.queryAllByText('meds').length).toBe(behind + 1));
+  });
+
+  it('does not offer their copy when yours is already settled', async () => {
+    /*
+     * The other half of the same rule, and the one that says *which* copy
+     * survived: with only their fan-out copy outstanding there is nothing here
+     * for you to pick, because their share is not work you can do. Adding it
+     * would have finished their copy while your own still stood.
+     *
+     * Asserted as a delta against the screen behind the sheet, which renders
+     * the same title — a bare total would pass for the wrong reason.
+     */
+    mockAutoPlan = false;
+    mockView.mine = [];
+    mockView.theirs = [
+      item('meds', {
+        occurrenceKey: `v1:meds:${mockToday}:0:${mockThem}`,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+    ];
+    mockChores = [oneOff('meds', everyone)];
+    renderView();
+    const behind = screen.queryAllByText('meds').length;
+    openPicker();
+
+    // The sheet opens with no search box at all, which is what an empty picker
+    // looks like — the field is only rendered when there is something to filter.
+    await waitFor(() => expect(screen.getByText('Add to today')).toBeOnTheScreen());
+    expect(screen.queryByLabelText('Search chores to add')).toBeNull();
+    expect(screen.queryAllByText('meds')).toHaveLength(behind);
+  });
+
+  it('due later is still offered to you, whichever id sorts first', async () => {
+    /*
+     * The horizon kept one row per *chore*, and both fan-out copies share a due
+     * date, so the survivor was whichever subject sorted first — then this
+     * screen dropped it when it was the housemate's. The result was a chore
+     * nobody could get ahead of from one of the two phones, which is the whole
+     * point of the "Later" group.
+     *
+     * Their id sorts first here on purpose: with the dedup keyed per chore this
+     * test cannot pass.
+     */
+    mockAutoPlan = false;
+    const ahead = { dueOn: civilDate('2026-10-20'), status: 'upcoming' } as const;
+    mockHorizon = [
+      item('weeding', {
+        ...ahead,
+        occurrenceKey: `v1:weeding:ahead:0:${mockThem}`,
+        subject: mockThem,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+      item('weeding', {
+        ...ahead,
+        occurrenceKey: `v1:weeding:ahead:0:${mockMe}`,
+        subject: mockMe,
+        assignee: { kind: 'member', memberId: mockMe, turn: 0 },
+      }),
+    ];
+    mockChores = [recurring('weeding', everyone)];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('weeding')).toBeOnTheScreen());
+    // Exactly one: yours. Not both, and not theirs.
+    expect(screen.getAllByText('weeding')).toHaveLength(1);
+  });
+
+  it('already on your day stays listed even holding their copy', async () => {
+    /*
+     * Two such rows are in the database — the old picker offered them — and the
+     * plan screen still draws them. "Already on today" exists so that *not in
+     * the list* means one thing; filtering it would recreate the ambiguity it
+     * was added to answer.
+     */
+    mockAutoPlan = false;
+    const theirs = `v1:meds:${mockToday}:0:${mockThem}`;
+    mockView.theirs = [
+      item('meds', {
+        occurrenceKey: theirs,
+        subject: mockThem,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+    ];
+    mockEntries = [{ occurrenceKey: theirs, choreId: 'meds', plannedFor: mockToday, position: 1 }];
+    mockChores = [oneOff('meds', everyone)];
+    renderView();
+    const behind = screen.queryAllByText('meds').length;
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
+    expect(screen.queryAllByText('meds').length).toBe(behind + 1);
+  });
+
+  it('is never proposed from your housemate’s floating slot', async () => {
+    /*
+     * `floatingSlots` is not ownership-filtered — `buildTodayView` returns every
+     * floating group and groups are keyed per subject — so their copy of a
+     * "three times a week" chore reached the proposal, and accepting it wrote
+     * their work to your day with nothing on screen saying so.
+     */
+    mockAutoPlan = false;
+    mockView.floating = [
+      {
+        choreId: 'laundry',
+        choreTitle: 'laundry',
+        subject: mockThem,
+        slots: [],
+        nextSlot: item('laundry', {
+          occurrenceKey: `v1:laundry:${mockToday}:0:${mockThem}`,
+          subject: mockThem,
+          assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+        }),
+      },
+    ] as never;
+    mockChores = [recurring('laundry', everyone)];
+    renderView();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Choose what to do today|Add something/)).toBeOnTheScreen(),
+    );
+    expect(screen.queryByText('laundry')).toBeNull();
+  });
+
+  it('still offers a housemate’s chore that is theirs by assignment', async () => {
+    /*
+     * The narrowing is for fan-outs only. Taking a chore of theirs off their
+     * hands is a real thing to want, and there the occurrence *is* the work —
+     * there is no second copy of it standing in your name.
+     */
+    mockAutoPlan = false;
+    mockView.theirs = [
+      item('gutters', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
+    ];
+    mockChores = [oneOff('gutters', { kind: 'fixed', memberId: mockThem })];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('gutters')).toBeOnTheScreen());
   });
 });

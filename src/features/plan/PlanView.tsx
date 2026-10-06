@@ -141,14 +141,28 @@ export function PlanView() {
    * chore missed nine times offering nine identical rows to pick from.
    */
   const horizonUpcoming = useMemo(() => {
-    const soonestPerChore = new Map<string, AgendaItem>();
+    /*
+     * One per *stream*, not one per chore.
+     *
+     * An `everyone` chore fans out to one occurrence per member and both copies
+     * share a due date, so a chore-keyed map kept whichever arrived first —
+     * which is the member whose id sorts first, since `sortForDisplay` breaks
+     * ties on `subject`. The picker then had one copy to offer and it was
+     * somebody's at random: filtering out the housemate's left the chore
+     * unpickable for exactly one of the two people, and a planned row whose
+     * occurrence only exists out here had nothing behind it and vanished.
+     *
+     * Same `choreId::subject` shape the agenda's own grouping uses.
+     */
+    const soonestPerStream = new Map<string, AgendaItem>();
     for (const item of horizon.agenda) {
       if (item.status !== 'upcoming' && item.status !== 'due') continue;
       if (item.dueOn <= today) continue;
-      const held = soonestPerChore.get(item.choreId);
-      if (held === undefined || item.dueOn < held.dueOn) soonestPerChore.set(item.choreId, item);
+      const key = `${item.choreId}::${item.subject ?? '-'}`;
+      const held = soonestPerStream.get(key);
+      if (held === undefined || item.dueOn < held.dueOn) soonestPerStream.set(key, item);
     }
-    return [...soonestPerChore.values()].sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+    return [...soonestPerStream.values()].sort((a, b) => a.dueOn.localeCompare(b.dueOn));
   }, [horizon.agenda, today]);
 
   /**
@@ -308,7 +322,56 @@ export function PlanView() {
         ].filter((item) => planned.has(item.occurrenceKey)),
       },
     ];
-    return candidates.filter((group) => group.items.length > 0);
+    /*
+     * One copy of an `everyone` chore — yours, on your day.
+     *
+     * A fan-out produces **one occurrence per member**, each separately
+     * completable, so the picker was listing the same title twice with nothing
+     * to tell the two apart. Jake hit it directly: *"sometimes when searching
+     * something to add to the plan I see two copies"*.
+     *
+     * Dropping the other person's copy rather than labelling it, because
+     * offering it is the bug and not just the ambiguity: their copy is their
+     * job, ticking it would finish *their* share while yours still stood, and
+     * the row would then sit on your day wearing their name.
+     *
+     * Only fan-outs are narrowed. A chore of theirs that is `fixed` or on a
+     * rotation stays offered — taking something off your housemate's hands is
+     * a real thing to want, and there the occurrence genuinely is the work.
+     */
+    /*
+     * Whose day is being filled. `null` only before sign-in, where there are no
+     * chores to group either — so nothing is filtered rather than everything,
+     * which is what an empty-string stand-in for "nobody" would have meant.
+     */
+    const dayOwner = pickingFor ?? userId;
+    const fanOut = new Set(chores.filter((c) => c.assignment.kind === 'everyone').map((c) => c.id));
+    const forThisDay = (item: AgendaItem): boolean =>
+      dayOwner === null || !fanOut.has(item.choreId) || belongsTo(item, dayOwner);
+
+    /*
+     * `locked` groups are left whole.
+     *
+     * "Already on today" exists so that *not in the list* means one thing —
+     * Jake went to add "Water upstairs plants", could not find it, and reported
+     * it missing when it was already planned. A row holding the other person's
+     * fan-out key can be on a plan: the old picker offered those, and two such
+     * rows are in the database. The plan screen still draws them, so hiding
+     * them here would recreate exactly the ambiguity this group answers.
+     *
+     * Two consequences, both accepted rather than unnoticed. If *both* fan-out
+     * keys are on one plan — only the legacy rows above can do that now — this
+     * group shows two identical disabled rows, which mirrors what the plan
+     * screen draws and cannot be picked either way. And `already` is built from
+     * `entries`, which is always **your** plan, so filling your housemate's day
+     * shows what is on yours under that heading. That one predates this filter
+     * and wants the housemate's entries plumbed through here to fix properly.
+     */
+    return candidates
+      .map((group) =>
+        group.locked === true ? group : { ...group, items: group.items.filter(forThisDay) },
+      )
+      .filter((group) => group.items.length > 0);
   }, [
     entries,
     today,
@@ -318,14 +381,25 @@ export function PlanView() {
     floatingSlots,
     horizonUpcoming,
     somedayItems,
+    chores,
+    pickingFor,
+    userId,
   ]);
 
   /**
    * The day the app would offer, if asked.
    *
-   * Built from the same candidates the picker groups, minus anything already
-   * planned — so accepting the proposal and picking by hand can never disagree
-   * about what is available.
+   * **Deliberately narrower than the picker**, which the sentence here used to
+   * deny — it claimed the two "can never disagree about what is available", and
+   * four things make them differ. The picker is you choosing and offers
+   * everything; this is the app being directive, and it withholds anything it
+   * would have to guess about: your housemate's dated work (`view.theirs`),
+   * their floating slots, anything assigned to nobody (an `unassignable`
+   * rotation with no segment covering the date), and work out at the picker's
+   * horizon rather than due now.
+   *
+   * The invariant that does hold is the one worth stating: everything the
+   * proposal offers, the picker offers too. Never the reverse.
    */
   const proposal = useMemo(() => {
     const planned = new Set(
@@ -340,8 +414,16 @@ export function PlanView() {
      * accepted proposal containing Sam's chores would silently reassign work
      * with nothing on screen saying so.
      */
+    /*
+     * `floatingSlots` needs the ownership test spelled out, because — unlike
+     * `view.mine` — it is not filtered by it: `buildTodayView` returns every
+     * floating group, the housemate's included, and a group is keyed per
+     * subject. So a "three times a week" chore that is theirs, or their copy of
+     * an `everyone` one, reached the proposal and `onAcceptProposal` wrote it to
+     * *your* day — the exact thing the paragraph above says must not happen.
+     */
     const outstanding = [...view.mine, ...floatingSlots].filter(
-      (item) => !planned.has(item.occurrenceKey),
+      (item) => !planned.has(item.occurrenceKey) && (userId === null || belongsTo(item, userId)),
     );
     const leftOver = new Set(
       unfinishedBefore(entries, today, outstanding).map((i) => i.occurrenceKey),
@@ -371,7 +453,7 @@ export function PlanView() {
         .filter((i): i is AgendaItem => i !== undefined),
       reason,
     };
-  }, [entries, today, view.mine, floatingSlots, chores, householdFlags]);
+  }, [entries, today, view.mine, floatingSlots, chores, householdFlags, userId]);
 
   /**
    * Everything due or late that is not on your plan yet.
