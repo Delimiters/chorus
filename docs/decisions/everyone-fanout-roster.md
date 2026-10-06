@@ -129,3 +129,20 @@ test, because it reads like coverage.
 The picker assertions count rows as a **delta** against the screen behind the
 sheet, which renders the same title — a bare total passes for the wrong reason
 the first time the plan stops rendering it.
+
+## Left open, on purpose
+
+**"Already on today" shows *your* plan even when you are filling your
+housemate's day.** `already` is built from `entries`, which is always
+`useMyPlanEntries(today)`, while the rest of the picker follows `pickingFor`. So
+the heading answers the wrong person's question in that one path, and you could
+be offered something that is already on their day. It predates this change —
+exempting locked groups from the fan-out filter is what promoted the heading's
+correctness to a stated invariant, which is why it is written down here. Fixing
+it properly means plumbing the housemate's plan entries into this layer, which
+is a wider change than the bug Jake reported.
+
+**Two identical disabled rows** appear in that group if both fan-out keys are on
+one plan. Only the two legacy rows can do that now, both on past days. It mirrors
+what the plan screen draws, and neither row can be picked, so it is accepted
+rather than labelled.

@@ -358,6 +358,14 @@ export function PlanView() {
      * fan-out key can be on a plan: the old picker offered those, and two such
      * rows are in the database. The plan screen still draws them, so hiding
      * them here would recreate exactly the ambiguity this group answers.
+     *
+     * Two consequences, both accepted rather than unnoticed. If *both* fan-out
+     * keys are on one plan — only the legacy rows above can do that now — this
+     * group shows two identical disabled rows, which mirrors what the plan
+     * screen draws and cannot be picked either way. And `already` is built from
+     * `entries`, which is always **your** plan, so filling your housemate's day
+     * shows what is on yours under that heading. That one predates this filter
+     * and wants the housemate's entries plumbed through here to fix properly.
      */
     return candidates
       .map((group) =>
@@ -381,9 +389,17 @@ export function PlanView() {
   /**
    * The day the app would offer, if asked.
    *
-   * Built from the same candidates the picker groups, minus anything already
-   * planned — so accepting the proposal and picking by hand can never disagree
-   * about what is available.
+   * **Deliberately narrower than the picker**, which the sentence here used to
+   * deny — it claimed the two "can never disagree about what is available", and
+   * four things make them differ. The picker is you choosing and offers
+   * everything; this is the app being directive, and it withholds anything it
+   * would have to guess about: your housemate's dated work (`view.theirs`),
+   * their floating slots, anything assigned to nobody (an `unassignable`
+   * rotation with no segment covering the date), and work out at the picker's
+   * horizon rather than due now.
+   *
+   * The invariant that does hold is the one worth stating: everything the
+   * proposal offers, the picker offers too. Never the reverse.
    */
   const proposal = useMemo(() => {
     const planned = new Set(
