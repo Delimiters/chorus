@@ -87,11 +87,6 @@ interface OccurrencesResult {
 }
 
 /**
- * Projected occurrences over a window.
- *
- * The window must already be quantised — pass one from {@link quantiseWindow}.
- */
-/**
  * The roster the `everyone` fan-out is given, which always contains you.
  *
  * `(members.data ?? []).map(...)` was the bug behind a row that vanished and
@@ -123,6 +118,11 @@ function rosterWithSelf(
   return [...roster, userId];
 }
 
+/**
+ * Projected occurrences over a window.
+ *
+ * The window must already be quantised — pass one from {@link quantiseWindow}.
+ */
 export function useOccurrences(window: DateWindow): OccurrencesResult {
   const householdId = useActiveHouseholdId();
   const household = useHousehold();

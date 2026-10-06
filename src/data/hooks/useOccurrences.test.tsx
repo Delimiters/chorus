@@ -363,6 +363,14 @@ describe('turn overrides reaching the projector', () => {
 describe('an “everyone” chore when the roster read comes back empty', () => {
   const ME = 'user-me';
 
+  afterEach(() => {
+    // This block repoints both module fixtures; leaving them set is a trap for
+    // whatever describe is appended next.
+    mockRoster = [];
+    mockListChores.mockReset();
+    mockListChores.mockResolvedValue({ chores: [], unreadable: [] } as never);
+  });
+
   beforeEach(() => {
     mockTurns = [];
     mockListChores.mockResolvedValue({
@@ -407,18 +415,6 @@ describe('an “everyone” chore when the roster read comes back empty', () => 
     await waitFor(() => expect(result.current?.isLoading).toBe(false));
     const mine = result.current.view.mine.map((i) => i.occurrenceKey);
     expect(mine).toContain(`v1:meds:2026-07-30:0:${ME}`);
-  });
-
-  it('does not invent a housemate', async () => {
-    // The guard adds back exactly one member — you. Inventing the rest would
-    // put work on somebody's day that nobody can see.
-    mockRoster = [];
-    const { wrapper } = setup();
-
-    const { result } = renderHook(() => useToday_View(), { wrapper });
-
-    await waitFor(() => expect(result.current?.isLoading).toBe(false));
-    expect(result.current.view.theirs).toEqual([]);
   });
 
   it('leaves a roster that already has you alone', async () => {

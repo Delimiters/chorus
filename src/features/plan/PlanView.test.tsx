@@ -1995,6 +1995,98 @@ describe('an “everyone” chore', () => {
     expect(screen.queryAllByText('meds')).toHaveLength(behind);
   });
 
+  it('due later is still offered to you, whichever id sorts first', async () => {
+    /*
+     * The horizon kept one row per *chore*, and both fan-out copies share a due
+     * date, so the survivor was whichever subject sorted first — then this
+     * screen dropped it when it was the housemate's. The result was a chore
+     * nobody could get ahead of from one of the two phones, which is the whole
+     * point of the "Later" group.
+     *
+     * Their id sorts first here on purpose: with the dedup keyed per chore this
+     * test cannot pass.
+     */
+    mockAutoPlan = false;
+    const ahead = { dueOn: civilDate('2026-10-20'), status: 'upcoming' } as const;
+    mockHorizon = [
+      item('weeding', {
+        ...ahead,
+        occurrenceKey: `v1:weeding:ahead:0:${mockThem}`,
+        subject: mockThem,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+      item('weeding', {
+        ...ahead,
+        occurrenceKey: `v1:weeding:ahead:0:${mockMe}`,
+        subject: mockMe,
+        assignee: { kind: 'member', memberId: mockMe, turn: 0 },
+      }),
+    ];
+    mockChores = [recurring('weeding', everyone)];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('weeding')).toBeOnTheScreen());
+    // Exactly one: yours. Not both, and not theirs.
+    expect(screen.getAllByText('weeding')).toHaveLength(1);
+  });
+
+  it('already on your day stays listed even holding their copy', async () => {
+    /*
+     * Two such rows are in the database — the old picker offered them — and the
+     * plan screen still draws them. "Already on today" exists so that *not in
+     * the list* means one thing; filtering it would recreate the ambiguity it
+     * was added to answer.
+     */
+    mockAutoPlan = false;
+    const theirs = `v1:meds:${mockToday}:0:${mockThem}`;
+    mockView.theirs = [
+      item('meds', {
+        occurrenceKey: theirs,
+        subject: mockThem,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+    ];
+    mockEntries = [{ occurrenceKey: theirs, choreId: 'meds', plannedFor: mockToday, position: 1 }];
+    mockChores = [oneOff('meds', everyone)];
+    renderView();
+    const behind = screen.queryAllByText('meds').length;
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
+    expect(screen.queryAllByText('meds').length).toBe(behind + 1);
+  });
+
+  it('is never proposed from your housemate’s floating slot', async () => {
+    /*
+     * `floatingSlots` is not ownership-filtered — `buildTodayView` returns every
+     * floating group and groups are keyed per subject — so their copy of a
+     * "three times a week" chore reached the proposal, and accepting it wrote
+     * their work to your day with nothing on screen saying so.
+     */
+    mockAutoPlan = false;
+    mockView.floating = [
+      {
+        choreId: 'laundry',
+        choreTitle: 'laundry',
+        subject: mockThem,
+        slots: [],
+        nextSlot: item('laundry', {
+          occurrenceKey: `v1:laundry:${mockToday}:0:${mockThem}`,
+          subject: mockThem,
+          assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+        }),
+      },
+    ] as never;
+    mockChores = [recurring('laundry', everyone)];
+    renderView();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Choose what to do today|Add something/)).toBeOnTheScreen(),
+    );
+    expect(screen.queryByText('laundry')).toBeNull();
+  });
+
   it('still offers a housemate’s chore that is theirs by assignment', async () => {
     /*
      * The narrowing is for fan-outs only. Taking a chore of theirs off their

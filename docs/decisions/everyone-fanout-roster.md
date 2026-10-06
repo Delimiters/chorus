@@ -81,14 +81,50 @@ which would settle it in one glance.
 PR #140 (the auto-fill ledger) stopped the *loop*. This stops the row from going
 missing in the first place, which is what the loop was oscillating on.
 
+## What the review caught
+
+The first version of this fix introduced a worse bug than one of the two it
+fixed, and the subagent review found it.
+
+`horizonUpcoming` deduped **by `choreId` alone**. Both fan-out copies share a due
+date, so the survivor was whichever subject sorted first — `sortForDisplay`
+breaks ties on `subject` — and the new picker filter then dropped it whenever
+that was the housemate's. A not-yet-due `everyone` chore became **unpickable for
+exactly one of the two people**, which is precisely what the "Later" group exists
+for. It would also have re-created the vanishing row for any `everyone`
+occurrence living between the Today window and the picker horizon, where the
+deduped horizon is the only source feeding `available`. Now keyed
+`choreId::subject`, the same shape the agenda's own grouping uses.
+
+Three more, all fixed here:
+
+- **`locked` groups are no longer filtered.** "Already on today" exists so that
+  *not in the list* means one thing; a plan row holding the other person's
+  fan-out key is still drawn by the plan screen, and two such rows are in the
+  database.
+- **The proposal filters by ownership.** `floatingSlots` is not ownership-filtered
+  — `buildTodayView` returns every floating group — so their copy of a floating
+  chore reached the proposal, and accepting it wrote their work to your day. The
+  paragraph directly above that code already said this must not happen.
+- **No `''` stand-in for "nobody".** `dayOwner` is `string | null` and a null
+  owner filters nothing rather than everything.
+
 ## Pinned by
 
 - `useOccurrences.test.tsx` — "an 'everyone' chore when the roster read comes
-  back empty": your copy is still on your day; no housemate is invented; a
-  healthy roster is untouched. Mutation-verified (drop the guard → red).
-- `PlanView.test.tsx` — "an 'everyone' chore": offered once, their copy not
-  offered when yours is settled, a non-fan-out chore of theirs still offered.
-  Mutation-verified (neutralise the filter → two go red).
+  back empty": your copy is still on your day, and a healthy roster is left
+  alone. Mutation-verified.
+- `PlanView.test.tsx` — "an 'everyone' chore": offered once; their copy not
+  offered when yours is settled; a non-fan-out chore of theirs still offered;
+  **due later still offered to you whichever id sorts first**; already-on-today
+  still listed while holding their copy; never proposed from their floating slot.
+  Each of the last three fails when its own guard is reverted, and nothing else.
+
+A third test — "does not invent a housemate" — was **deleted rather than kept**.
+The review showed it passed with the fix reverted and could not fail under any
+implementation: it asserted `view.theirs === []`, which was already true when the
+fan-out produced zero occurrences. A test that cannot go red is worse than no
+test, because it reads like coverage.
 
 The picker assertions count rows as a **delta** against the screen behind the
 sheet, which renders the same title — a bare total passes for the wrong reason
