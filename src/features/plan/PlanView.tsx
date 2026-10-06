@@ -308,7 +308,31 @@ export function PlanView() {
         ].filter((item) => planned.has(item.occurrenceKey)),
       },
     ];
-    return candidates.filter((group) => group.items.length > 0);
+    /*
+     * One copy of an `everyone` chore — yours, on your day.
+     *
+     * A fan-out produces **one occurrence per member**, each separately
+     * completable, so the picker was listing the same title twice with nothing
+     * to tell the two apart. Jake hit it directly: *"sometimes when searching
+     * something to add to the plan I see two copies"*.
+     *
+     * Dropping the other person's copy rather than labelling it, because
+     * offering it is the bug and not just the ambiguity: their copy is their
+     * job, ticking it would finish *their* share while yours still stood, and
+     * the row would then sit on your day wearing their name.
+     *
+     * Only fan-outs are narrowed. A chore of theirs that is `fixed` or on a
+     * rotation stays offered — taking something off your housemate's hands is
+     * a real thing to want, and there the occurrence genuinely is the work.
+     */
+    const dayOwner = pickingFor ?? userId ?? '';
+    const fanOut = new Set(chores.filter((c) => c.assignment.kind === 'everyone').map((c) => c.id));
+    const forThisDay = (item: AgendaItem): boolean =>
+      !fanOut.has(item.choreId) || belongsTo(item, dayOwner);
+
+    return candidates
+      .map((group) => ({ ...group, items: group.items.filter(forThisDay) }))
+      .filter((group) => group.items.length > 0);
   }, [
     entries,
     today,
@@ -318,6 +342,9 @@ export function PlanView() {
     floatingSlots,
     horizonUpcoming,
     somedayItems,
+    chores,
+    pickingFor,
+    userId,
   ]);
 
   /**
