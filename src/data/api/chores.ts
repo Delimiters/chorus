@@ -5,7 +5,7 @@
  * from these three by the pure engine, never fetched. See docs/ARCHITECTURE.md.
  */
 
-import { CHORE_TITLE_MAX } from '@/core/chore/limits';
+import { CHORE_TITLE_MAX } from '@/core/text/limits';
 import { safeParseSchedule } from '@/core/recurrence/schema';
 import type { Schedule } from '@/core/recurrence/types';
 import { safeParseAssignment } from '@/core/rotation/schema';

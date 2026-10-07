@@ -15,6 +15,7 @@
  * appears to promise.
  */
 
+import { NOTE_BODY_MAX, NOTE_TITLE_MAX } from '@/core/text/limits';
 import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -78,7 +79,7 @@ export function NoteEditor({
           value={title}
           onChangeText={setTitle}
           placeholder="Optional"
-          maxLength={120}
+          maxLength={NOTE_TITLE_MAX}
         />
 
         <Field
@@ -87,7 +88,7 @@ export function NoteEditor({
           onChangeText={setBody}
           placeholder="Anything worth coming back to"
           multiline
-          maxLength={20000}
+          maxLength={NOTE_BODY_MAX}
         />
 
         {error === null ? null : (

@@ -59,8 +59,26 @@ would need both, which is why these numbers only go up.
 overflow its cell, and truncating a name somebody deliberately made long would be
 worse. Only the picker and the housemate's column clip to one line.
 
-**Left at 120:** routine item titles, subtask titles and note titles. Jake asked
-about the chore title specifically, and each of those has its own CHECK to move.
+**Then the rest, at Jake's word — *"yeah make the same change"***. Routine item
+names, chore steps and note headings are all 200 now, in
+`20261007120000_longer_titles_everywhere.sql`.
+
+Each CHECK keeps its own shape and only its ceiling moves, because the three
+differ in ways that matter:
+
+| column | CHECK | what the shape protects |
+| --- | --- | --- |
+| `chore_subtasks.title` | `char_length(title) between 1 and 200` | not empty |
+| `routine_items.title` | `char_length(trim(title)) between 1 and 200` | not empty **and not only spaces** |
+| `household_notes.title` | `title is null or length(title) <= 200` | may be **absent** — a note is its body |
+
+Flattening them into one form would quietly change three other things. The notes
+and body caps (2000, 20000) did not move.
+
+Every cap now lives in **`src/core/text/limits.ts`**, one module, because the
+chore title's move proved what happens otherwise: it lived in five places and
+four of them kept the old number while the change was described as shipped.
+`src/core/chore/limits.ts` was folded into it.
 
 ## Pinned by
 

@@ -12,6 +12,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 
+import { SUBTASK_TITLE_MAX } from '@/core/text/limits';
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilTime } from '@/core/civil/types';
 import { safeParseSchedule } from '@/core/recurrence/schema';
@@ -1146,5 +1147,47 @@ describe('a long name', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
 
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe('a long step', () => {
+  /*
+   * The steps editor caps its own input and has no save gate of its own, so the
+   * only thing that could hold the old 120 was `maxLength` — and a `maxLength`
+   * below the CHECK is invisible: nothing errors, you simply cannot type the
+   * name you wanted, which is the complaint that started all of this.
+   *
+   * Typed through the field and read back off the submitted draft, because
+   * asserting the prop would pass against a component that ignores it.
+   */
+  it('may be typed up to the shared cap', async () => {
+    /*
+     * The prop, not a typed-past-the-limit attempt, and deliberately so:
+     * `fireEvent.changeText` sets the value directly, so `maxLength` — which
+     * React Native enforces natively — has nothing to clip in a test. jest-expo
+     * does no native text handling, so this is the only observable contract.
+     *
+     * It is still worth pinning. A `maxLength` below the CHECK is the invisible
+     * failure: nothing errors, you simply cannot type the name you wanted, which
+     * is the complaint that started all of this.
+     */
+    await renderForm();
+    await fireEvent.press(screen.getByRole('button', { name: 'Add a step' }));
+
+    expect(screen.getByLabelText('Step 1').props.maxLength).toBe(SUBTASK_TITLE_MAX);
+  });
+
+  it('past the old limit survives into the draft', async () => {
+    // Through the field and back off the draft, which guards the trim-and-filter
+    // path the steps go through on the way out.
+    const { onSubmit } = await renderForm();
+    const long = 'd'.repeat(150);
+
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Deep clean');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add a step' }));
+    await fireEvent.changeText(screen.getByLabelText('Step 1'), long);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).subtasks?.[0]?.title).toBe(long);
   });
 });

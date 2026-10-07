@@ -21,7 +21,7 @@
  * docs/TESTING.md.
  */
 
-import { CHORE_TITLE_MAX } from '@/core/chore/limits';
+import { CHORE_TITLE_MAX } from '@/core/text/limits';
 import { civilDate } from '../../src/core/civil/date';
 import type { Schedule } from '../../src/core/recurrence/types';
 import type { Assignment } from '../../src/core/rotation/types';

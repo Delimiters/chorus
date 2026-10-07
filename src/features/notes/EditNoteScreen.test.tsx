@@ -7,6 +7,8 @@
  */
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
+import { NOTE_BODY_MAX, NOTE_TITLE_MAX } from '@/core/text/limits';
+
 import { ThemeProvider } from '@/design/theme';
 
 import { EditNoteScreen } from './EditNoteScreen';
@@ -168,5 +170,29 @@ describe('deleting', () => {
 
     expect(screen.queryByText('Delete it')).toBeNull();
     expect(mockDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('how much a note can hold', () => {
+  /*
+   * The props, because `fireEvent.changeText` sets a value directly and
+   * `maxLength` is enforced natively — there is nothing for it to clip in a
+   * test, and jest-expo does no native text handling.
+   *
+   * Pinned anyway: a `maxLength` below the CHECK is the invisible failure. The
+   * heading's cap moved from 120 to 200 with every other title; the body's did
+   * not move and is here so the pair cannot drift apart unnoticed.
+   */
+  it('takes a heading as long as every other title', () => {
+    renderScreen();
+
+    expect(screen.getByLabelText('Title').props.maxLength).toBe(NOTE_TITLE_MAX);
+  });
+
+  it('takes a body far longer, which is what a note is', () => {
+    renderScreen();
+
+    expect(screen.getByLabelText('Note').props.maxLength).toBe(NOTE_BODY_MAX);
+    expect(NOTE_TITLE_MAX).toBeLessThan(NOTE_BODY_MAX);
   });
 });

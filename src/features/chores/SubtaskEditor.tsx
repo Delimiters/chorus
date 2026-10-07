@@ -12,6 +12,7 @@
  * place rather than deleting and re-adding.
  */
 
+import { SUBTASK_TITLE_MAX } from '@/core/text/limits';
 import { Pressable, TextInput, View } from 'react-native';
 
 import { Txt } from '@/design/components';
@@ -55,7 +56,7 @@ export function SubtaskEditor({ value, onChange }: Props) {
               placeholder={`Step ${index + 1}`}
               placeholderTextColor={colors.textFaint}
               accessibilityLabel={`Step ${index + 1}`}
-              maxLength={120}
+              maxLength={SUBTASK_TITLE_MAX}
               style={{
                 flex: 1,
                 minHeight: MIN_TARGET,

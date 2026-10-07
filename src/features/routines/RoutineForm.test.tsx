@@ -177,3 +177,54 @@ describe('RoutineForm', () => {
     expect(onCancel).toHaveBeenCalled();
   });
 });
+
+describe('a long name', () => {
+  /*
+   * Asserted through the button, which is the only thing that proves the input,
+   * the save gate and the API layer agree on the cap.
+   *
+   * The chore form taught this: its `maxLength` went to 200 while `canSave`
+   * stayed at 120, so a 150-character name typed fine and then `Add chore` did
+   * nothing, silently, with the whole suite green. Every existing test here
+   * names a routine "Stretch".
+   */
+  it('past the old limit can be saved', async () => {
+    const { onSubmit } = await renderForm();
+    const long = 'a'.repeat(150);
+    await fireEvent.changeText(screen.getByLabelText('Name'), long);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add to my routine' }));
+
+    expect(submitted(onSubmit).title).toBe(long);
+  });
+
+  it('right at the new limit can be saved', async () => {
+    const { onSubmit } = await renderForm();
+    const atCap = 'b'.repeat(200);
+    await fireEvent.changeText(screen.getByLabelText('Name'), atCap);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add to my routine' }));
+
+    expect(submitted(onSubmit).title).toBe(atCap);
+  });
+
+  it('shows no error for a name the database now accepts', async () => {
+    /*
+     * There was a `trimmed.length > 120` branch here putting "That name is too
+     * long." under the field. Unreachable while the input capped at 120 — and
+     * raising the cap turned it into a false accusation about a legal name,
+     * beside a button that worked.
+     */
+    await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'c'.repeat(150));
+
+    expect(screen.queryByText('That name is too long.')).toBeNull();
+  });
+
+  it('is still refused when it is nothing but spaces', async () => {
+    // The floor the widening must not drop, and the one CHECK that trims first.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), '    ');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add to my routine' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
