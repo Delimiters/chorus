@@ -13,7 +13,7 @@
  * the integration suite does that, by inserting with the same names.
  */
 
-import { CHORE_TITLE_MAX } from '@/core/chore/limits';
+import { CHORE_TITLE_MAX } from '@/core/text/limits';
 import { civilDate } from '@/core/civil/date';
 import type { Schedule } from '@/core/recurrence/types';
 import type { Assignment } from '@/core/rotation/types';

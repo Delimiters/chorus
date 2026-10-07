@@ -38,7 +38,7 @@ import type { Assignment } from '@/core/rotation/types';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { BackBar, Button, ErrorState, Field, Stack, Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
-import { CHORE_NOTES_MAX, CHORE_TITLE_MAX } from '@/core/chore/limits';
+import { CHORE_NOTES_MAX, CHORE_TITLE_MAX } from '@/core/text/limits';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
 import { useReminderPolicy } from '@/stores/reminderStore';
 import { describeSilence, whyNoReminder } from '@/core/notify/silence';

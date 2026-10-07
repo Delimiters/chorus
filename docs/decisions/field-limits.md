@@ -59,28 +59,87 @@ would need both, which is why these numbers only go up.
 overflow its cell, and truncating a name somebody deliberately made long would be
 worse. Only the picker and the housemate's column clip to one line.
 
-**Left at 120:** routine item titles, subtask titles and note titles. Jake asked
-about the chore title specifically, and each of those has its own CHECK to move.
+**Then the rest, at Jake's word — *"yeah make the same change"***. Routine item
+names, chore steps and note headings are all 200 now, in
+`20261007120000_longer_titles_everywhere.sql`.
+
+Each CHECK keeps its own shape and only its ceiling moves, because the three
+differ in ways that matter:
+
+| column | CHECK | what the shape protects |
+| --- | --- | --- |
+| `chore_subtasks.title` | `char_length(title) between 1 and 200` | not empty |
+| `routine_items.title` | `char_length(trim(title)) between 1 and 200` | not empty **and not only spaces** |
+| `household_notes.title` | `title is null or length(title) <= 200` | may be **absent** — a note is its body |
+
+Flattening them into one form would quietly change three other things. The notes
+and body caps (2000, 20000) did not move.
+
+Every cap a CHECK enforces and a screen types into now lives in
+**`src/core/text/limits.ts`**, one module, because the chore title's move proved
+what happens otherwise: it lived in five places and four of them kept the old
+number while the change was described as shipped. `src/core/chore/limits.ts` was
+folded into it, and a review then found one more literal hiding in
+`src/data/api/categories.ts` — the same API-layer shape, caught only because
+someone went looking after the claim was written.
+
+Deliberately **not** here: the invite code's nine characters, which are a format
+rather than a cap and belong with the code that parses them, and the CHECKs on
+`chore_completions.note` and the icon columns, which no input types into yet.
 
 ## Pinned by
 
-- `src/design/Field.test.tsx` — seventeen tests over the three states, the
+- `src/design/Field.test.tsx` — nineteen tests over the three states, the
   threshold for short and long fields, precedence against hint and error, the
   footer row's presence and absence, the spoken announcement, and the haptic
   firing once per arrival, never on mount.
-- `src/core/chore/limits.test.ts` — the constant against the bound parsed out of
-  the migrations, in either direction. A review showed the first version of that
-  parser passing on a stale bound in three realistic spellings (uppercase SQL, a
-  renamed constraint, the `>= 1 and <= 200` form); it now matches on
-  `char_length(title)` case-insensitively and takes the last migration that
-  touches it.
-- `supabase/tests/chore-title-length.test.sql` — 200 accepted, 121 accepted
-  (the point of the change), 201 rejected, empty rejected. No *database* test
-  asserted the old 120, which is how a widened CHECK loses its upper bound
-  unnoticed.
-- `src/features/chores/ChoreForm.test.tsx` — a 150-character and a 200-character
-  name reach `onSubmit` **through the button**, and whitespace still does not.
-  This is the test the change actually needed; see below.
+- `src/core/text/limits.test.ts` — every constant against the bound parsed out of
+  the migrations, in either direction. This parser took **three** rounds of
+  review to get right, and each round it was passing while being wrong:
+  1. First it keyed on a constraint *name* and matched case-sensitively, so a
+     future widening written in uppercase, or with the constraint renamed, or as
+     `>= 1 and <= 200`, was skipped — and the *old* bound still matched, so the
+     test reported agreement.
+  2. Then it keyed on the column name alone, which was luck with four `title`
+     CHECKs in the schema and would have broken outright here.
+  3. Then its table filter was a substring test, which let an unqualified `alter
+     table x` followed by a newline go unseen, let a later `create table` with
+     `references public.chores (id)` hijack the chores assertion, and — already
+     happening — made `chores.notes` read `routine_items`, because that
+     migration contains the comment *"mirror chores for the same reason"*. Both
+     passed only because the two bounds were equal.
+  4. Then the structural fault underneath all three: it **failed closed**. When
+     nothing matched, it kept the bound from an older migration, and its only
+     error fired when *no* migration had ever matched — which the base schema
+     always does. So quoted identifiers, `alter table only`, `alter table if
+     exists`, an anonymous `add check`, and a widening built by dynamic SQL were
+     each skipped in silence while the test reported agreement.
+
+  It now walks the SQL to strip comments without touching string literals (one
+  migration really does contain `'https://exp.host/--/api/v2/push/send'`, and a
+  `/*` inside a string used to swallow every statement up to the next `*/`),
+  reads each statement's own DDL target tolerantly, and **throws when a statement
+  bounds the column but cannot be attributed to a table** — which is what turns
+  every spelling above into a loud failure instead of a silent pass. Each is
+  verified by adding a hypothetical migration; an unrelated new table with a
+  foreign key to `chores` is verified *not* to raise a false alarm.
+- `supabase/tests/title-lengths.test.sql` — thirteen assertions over four tables,
+  each against its own CHECK: 200 accepted and 201 rejected everywhere; 121
+  accepted for `chores`, the bound that moved first; the floor asserted as *not
+  empty* for `chores` and `chore_subtasks`, as *not only spaces* for
+  `routine_items`, whose CHECK trims, and as *may be absent* for
+  `household_notes.title`, which has no floor to keep — an empty heading is legal
+  there and is not asserted against. No *database* test asserted the old 120,
+  which is how a widened CHECK loses its upper bound unnoticed.
+- `src/features/chores/ChoreForm.test.tsx` and `RoutineForm.test.tsx` — a
+  150-character and a 200-character name reach `onSubmit` **through the button**,
+  and whitespace still does not. This is the test the change actually needed.
+- Caps that only a `maxLength` enforces — chore steps and a note's heading — are
+  typed with `userEvent.type`, which maintains text state and so *does* enforce
+  `maxLength`. `fireEvent.changeText` sets the value directly and bypasses it,
+  which is why these were briefly prop assertions; a review showed the
+  behavioural test was available after all. A note's 20,000-character body stays
+  a prop assertion, because typing it one keystroke at a time takes minutes.
 
 ## What the review caught, and it was the whole feature
 

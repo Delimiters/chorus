@@ -14,6 +14,7 @@
  * cancel.
  */
 
+import { CATEGORY_NAME_MAX } from '@/core/text/limits';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -112,7 +113,7 @@ export function CategoryEditor({ categoryId }: Props) {
             value={name}
             onChangeText={setName}
             placeholder="Kitchen"
-            maxLength={40}
+            maxLength={CATEGORY_NAME_MAX}
           />
 
           <FieldGroup label="Colour">

@@ -5,7 +5,9 @@
  * confident and wrong answer to a dropped connection — and that both screens
  * called a bare `router.back()`, which does nothing on a cold start.
  */
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, userEvent } from '@testing-library/react-native';
+
+import { NOTE_BODY_MAX, NOTE_TITLE_MAX } from '@/core/text/limits';
 
 import { ThemeProvider } from '@/design/theme';
 
@@ -168,5 +170,39 @@ describe('deleting', () => {
 
     expect(screen.queryByText('Delete it')).toBeNull();
     expect(mockDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('how much a note can hold', () => {
+  /*
+   * Typed rather than asserted as props. `fireEvent.changeText` sets a value
+   * directly and bypasses `maxLength`; `userEvent.type` maintains text state and
+   * enforces it, so the cap is observable as behaviour — a prop assertion would
+   * pass against a component that ignored the prop.
+   *
+   * A `maxLength` below the CHECK is the invisible failure: nothing errors, you
+   * simply cannot type the heading you wanted.
+   */
+  it('takes a heading as long as every other title', async () => {
+    renderScreen();
+    const title = screen.getByLabelText('Title');
+
+    await userEvent.type(title, 'a'.repeat(NOTE_TITLE_MAX + 10));
+
+    expect((title.props.value as string).length).toBe(NOTE_TITLE_MAX);
+    // `userEvent.type` costs an event per character, so the budget has to scale
+    // with the cap rather than sit at the 5000ms default.
+  }, 20000);
+
+  it('takes a body far longer, which is what a note is', () => {
+    /*
+     * The prop here, deliberately: typing 20,001 characters one keystroke at a
+     * time takes minutes. The heading above proves the mechanism works; this
+     * guards the pair against drifting apart.
+     */
+    renderScreen();
+
+    expect(screen.getByLabelText('Note').props.maxLength).toBe(NOTE_BODY_MAX);
+    expect(NOTE_TITLE_MAX).toBeLessThan(NOTE_BODY_MAX);
   });
 });

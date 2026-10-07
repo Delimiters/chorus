@@ -9,9 +9,10 @@
  * whose turn every future occurrence is.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 
+import { CHORE_TITLE_MAX, SUBTASK_TITLE_MAX } from '@/core/text/limits';
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilTime } from '@/core/civil/types';
 import { safeParseSchedule } from '@/core/recurrence/schema';
@@ -1132,7 +1133,7 @@ describe('a long name', () => {
 
   it('right at the new limit can be saved', async () => {
     const { onSubmit } = await renderForm();
-    const atCap = 'b'.repeat(200);
+    const atCap = 'b'.repeat(CHORE_TITLE_MAX);
     await fireEvent.changeText(screen.getByLabelText('Name'), atCap);
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
 
@@ -1146,5 +1147,60 @@ describe('a long name', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
 
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe('a long step', () => {
+  /*
+   * The steps editor caps its own input and has no save gate of its own, so the
+   * only thing that could hold the old 120 was `maxLength` — and a `maxLength`
+   * below the CHECK is invisible: nothing errors, you simply cannot type the
+   * name you wanted, which is the complaint that started all of this.
+   *
+   * Typed through the field and read back off the submitted draft, because
+   * asserting the prop would pass against a component that ignores it.
+   */
+  it('stops accepting characters at the cap, and not before', async () => {
+    /*
+     * Typed, not asserted as a prop.
+     *
+     * `fireEvent.changeText` sets the value directly and so bypasses
+     * `maxLength` entirely — which is why the first version of this test
+     * checked the prop and said that was the only option. A review showed
+     * `userEvent.type` maintains text state and *does* enforce it, so the real
+     * behaviour is observable after all: a prop assertion would have passed
+     * against a component that ignored it.
+     *
+     * A `maxLength` below the CHECK is the invisible failure — nothing errors,
+     * you simply cannot type the name you wanted, which is the complaint that
+     * started all of this.
+     */
+    await renderForm();
+    await userEvent.press(screen.getByRole('button', { name: 'Add a step' }));
+    const step = screen.getByLabelText('Step 1');
+
+    await userEvent.type(step, 'e'.repeat(SUBTASK_TITLE_MAX + 10));
+
+    expect((step.props.value as string).length).toBe(SUBTASK_TITLE_MAX);
+    /*
+     * An explicit timeout because `userEvent.type` costs one event per
+     * character: this runs ~2.7s against a 200-character cap, and the default
+     * 5000ms would make the *next* widening fail here by timeout rather than by
+     * assertion — on the very change this test exists to guard.
+     */
+  }, 20000);
+
+  it('past the old limit survives into the draft', async () => {
+    // Through the field and back off the draft, which guards the trim-and-filter
+    // path the steps go through on the way out.
+    const { onSubmit } = await renderForm();
+    const long = 'd'.repeat(150);
+
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Deep clean');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add a step' }));
+    await fireEvent.changeText(screen.getByLabelText('Step 1'), long);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).subtasks?.[0]?.title).toBe(long);
   });
 });
