@@ -5,6 +5,7 @@
  * from these three by the pure engine, never fetched. See docs/ARCHITECTURE.md.
  */
 
+import { CHORE_TITLE_MAX } from '@/core/chore/limits';
 import { safeParseSchedule } from '@/core/recurrence/schema';
 import type { Schedule } from '@/core/recurrence/types';
 import { safeParseAssignment } from '@/core/rotation/schema';
@@ -380,7 +381,12 @@ export function choreRow(draft: ChoreDraft): {
 } {
   const title = draft.title.trim();
   if (title.length === 0) throw new Error('A chore needs a name.');
-  if (title.length > 120) throw new Error('That name is too long — 120 characters at most.');
+  // The same constant the form and the CHECK use. Hard-coded here, it silently
+  // outranked both: a 200-character title passed the input and the constraint
+  // and then threw on the way to the table.
+  if (title.length > CHORE_TITLE_MAX) {
+    throw new Error(`That name is too long — ${String(CHORE_TITLE_MAX)} characters at most.`);
+  }
 
   const schedule = safeParseSchedule(draft.schedule);
   if (!schedule.success) throw new Error('That schedule is not one the app can store.');

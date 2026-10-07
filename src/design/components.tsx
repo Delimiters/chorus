@@ -6,7 +6,9 @@
  * they establish the patterns the rest will follow.
  */
 
+import { useEffect, useRef } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Pressable,
   Text,
@@ -19,6 +21,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { tapped } from './haptics';
 import { useColors } from './theme';
 import { MIN_TARGET, radius, space, type } from './tokens';
 
@@ -162,8 +165,87 @@ interface FieldProps extends Omit<TextInputProps, 'style'> {
   inputStyle?: StyleProp<TextStyle> | undefined;
 }
 
+/**
+ * How close to `maxLength` the countdown appears.
+ *
+ * A quarter of the field, capped at twenty characters. A flat twenty would mean
+ * the nine-character invite code counts down from the moment you start typing,
+ * and a flat quarter would put a counter on the 2000-character notes field 500
+ * characters early. Both read as nagging.
+ */
+function countdownFrom(maxLength: number): number {
+  return Math.min(20, Math.ceil(maxLength / 4));
+}
+
 export function Field({ label, error, hint, inputStyle, ...rest }: FieldProps) {
   const colors = useColors();
+
+  /*
+   * What happens when you run out of room.
+   *
+   * Emily hit the end of a chore name and the field just stopped accepting
+   * keystrokes — nothing moved, nothing said why, and a key that does nothing
+   * reads as a broken keyboard rather than a full field. `maxLength` is what
+   * makes that silence: React Native clips the text before `onChangeText` ever
+   * fires, so there is no event to react to and the only honest fix is to say
+   * where the boundary is *before* you arrive at it.
+   *
+   * Three states, and the limit is deliberately **not** drawn as an error: the
+   * border stays neutral and the copy does not apologise. Nothing is wrong —
+   * the field is simply full, which is a fact about the field and not a mistake
+   * you made.
+   */
+  const maxLength = rest.maxLength;
+  const length = typeof rest.value === 'string' ? rest.value.length : 0;
+  const remaining = maxLength === undefined ? null : maxLength - length;
+  const full = remaining === 0;
+  const counting =
+    maxLength !== undefined && remaining !== null && remaining > 0
+      ? remaining <= countdownFrom(maxLength)
+      : false;
+
+  /*
+   * Buzzes when you *arrive* at the limit — not on every keystroke there, and
+   * not when a field is already full the moment it appears.
+   *
+   * The first run is skipped deliberately. A field seeded from existing data can
+   * mount at its cap — open a note whose title is exactly 120 characters, or
+   * edit a chore named right up to 200 — and buzzing the phone and interrupting
+   * a screen reader for a limit the reader did not just hit is startling and
+   * meaningless. `wasFull` starting as `null` is what distinguishes "mounted
+   * full" from "just became full".
+   *
+   * The ref is read and written inside the effect, never during render: a ref
+   * written during render makes the React Compiler bail out of this whole
+   * function, silently.
+   */
+  const wasFull = useRef<boolean | null>(null);
+  useEffect(() => {
+    const first = wasFull.current === null;
+    wasFull.current = full;
+    if (first || !full) return;
+    tapped();
+    // Nothing visual reaches a screen reader here — the counter is not focused
+    // and the input's value has stopped changing — so the limit is spoken.
+    AccessibilityInfo.announceForAccessibility(`Full at ${String(maxLength)} characters`);
+  }, [full, maxLength]);
+
+  /*
+   * Puts the sentinel back when the component goes away.
+   *
+   * Only reachable under StrictMode, which double-invokes effects in
+   * development: mount, cleanup, mount again. Without this the second
+   * invocation sees a ref that is no longer `null`, decides it is not the first
+   * run, and buzzes for a field that merely *opened* full — the defect the
+   * sentinel exists to prevent, reappearing only in development. Nothing turns
+   * StrictMode on today; this costs one effect and removes the trap.
+   */
+  useEffect(
+    () => () => {
+      wasFull.current = null;
+    },
+    [],
+  );
 
   return (
     <View style={{ gap: space.xs }}>
@@ -187,14 +269,42 @@ export function Field({ label, error, hint, inputStyle, ...rest }: FieldProps) {
         ]}
         {...rest}
       />
-      {error !== undefined ? (
-        <Txt variant="small" tone="danger">
-          {error}
-        </Txt>
-      ) : hint !== undefined ? (
-        <Txt variant="small" tone="faint">
-          {hint}
-        </Txt>
+      {/*
+        One row, so a hint and a countdown cannot fight over the same line and
+        push the fields below them around as you type. The row is only rendered
+        when it has something in it — an empty one would add permanent space
+        under every field in the app.
+      */}
+      {error !== undefined || full || hint !== undefined || counting ? (
+        <View
+          testID="field-footer"
+          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}
+        >
+          <View style={{ flex: 1 }}>
+            {error !== undefined ? (
+              <Txt variant="small" tone="danger">
+                {error}
+              </Txt>
+            ) : full ? (
+              /*
+                No label in the sentence.
+                
+                It read "That's the longest a ${label.toLowerCase()} can be",
+                which produced "a notes", "a invite code" and "a household" —
+                three of the nine capped fields in the app. An article cannot be
+                derived from a label, and the label is already on screen
+                directly above this line, so the sentence says the thing the
+                label cannot: why the keyboard stopped doing anything.
+              */
+              <Txt variant="small">{`You've used all ${String(maxLength)} characters — that's the limit.`}</Txt>
+            ) : hint !== undefined ? (
+              <Txt variant="small" tone="faint">
+                {hint}
+              </Txt>
+            ) : null}
+          </View>
+          {counting ? <Txt variant="small" tone="faint">{`${String(remaining)} left`}</Txt> : null}
+        </View>
       ) : null}
     </View>
   );

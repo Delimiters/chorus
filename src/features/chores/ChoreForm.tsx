@@ -38,6 +38,7 @@ import type { Assignment } from '@/core/rotation/types';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { BackBar, Button, ErrorState, Field, Stack, Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
+import { CHORE_NOTES_MAX, CHORE_TITLE_MAX } from '@/core/chore/limits';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
 import { useReminderPolicy } from '@/stores/reminderStore';
 import { describeSilence, whyNoReminder } from '@/core/notify/silence';
@@ -261,8 +262,20 @@ export function ChoreForm({
   );
 
   const trimmed = title.trim();
+  /*
+   * `CHORE_TITLE_MAX`, not a literal.
+   *
+   * This read 120 while the input allowed 200, so a 150-character name typed
+   * fine and then `Add chore` did nothing — a dead control with no explanation,
+   * which is the exact defect the field countdown exists to prevent. It only
+   * became reachable when the cap went up: at `maxLength={120}` the gate could
+   * never be crossed.
+   */
   const canSave =
-    trimmed.length > 0 && trimmed.length <= 120 && !isSaving && !createCategory.isPending;
+    trimmed.length > 0 &&
+    trimmed.length <= CHORE_TITLE_MAX &&
+    !isSaving &&
+    !createCategory.isPending;
 
   const submit = () => {
     if (!canSave) return;
@@ -357,8 +370,7 @@ export function ChoreForm({
           onChangeText={setTitle}
           placeholder="Take out the bins"
           autoFocus={!editing}
-          maxLength={120}
-          {...(trimmed.length > 120 ? { error: 'That name is too long.' } : {})}
+          maxLength={CHORE_TITLE_MAX}
         />
 
         <Field
@@ -367,7 +379,7 @@ export function ChoreForm({
           onChangeText={setNotes}
           placeholder="Optional"
           multiline
-          maxLength={2000}
+          maxLength={CHORE_NOTES_MAX}
         />
 
         {/* Category first: it picks the icon for you, and the icon picker is

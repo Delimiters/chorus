@@ -21,6 +21,7 @@
  * docs/TESTING.md.
  */
 
+import { CHORE_TITLE_MAX } from '@/core/chore/limits';
 import { civilDate } from '../../src/core/civil/date';
 import type { Schedule } from '../../src/core/recurrence/types';
 import type { Assignment } from '../../src/core/rotation/types';
@@ -142,14 +143,56 @@ describe('writing chores', () => {
   });
 
   it('rejects a title past the limit', async () => {
+    /*
+     * `CHORE_TITLE_MAX + 1`, not a literal.
+     *
+     * This asserted 121 characters are rejected, and it was the third place
+     * holding the old 120 — after `canSave` and the API layer — found only when
+     * the cap moved to 200 and this went red. Written against the constant, it
+     * follows the bound instead of pinning it.
+     *
+     * Deliberately only the rejection: a title that inserted here would also
+     * change the row count asserted further down, and that coupling is how the
+     * same change broke two tests at once.
+     */
     const client = asUser();
     const { error } = await client.from('chores').insert({
       household_id: householdId,
-      title: 'x'.repeat(121),
+      title: 'x'.repeat(CHORE_TITLE_MAX + 1),
       schedule: DAILY as never,
       created_by: userId,
     });
     expect(error?.code).toBe('23514');
+  });
+
+  it('accepts a title past the old 120, which is the point of the change', async () => {
+    // Inserted and then removed, so the row-count assertion below still holds.
+    const client = asUser();
+    const long = 'y'.repeat(CHORE_TITLE_MAX);
+    const { data, error } = await client
+      .from('chores')
+      .insert({
+        household_id: householdId,
+        title: long,
+        schedule: DAILY as never,
+        created_by: userId,
+      })
+      .select('id, title')
+      .single();
+
+    expect(error).toBeNull();
+    expect(data?.title).toBe(long);
+
+    /*
+     * Archived rather than deleted: `authenticated` has no DELETE on `chores`
+     * by design — a chore is archived so its completion history survives — and
+     * the row-count assertion below filters on `archived_at is null`.
+     */
+    const { error: cleanup } = await client
+      .from('chores')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', data?.id ?? '00000000-0000-0000-0000-000000000000');
+    expect(cleanup).toBeNull();
   });
 
   it('updates a chore in place, keeping its id', async () => {

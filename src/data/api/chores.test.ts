@@ -13,6 +13,7 @@
  * the integration suite does that, by inserting with the same names.
  */
 
+import { CHORE_TITLE_MAX } from '@/core/chore/limits';
 import { civilDate } from '@/core/civil/date';
 import type { Schedule } from '@/core/recurrence/types';
 import type { Assignment } from '@/core/rotation/types';
@@ -114,10 +115,19 @@ describe('refusing to write something unreadable', () => {
   });
 
   it('rejects a title past the database limit', () => {
-    // 120 is the CHECK constraint; failing before the round trip gives a
-    // sentence rather than a Postgres error code.
-    expect(() => choreRow(draft({ title: 'x'.repeat(121) }))).toThrow(/too long/);
-    expect(() => choreRow(draft({ title: 'x'.repeat(120) }))).not.toThrow();
+    /*
+     * `CHORE_TITLE_MAX` is the CHECK constraint; failing before the round trip
+     * gives a sentence rather than a Postgres error code.
+     *
+     * Written against the constant rather than a literal because this test is
+     * what caught the cap being raised in three places and not here: it asserted
+     * 121 throws, which stayed true and green while a 150-character name became
+     * impossible to save from a form that accepted every keystroke of it.
+     */
+    expect(() => choreRow(draft({ title: 'x'.repeat(CHORE_TITLE_MAX + 1) }))).toThrow(/too long/);
+    expect(() => choreRow(draft({ title: 'x'.repeat(CHORE_TITLE_MAX) }))).not.toThrow();
+    // The bound that moved, named explicitly: this is what the change was for.
+    expect(() => choreRow(draft({ title: 'x'.repeat(121) }))).not.toThrow();
   });
 
   it('rejects a schedule the engine cannot read', () => {
