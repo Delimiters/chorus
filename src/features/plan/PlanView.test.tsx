@@ -2156,17 +2156,60 @@ describe('filling your housemate’s day', () => {
     openTheirPicker();
 
     // Locked and counted, rather than offered to be added to her day twice.
-    await waitFor(() => expect(screen.queryByLabelText('Search chores to add')).not.toBeNull());
-    console.log(
-      'HEADERS',
-      JSON.stringify(screen.queryAllByText(/ · \d+$/).map((n) => n.props.children)),
-    );
     await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
+    expect(screen.queryByText('DUE TODAY · 1')).toBeNull();
+  });
+
+  it('shows what SHE left from before, not what you did', async () => {
+    /*
+     * The other half of the same scoping, and it had no test at all — a review
+     * reverted just this argument and all 943 passed. "Left from before" comes
+     * from `unfinishedBefore(dayEntries, …)`, which walks entries dated earlier
+     * than today, so reading your plan there put *your* unfinished work at the
+     * top of her picker, under a heading claiming she had chosen it once.
+     *
+     * Each row is on a different person's plan yesterday, so whichever source
+     * is wrong names the wrong chore rather than merely counting wrong.
+     */
+    mockEntries = [
+      { occurrenceKey: 'v1:yours', choreId: 'yours', plannedFor: '2026-08-08', position: 1 },
+    ];
+    mockAllEntries = [
+      {
+        occurrenceKey: 'v1:yours',
+        choreId: 'yours',
+        plannedFor: '2026-08-08',
+        position: 1,
+        userId: mockMe,
+      },
+      {
+        occurrenceKey: 'v1:hers',
+        choreId: 'hers',
+        plannedFor: '2026-08-08',
+        position: 1,
+        userId: mockThem,
+      },
+    ];
+    mockView.mine = [item('yours'), item('hers')];
+    mockChores = [recurring('yours'), recurring('hers')];
+    renderView();
+    openTheirPicker();
+
+    await waitFor(() => expect(screen.getByText('LEFT FROM BEFORE · 1')).toBeOnTheScreen());
+    // The group holds one row, and it has to be the right one.
+    expect(screen.getByRole('checkbox', { name: 'hers' })).toBeOnTheScreen();
   });
 
   it('still reads your own plan when the day is yours', async () => {
-    // The same row on *your* plan must behave the same way for you — otherwise
-    // the fix just moves the bug to the other person.
+    /*
+     * The other direction, so the fix cannot just move the bug to the other
+     * person.
+     *
+     * Deliberately noted as a *guard* rather than a regression test: reverting
+     * the scoping to `dayEntries = entries` leaves this green, because that is
+     * the branch the own-day path takes anyway. It fails on a swapped ternary,
+     * which is the mutation it exists for.
+     */
     mockEntries = [
       { occurrenceKey: 'v1:litter', choreId: 'litter', plannedFor: mockToday, position: 1 },
     ];
