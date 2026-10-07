@@ -236,14 +236,28 @@ export function PlanView() {
    * have to read twice.
    */
   const groups = useMemo((): readonly PickerGroup[] => {
+    /*
+     * The plan of whoever's day this is filling.
+     *
+     * It was always yours, which is wrong in every use below once the picker
+     * learned to fill your housemate's day: you were offered work already on
+     * her plan, "Left from before" showed what *you* had not got to, and
+     * "Already on today" — the group that exists so "it's not in the list"
+     * means one thing — answered about the wrong person entirely.
+     *
+     * `allEntries` is the household's whole plan and is already here for the
+     * housemate fill, so this costs no extra query.
+     */
+    const dayEntries =
+      pickingFor === null ? entries : allEntries.filter((e) => e.userId === pickingFor);
     const planned = new Set(
-      entries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
+      dayEntries.filter((e) => e.plannedFor === today).map((e) => e.occurrenceKey),
     );
     const outstanding = [...view.mine, ...view.theirs, ...floatingSlots].filter(
       (item) => !planned.has(item.occurrenceKey),
     );
 
-    const leftOver = unfinishedBefore(entries, today, outstanding);
+    const leftOver = unfinishedBefore(dayEntries, today, outstanding);
     const leftKeys = new Set(leftOver.map((i) => i.occurrenceKey));
     const rest = outstanding.filter((item) => !leftKeys.has(item.occurrenceKey));
     const urgency = splitByUrgency(rest, today);
@@ -359,13 +373,10 @@ export function PlanView() {
      * rows are in the database. The plan screen still draws them, so hiding
      * them here would recreate exactly the ambiguity this group answers.
      *
-     * Two consequences, both accepted rather than unnoticed. If *both* fan-out
-     * keys are on one plan — only the legacy rows above can do that now — this
-     * group shows two identical disabled rows, which mirrors what the plan
-     * screen draws and cannot be picked either way. And `already` is built from
-     * `entries`, which is always **your** plan, so filling your housemate's day
-     * shows what is on yours under that heading. That one predates this filter
-     * and wants the housemate's entries plumbed through here to fix properly.
+     * One consequence, accepted rather than unnoticed: if *both* fan-out keys
+     * are on one plan — only the legacy rows above can do that now — this group
+     * shows two identical disabled rows, which mirrors what the plan screen
+     * draws and cannot be picked either way.
      */
     return candidates
       .map((group) =>
@@ -374,6 +385,7 @@ export function PlanView() {
       .filter((group) => group.items.length > 0);
   }, [
     entries,
+    allEntries,
     today,
     view.mine,
     view.theirs,
