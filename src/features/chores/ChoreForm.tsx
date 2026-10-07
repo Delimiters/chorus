@@ -38,6 +38,7 @@ import type { Assignment } from '@/core/rotation/types';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { BackBar, Button, ErrorState, Field, Stack, Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
+import { CHORE_NOTES_MAX, CHORE_TITLE_MAX } from '@/core/chore/limits';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
 import { useReminderPolicy } from '@/stores/reminderStore';
 import { describeSilence, whyNoReminder } from '@/core/notify/silence';
@@ -357,8 +358,7 @@ export function ChoreForm({
           onChangeText={setTitle}
           placeholder="Take out the bins"
           autoFocus={!editing}
-          maxLength={120}
-          {...(trimmed.length > 120 ? { error: 'That name is too long.' } : {})}
+          maxLength={CHORE_TITLE_MAX}
         />
 
         <Field
@@ -367,7 +367,7 @@ export function ChoreForm({
           onChangeText={setNotes}
           placeholder="Optional"
           multiline
-          maxLength={2000}
+          maxLength={CHORE_NOTES_MAX}
         />
 
         {/* Category first: it picks the icon for you, and the icon picker is
