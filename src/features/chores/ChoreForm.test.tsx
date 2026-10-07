@@ -12,7 +12,7 @@
 import { fireEvent, render, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 
-import { SUBTASK_TITLE_MAX } from '@/core/text/limits';
+import { CHORE_TITLE_MAX, SUBTASK_TITLE_MAX } from '@/core/text/limits';
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilTime } from '@/core/civil/types';
 import { safeParseSchedule } from '@/core/recurrence/schema';
@@ -1133,7 +1133,7 @@ describe('a long name', () => {
 
   it('right at the new limit can be saved', async () => {
     const { onSubmit } = await renderForm();
-    const atCap = 'b'.repeat(200);
+    const atCap = 'b'.repeat(CHORE_TITLE_MAX);
     await fireEvent.changeText(screen.getByLabelText('Name'), atCap);
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
 
@@ -1182,7 +1182,13 @@ describe('a long step', () => {
     await userEvent.type(step, 'e'.repeat(SUBTASK_TITLE_MAX + 10));
 
     expect((step.props.value as string).length).toBe(SUBTASK_TITLE_MAX);
-  });
+    /*
+     * An explicit timeout because `userEvent.type` costs one event per
+     * character: this runs ~2.7s against a 200-character cap, and the default
+     * 5000ms would make the *next* widening fail here by timeout rather than by
+     * assertion — on the very change this test exists to guard.
+     */
+  }, 20000);
 
   it('past the old limit survives into the draft', async () => {
     // Through the field and back off the draft, which guards the trim-and-filter

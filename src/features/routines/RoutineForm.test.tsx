@@ -1,3 +1,4 @@
+import { ROUTINE_TITLE_MAX } from '@/core/text/limits';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { civilDate } from '@/core/civil/date';
@@ -199,7 +200,7 @@ describe('a long name', () => {
 
   it('right at the new limit can be saved', async () => {
     const { onSubmit } = await renderForm();
-    const atCap = 'b'.repeat(200);
+    const atCap = 'b'.repeat(ROUTINE_TITLE_MAX);
     await fireEvent.changeText(screen.getByLabelText('Name'), atCap);
     await fireEvent.press(screen.getByRole('button', { name: 'Add to my routine' }));
 

@@ -75,14 +75,21 @@ differ in ways that matter:
 Flattening them into one form would quietly change three other things. The notes
 and body caps (2000, 20000) did not move.
 
-Every cap now lives in **`src/core/text/limits.ts`**, one module, because the
-chore title's move proved what happens otherwise: it lived in five places and
-four of them kept the old number while the change was described as shipped.
-`src/core/chore/limits.ts` was folded into it.
+Every cap a CHECK enforces and a screen types into now lives in
+**`src/core/text/limits.ts`**, one module, because the chore title's move proved
+what happens otherwise: it lived in five places and four of them kept the old
+number while the change was described as shipped. `src/core/chore/limits.ts` was
+folded into it, and a review then found one more literal hiding in
+`src/data/api/categories.ts` — the same API-layer shape, caught only because
+someone went looking after the claim was written.
+
+Deliberately **not** here: the invite code's nine characters, which are a format
+rather than a cap and belong with the code that parses them, and the CHECKs on
+`chore_completions.note` and the icon columns, which no input types into yet.
 
 ## Pinned by
 
-- `src/design/Field.test.tsx` — seventeen tests over the three states, the
+- `src/design/Field.test.tsx` — nineteen tests over the three states, the
   threshold for short and long fields, precedence against hint and error, the
   footer row's presence and absence, the spoken announcement, and the haptic
   firing once per arrival, never on mount.
@@ -101,15 +108,29 @@ four of them kept the old number while the change was described as shipped.
      happening — made `chores.notes` read `routine_items`, because that
      migration contains the comment *"mirror chores for the same reason"*. Both
      passed only because the two bounds were equal.
+  4. Then the structural fault underneath all three: it **failed closed**. When
+     nothing matched, it kept the bound from an older migration, and its only
+     error fired when *no* migration had ever matched — which the base schema
+     always does. So quoted identifiers, `alter table only`, `alter table if
+     exists`, an anonymous `add check`, and a widening built by dynamic SQL were
+     each skipped in silence while the test reported agreement.
 
-  It now strips SQL comments, matches the statement's own `create table` /
-  `alter table` target, and throws rather than passing when it finds nothing.
-  Each leak above is checked by adding a hypothetical migration and confirming
-  the test follows it.
-- `supabase/tests/title-lengths.test.sql` — per table: 200 accepted, 121 accepted
-  (the point of the change), 201 rejected, empty rejected. No *database* test
-  asserted the old 120, which is how a widened CHECK loses its upper bound
-  unnoticed.
+  It now walks the SQL to strip comments without touching string literals (one
+  migration really does contain `'https://exp.host/--/api/v2/push/send'`, and a
+  `/*` inside a string used to swallow every statement up to the next `*/`),
+  reads each statement's own DDL target tolerantly, and **throws when a statement
+  bounds the column but cannot be attributed to a table** — which is what turns
+  every spelling above into a loud failure instead of a silent pass. Each is
+  verified by adding a hypothetical migration; an unrelated new table with a
+  foreign key to `chores` is verified *not* to raise a false alarm.
+- `supabase/tests/title-lengths.test.sql` — thirteen assertions over four tables,
+  each against its own CHECK: 200 accepted and 201 rejected everywhere; 121
+  accepted for `chores`, the bound that moved first; the floor asserted as *not
+  empty* for `chores` and `chore_subtasks`, as *not only spaces* for
+  `routine_items`, whose CHECK trims, and as *may be absent* for
+  `household_notes.title`, which has no floor to keep — an empty heading is legal
+  there and is not asserted against. No *database* test asserted the old 120,
+  which is how a widened CHECK loses its upper bound unnoticed.
 - `src/features/chores/ChoreForm.test.tsx` and `RoutineForm.test.tsx` — a
   150-character and a 200-character name reach `onSubmit` **through the button**,
   and whitespace still does not. This is the test the change actually needed.

@@ -39,52 +39,142 @@ interface Bound {
 }
 
 /**
+ * Comments removed without touching anything inside a string.
+ *
+ * A plain `replace(/\/\*[\s\S]*?\*\//g)` was wrong in two ways a review
+ * demonstrated: a `/*` inside a string literal paired with the next real `*\/`
+ * anywhere later in the file and swallowed every statement between, and
+ * `--[^\n]*` erased DDL sitting after a `--` inside a string on the same line.
+ * One migration really does carry `'https://exp.host/--/api/v2/push/send'`.
+ *
+ * So this walks the text: block comments nest, as they do in Postgres; single
+ * quotes and dollar-quoted bodies are copied through verbatim.
+ */
+function stripComments(sql: string): string {
+  let out = '';
+  let i = 0;
+
+  while (i < sql.length) {
+    const pair = sql.slice(i, i + 2);
+
+    if (pair === '--') {
+      while (i < sql.length && sql[i] !== '\n') i += 1;
+      continue;
+    }
+
+    if (pair === '/*') {
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql.slice(i, i + 2) === '/*') {
+          depth += 1;
+          i += 2;
+        } else if (sql.slice(i, i + 2) === '*/') {
+          depth -= 1;
+          i += 2;
+        } else i += 1;
+      }
+      out += ' ';
+      continue;
+    }
+
+    if (sql[i] === "'") {
+      out += sql[i];
+      i += 1;
+      while (i < sql.length) {
+        if (sql[i] === "'") {
+          // `''` is an escaped quote, not the end of the string.
+          if (sql[i + 1] === "'") {
+            out += "''";
+            i += 2;
+            continue;
+          }
+          out += sql[i];
+          i += 1;
+          break;
+        }
+        out += sql[i];
+        i += 1;
+      }
+      continue;
+    }
+
+    const dollar = /^\$[A-Za-z_]*\$/.exec(sql.slice(i));
+    if (dollar !== null) {
+      const tag = dollar[0];
+      const close = sql.indexOf(tag, i + tag.length);
+      const stop = close === -1 ? sql.length : close + tag.length;
+      out += sql.slice(i, stop);
+      i = stop;
+      continue;
+    }
+
+    out += sql[i];
+    i += 1;
+  }
+
+  return out;
+}
+
+/**
+ * Which table a statement is about, by its own DDL target.
+ *
+ * Tolerant on purpose — `only`, `if exists`, `if not exists` and quoted
+ * identifiers are all spellings a future migration may legitimately use, and
+ * every one of them slipped past the previous version, which then carried an
+ * older bound forward and reported agreement. `null` means "this statement
+ * defines something and I cannot tell what", which the caller treats as a
+ * failure rather than a skip.
+ */
+function ddlTarget(statement: string): string | null {
+  const match =
+    /(?:alter|create)\s+table\s+(?:(?:only|if\s+not\s+exists|if\s+exists)\s+)*"?(?:public"?\s*\.\s*"?)?(\w+)"?/i.exec(
+      statement,
+    );
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+/**
  * The last bound any migration puts on one table's column.
  *
- * Case-insensitive, and it accepts every spelling the schema actually uses:
- * `char_length(x) between 1 and 200`, `char_length(trim(x)) between …`, and
- * `length(x) <= 200` for the nullable one. A review caught the earlier version
- * silently passing on a stale bound when a hypothetical future migration used
- * uppercase SQL, renamed the constraint, or wrote `>= 1 and <= 200`.
+ * **Fails loudly rather than closed.** The structural bug a review found was not
+ * a missing alternation: when nothing matched, `found` simply kept the bound from
+ * an older migration, and the only throw fired when *no* migration had ever
+ * matched — which the base schema always does. So every spelling the regex could
+ * not see was skipped in silence and the stale bound passed. Now a statement that
+ * bounds this column and cannot be attributed to a table is an error.
  */
 function boundOn(table: string, column: string): Bound {
   const len = `(?:char_)?length\\(\\s*(?:trim\\(\\s*)?${column}\\s*\\)?\\s*\\)`;
   const between = new RegExp(`${len}\\s+between\\s+(\\d+)\\s+and\\s+(\\d+)`, 'gi');
   const atMost = new RegExp(`${len}\\s*<=\\s*(\\d+)`, 'gi');
   const atLeast = new RegExp(`${len}\\s*>=\\s*(\\d+)`, 'i');
-  /*
-   * The statement's own DDL target, not the table named anywhere in its text.
-   *
-   * A substring test was wrong in three ways a review demonstrated: an
-   * unqualified `alter table chore_subtasks` followed by a newline matched
-   * neither `public.x` nor ` x `, so a future widening was skipped and the stale
-   * bound passed; a later `create table` with a foreign key `references
-   * public.chores (id)` hijacked the chores assertion; and — already happening —
-   * `boundOn('chores', 'notes')` was reading `routine_items`, because that
-   * migration contains the English comment "mirror chores for the same reason".
-   */
-  const target = new RegExp(
-    `(?:alter|create)\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?(?:public\\.)?${table}\\b`,
-    'i',
-  );
+  const bounds = new RegExp(`${len}\\s*(?:between|<=|>=)`, 'i');
 
   let found: Bound | null = null;
 
   for (const file of readdirSync(MIGRATIONS).sort()) {
     if (!file.endsWith('.sql')) continue;
 
-    // Comments stripped before anything is matched: prose mentioning a table or a
-    // number must not be able to stand in for DDL.
-    const sql = readFileSync(join(MIGRATIONS, file), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, ' ')
-      .replace(/--[^\n]*/g, ' ');
-
-    for (const statement of sql.split(';')) {
+    for (const statement of stripComments(readFileSync(join(MIGRATIONS, file), 'utf8')).split(
+      ';',
+    )) {
       const lowered = statement.toLowerCase();
-      // Only the halves that *define* a constraint: a `drop constraint` in the
-      // same file must never be read as one.
-      if (!lowered.includes('add constraint') && !lowered.includes('create table')) continue;
-      if (!target.test(statement)) continue;
+      const defines =
+        lowered.includes('add constraint') ||
+        lowered.includes('add check') ||
+        lowered.includes('create table');
+      if (!defines) continue;
+      if (!bounds.test(statement)) continue;
+
+      const target = ddlTarget(statement);
+      if (target === null) {
+        throw new Error(
+          `${file}: a CHECK bounds ${column} but the statement's table cannot be read — ` +
+            `the parser would otherwise carry an older bound forward and pass`,
+        );
+      }
+      if (target !== table) continue;
 
       for (const match of statement.matchAll(between)) {
         found = { low: Number(match[1]), high: Number(match[2]) };
@@ -137,6 +227,15 @@ describe('the floors, which a widening can silently drop', () => {
     ['routine_items', 1],
   ])('%s still needs at least one character', (table, low) => {
     expect(boundOn(table, 'title').low).toBe(low);
+  });
+
+  it.each([
+    ['chore_categories', 'name'],
+    ['households', 'name'],
+  ])('%s.%s still needs at least one character', (table, column) => {
+    // Only `.high` was asserted for these two, so a widening that dropped the
+    // floor would have passed.
+    expect(boundOn(table, column).low).toBe(1);
   });
 
   it('leaves a note free to have no heading at all', () => {

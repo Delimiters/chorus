@@ -190,7 +190,9 @@ describe('how much a note can hold', () => {
     await userEvent.type(title, 'a'.repeat(NOTE_TITLE_MAX + 10));
 
     expect((title.props.value as string).length).toBe(NOTE_TITLE_MAX);
-  });
+    // `userEvent.type` costs an event per character, so the budget has to scale
+    // with the cap rather than sit at the 5000ms default.
+  }, 20000);
 
   it('takes a body far longer, which is what a note is', () => {
     /*
