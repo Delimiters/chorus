@@ -2,8 +2,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  CATEGORY_NAME_MAX,
   CHORE_NOTES_MAX,
   CHORE_TITLE_MAX,
+  HOUSEHOLD_NAME_MAX,
   NOTE_BODY_MAX,
   NOTE_TITLE_MAX,
   ROUTINE_TITLE_MAX,
@@ -50,20 +52,39 @@ function boundOn(table: string, column: string): Bound {
   const between = new RegExp(`${len}\\s+between\\s+(\\d+)\\s+and\\s+(\\d+)`, 'gi');
   const atMost = new RegExp(`${len}\\s*<=\\s*(\\d+)`, 'gi');
   const atLeast = new RegExp(`${len}\\s*>=\\s*(\\d+)`, 'i');
+  /*
+   * The statement's own DDL target, not the table named anywhere in its text.
+   *
+   * A substring test was wrong in three ways a review demonstrated: an
+   * unqualified `alter table chore_subtasks` followed by a newline matched
+   * neither `public.x` nor ` x `, so a future widening was skipped and the stale
+   * bound passed; a later `create table` with a foreign key `references
+   * public.chores (id)` hijacked the chores assertion; and — already happening —
+   * `boundOn('chores', 'notes')` was reading `routine_items`, because that
+   * migration contains the English comment "mirror chores for the same reason".
+   */
+  const target = new RegExp(
+    `(?:alter|create)\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?(?:public\\.)?${table}\\b`,
+    'i',
+  );
 
   let found: Bound | null = null;
 
   for (const file of readdirSync(MIGRATIONS).sort()) {
     if (!file.endsWith('.sql')) continue;
 
-    for (const statement of readFileSync(join(MIGRATIONS, file), 'utf8').split(';')) {
+    // Comments stripped before anything is matched: prose mentioning a table or a
+    // number must not be able to stand in for DDL.
+    const sql = readFileSync(join(MIGRATIONS, file), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/--[^\n]*/g, ' ');
+
+    for (const statement of sql.split(';')) {
       const lowered = statement.toLowerCase();
       // Only the halves that *define* a constraint: a `drop constraint` in the
       // same file must never be read as one.
-      const defines = lowered.includes('add constraint') || lowered.includes('create table');
-      if (!defines) continue;
-      // And only for this table, so four `title` CHECKs cannot be confused.
-      if (!lowered.includes(`public.${table}`) && !lowered.includes(` ${table} `)) continue;
+      if (!lowered.includes('add constraint') && !lowered.includes('create table')) continue;
+      if (!target.test(statement)) continue;
 
       for (const match of statement.matchAll(between)) {
         found = { low: Number(match[1]), high: Number(match[2]) };
@@ -87,6 +108,15 @@ describe('every title cap matches its CHECK', () => {
     ['household_notes', NOTE_TITLE_MAX],
   ])('%s.title', (table, cap) => {
     expect(boundOn(table, 'title').high).toBe(cap);
+  });
+});
+
+describe('every other capped name matches its CHECK', () => {
+  it.each([
+    ['chore_categories', 'name', CATEGORY_NAME_MAX],
+    ['households', 'name', HOUSEHOLD_NAME_MAX],
+  ])('%s.%s', (table, column, cap) => {
+    expect(boundOn(table, column).high).toBe(cap);
   });
 });
 

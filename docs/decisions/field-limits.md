@@ -86,19 +86,39 @@ four of them kept the old number while the change was described as shipped.
   threshold for short and long fields, precedence against hint and error, the
   footer row's presence and absence, the spoken announcement, and the haptic
   firing once per arrival, never on mount.
-- `src/core/chore/limits.test.ts` — the constant against the bound parsed out of
-  the migrations, in either direction. A review showed the first version of that
-  parser passing on a stale bound in three realistic spellings (uppercase SQL, a
-  renamed constraint, the `>= 1 and <= 200` form); it now matches on
-  `char_length(title)` case-insensitively and takes the last migration that
-  touches it.
-- `supabase/tests/chore-title-length.test.sql` — 200 accepted, 121 accepted
+- `src/core/text/limits.test.ts` — every constant against the bound parsed out of
+  the migrations, in either direction. This parser took **three** rounds of
+  review to get right, and each round it was passing while being wrong:
+  1. First it keyed on a constraint *name* and matched case-sensitively, so a
+     future widening written in uppercase, or with the constraint renamed, or as
+     `>= 1 and <= 200`, was skipped — and the *old* bound still matched, so the
+     test reported agreement.
+  2. Then it keyed on the column name alone, which was luck with four `title`
+     CHECKs in the schema and would have broken outright here.
+  3. Then its table filter was a substring test, which let an unqualified `alter
+     table x` followed by a newline go unseen, let a later `create table` with
+     `references public.chores (id)` hijack the chores assertion, and — already
+     happening — made `chores.notes` read `routine_items`, because that
+     migration contains the comment *"mirror chores for the same reason"*. Both
+     passed only because the two bounds were equal.
+
+  It now strips SQL comments, matches the statement's own `create table` /
+  `alter table` target, and throws rather than passing when it finds nothing.
+  Each leak above is checked by adding a hypothetical migration and confirming
+  the test follows it.
+- `supabase/tests/title-lengths.test.sql` — per table: 200 accepted, 121 accepted
   (the point of the change), 201 rejected, empty rejected. No *database* test
   asserted the old 120, which is how a widened CHECK loses its upper bound
   unnoticed.
-- `src/features/chores/ChoreForm.test.tsx` — a 150-character and a 200-character
-  name reach `onSubmit` **through the button**, and whitespace still does not.
-  This is the test the change actually needed; see below.
+- `src/features/chores/ChoreForm.test.tsx` and `RoutineForm.test.tsx` — a
+  150-character and a 200-character name reach `onSubmit` **through the button**,
+  and whitespace still does not. This is the test the change actually needed.
+- Caps that only a `maxLength` enforces — chore steps and a note's heading — are
+  typed with `userEvent.type`, which maintains text state and so *does* enforce
+  `maxLength`. `fireEvent.changeText` sets the value directly and bypasses it,
+  which is why these were briefly prop assertions; a review showed the
+  behavioural test was available after all. A note's 20,000-character body stays
+  a prop assertion, because typing it one keystroke at a time takes minutes.
 
 ## What the review caught, and it was the whole feature
 

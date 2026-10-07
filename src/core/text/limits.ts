@@ -1,6 +1,11 @@
 /**
  * How long the names and bodies you type may be.
  *
+ * Every cap the database CHECKs and a screen enforces. The invite code's nine
+ * characters are a *format* rather than a cap and stay with the code that parses
+ * them; `chore_completions.note` and the icon columns have CHECKs but no input
+ * of their own yet, so they are deliberately not here.
+ *
  * One home for every cap, because the last time one of these moved it lived in
  * five places — the input, the screen's save gate, the API layer, the database
  * CHECK, and the tests pinning all four — and four of them stayed at the old
@@ -47,3 +52,15 @@ export const NOTE_TITLE_MAX = 200;
 
 /** A note's body, which is the note. */
 export const NOTE_BODY_MAX = 20000;
+
+/**
+ * A category's name, whose CHECK trims first — as a routine item's does.
+ *
+ * Not raised. It is drawn as a chip beside a chore and a 200-character chip is
+ * not a chip; it is here because a review pointed out that "one home for every
+ * cap" was not true while this one sat as a literal in two screens.
+ */
+export const CATEGORY_NAME_MAX = 40;
+
+/** A household's name. Not raised, same reasoning: it is a heading. */
+export const HOUSEHOLD_NAME_MAX = 60;

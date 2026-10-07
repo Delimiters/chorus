@@ -9,7 +9,7 @@
  * whose turn every future occurrence is.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 
 import { SUBTASK_TITLE_MAX } from '@/core/text/limits';
@@ -1160,21 +1160,28 @@ describe('a long step', () => {
    * Typed through the field and read back off the submitted draft, because
    * asserting the prop would pass against a component that ignores it.
    */
-  it('may be typed up to the shared cap', async () => {
+  it('stops accepting characters at the cap, and not before', async () => {
     /*
-     * The prop, not a typed-past-the-limit attempt, and deliberately so:
-     * `fireEvent.changeText` sets the value directly, so `maxLength` — which
-     * React Native enforces natively — has nothing to clip in a test. jest-expo
-     * does no native text handling, so this is the only observable contract.
+     * Typed, not asserted as a prop.
      *
-     * It is still worth pinning. A `maxLength` below the CHECK is the invisible
-     * failure: nothing errors, you simply cannot type the name you wanted, which
-     * is the complaint that started all of this.
+     * `fireEvent.changeText` sets the value directly and so bypasses
+     * `maxLength` entirely — which is why the first version of this test
+     * checked the prop and said that was the only option. A review showed
+     * `userEvent.type` maintains text state and *does* enforce it, so the real
+     * behaviour is observable after all: a prop assertion would have passed
+     * against a component that ignored it.
+     *
+     * A `maxLength` below the CHECK is the invisible failure — nothing errors,
+     * you simply cannot type the name you wanted, which is the complaint that
+     * started all of this.
      */
     await renderForm();
-    await fireEvent.press(screen.getByRole('button', { name: 'Add a step' }));
+    await userEvent.press(screen.getByRole('button', { name: 'Add a step' }));
+    const step = screen.getByLabelText('Step 1');
 
-    expect(screen.getByLabelText('Step 1').props.maxLength).toBe(SUBTASK_TITLE_MAX);
+    await userEvent.type(step, 'e'.repeat(SUBTASK_TITLE_MAX + 10));
+
+    expect((step.props.value as string).length).toBe(SUBTASK_TITLE_MAX);
   });
 
   it('past the old limit survives into the draft', async () => {

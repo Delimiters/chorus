@@ -5,7 +5,7 @@
  * confident and wrong answer to a dropped connection — and that both screens
  * called a bare `router.back()`, which does nothing on a cold start.
  */
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, userEvent } from '@testing-library/react-native';
 
 import { NOTE_BODY_MAX, NOTE_TITLE_MAX } from '@/core/text/limits';
 
@@ -175,21 +175,29 @@ describe('deleting', () => {
 
 describe('how much a note can hold', () => {
   /*
-   * The props, because `fireEvent.changeText` sets a value directly and
-   * `maxLength` is enforced natively — there is nothing for it to clip in a
-   * test, and jest-expo does no native text handling.
+   * Typed rather than asserted as props. `fireEvent.changeText` sets a value
+   * directly and bypasses `maxLength`; `userEvent.type` maintains text state and
+   * enforces it, so the cap is observable as behaviour — a prop assertion would
+   * pass against a component that ignored the prop.
    *
-   * Pinned anyway: a `maxLength` below the CHECK is the invisible failure. The
-   * heading's cap moved from 120 to 200 with every other title; the body's did
-   * not move and is here so the pair cannot drift apart unnoticed.
+   * A `maxLength` below the CHECK is the invisible failure: nothing errors, you
+   * simply cannot type the heading you wanted.
    */
-  it('takes a heading as long as every other title', () => {
+  it('takes a heading as long as every other title', async () => {
     renderScreen();
+    const title = screen.getByLabelText('Title');
 
-    expect(screen.getByLabelText('Title').props.maxLength).toBe(NOTE_TITLE_MAX);
+    await userEvent.type(title, 'a'.repeat(NOTE_TITLE_MAX + 10));
+
+    expect((title.props.value as string).length).toBe(NOTE_TITLE_MAX);
   });
 
   it('takes a body far longer, which is what a note is', () => {
+    /*
+     * The prop here, deliberately: typing 20,001 characters one keystroke at a
+     * time takes minutes. The heading above proves the mechanism works; this
+     * guards the pair against drifting apart.
+     */
     renderScreen();
 
     expect(screen.getByLabelText('Note').props.maxLength).toBe(NOTE_BODY_MAX);
