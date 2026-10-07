@@ -230,6 +230,23 @@ export function Field({ label, error, hint, inputStyle, ...rest }: FieldProps) {
     AccessibilityInfo.announceForAccessibility(`Full at ${String(maxLength)} characters`);
   }, [full, maxLength]);
 
+  /*
+   * Puts the sentinel back when the component goes away.
+   *
+   * Only reachable under StrictMode, which double-invokes effects in
+   * development: mount, cleanup, mount again. Without this the second
+   * invocation sees a ref that is no longer `null`, decides it is not the first
+   * run, and buzzes for a field that merely *opened* full — the defect the
+   * sentinel exists to prevent, reappearing only in development. Nothing turns
+   * StrictMode on today; this costs one effect and removes the trap.
+   */
+  useEffect(
+    () => () => {
+      wasFull.current = null;
+    },
+    [],
+  );
+
   return (
     <View style={{ gap: space.xs }}>
       <Text style={[type.label as TextStyle, { color: colors.textFaint }]}>{label}</Text>

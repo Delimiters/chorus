@@ -22,7 +22,7 @@ below the field moves as you type:
 - **Quiet** until you are near the end.
 - **Counting down** — `7 left`. A countdown answers the question actually being
   asked; `113/120` makes you do the subtraction.
-- **Full** — *"That's the longest a name can be — 200 characters."* It replaces
+- **Full** — *"You've used all 200 characters — that's the limit."* It replaces
   the countdown rather than sitting beside it, and it yields to a real error.
   Plus one light haptic on arrival, so the limit is felt at the moment the
   keyboard goes dead.
@@ -64,9 +64,16 @@ about the chore title specifically, and each of those has its own CHECK to move.
 
 ## Pinned by
 
-- `src/design/Field.test.tsx` — twelve tests over the three states, the threshold
-  for short and long fields, precedence against hint and error, and the haptic
-  firing once per arrival rather than per render.
+- `src/design/Field.test.tsx` — seventeen tests over the three states, the
+  threshold for short and long fields, precedence against hint and error, the
+  footer row's presence and absence, the spoken announcement, and the haptic
+  firing once per arrival, never on mount.
+- `src/core/chore/limits.test.ts` — the constant against the bound parsed out of
+  the migrations, in either direction. A review showed the first version of that
+  parser passing on a stale bound in three realistic spellings (uppercase SQL, a
+  renamed constraint, the `>= 1 and <= 200` form); it now matches on
+  `char_length(title)` case-insensitively and takes the last migration that
+  touches it.
 - `supabase/tests/chore-title-length.test.sql` — 200 accepted, 121 accepted
   (the point of the change), 201 rejected, empty rejected. No *database* test
   asserted the old 120, which is how a widened CHECK loses its upper bound

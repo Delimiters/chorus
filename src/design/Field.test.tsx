@@ -16,6 +16,7 @@
  * full state explains itself, and the limit is never dressed as an error.
  */
 import { render, screen } from '@testing-library/react-native';
+import { StrictMode } from 'react';
 import { AccessibilityInfo } from 'react-native';
 
 import { Field } from './components';
@@ -42,6 +43,20 @@ const show = (props: Parameters<typeof Field>[0]) =>
   );
 
 const chars = (n: number) => 'a'.repeat(n);
+
+describe('the input itself', () => {
+  it('answers to its label, which is how every form finds it', () => {
+    /*
+     * Pinned here because `Field`'s own suite did not: a review deleted
+     * `accessibilityLabel` and all seventeen tests stayed green. It only went
+     * red in `ChoreForm.test.tsx`, which queries `getByLabelText('Name')` — so
+     * the primitive's contract was being guarded by its callers by accident.
+     */
+    show({ label: 'Name', value: 'bins', onChangeText: () => {} });
+
+    expect(screen.getByLabelText('Name')).toBeOnTheScreen();
+  });
+});
 
 describe('the countdown', () => {
   it('stays away until you are near the end', () => {
@@ -159,6 +174,25 @@ describe('being full', () => {
      * reader did not just hit is startling and says nothing useful.
      */
     show({ label: 'Name', value: chars(120), maxLength: 120, onChangeText: () => {} });
+
+    expect(haptics.tapped).not.toHaveBeenCalled();
+    expect(announce).not.toHaveBeenCalled();
+  });
+
+  it('stays silent on mount even when effects run twice', () => {
+    /*
+     * StrictMode double-invokes effects in development — mount, cleanup, mount —
+     * and the second pass used to see a ref that was no longer the sentinel,
+     * decide it was not the first run, and buzz for a field that merely opened
+     * full. The cleanup that restores the sentinel is what this pins.
+     */
+    render(
+      <StrictMode>
+        <ThemeProvider>
+          <Field label="Name" value={chars(120)} maxLength={120} onChangeText={() => {}} />
+        </ThemeProvider>
+      </StrictMode>,
+    );
 
     expect(haptics.tapped).not.toHaveBeenCalled();
     expect(announce).not.toHaveBeenCalled();

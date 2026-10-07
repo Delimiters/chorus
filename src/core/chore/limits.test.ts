@@ -13,44 +13,69 @@ import { CHORE_NOTES_MAX, CHORE_TITLE_MAX } from './limits';
  * number duplicated across TypeScript and SQL has no compiler keeping it honest,
  * so a test has to.
  *
- * The bound is read from the migrations rather than written down twice here,
- * which is the only version of this test that cannot itself go stale: raise the
- * CHECK without the constant and this fails, and so does the reverse.
+ * The bound is read from the migrations rather than written down twice here, so
+ * raising the CHECK without the constant fails, and so does the reverse.
  */
 const MIGRATIONS = join(__dirname, '..', '..', '..', 'supabase', 'migrations');
 
-/** The bound from the last migration that constrains the column, in file order. */
-function boundFromMigrations(constraint: string): { low: number; high: number } {
-  const pattern = new RegExp(
-    `${constraint}[\\s\\S]*?char_length\\(\\s*\\w+\\s*\\)\\s+between\\s+(\\d+)\\s+and\\s+(\\d+)`,
+/**
+ * The last bound any migration puts on a column, in file order.
+ *
+ * Matched on `char_length(<column>)` rather than on a constraint name, and
+ * case-insensitively, because a review showed the first version of this passing
+ * on a stale bound in three realistic spellings: uppercase SQL, a renamed
+ * constraint, and the `>= 1 and <= 200` form instead of `between`. In each case
+ * the new migration was skipped, the *old* bound still matched, and the test
+ * reported agreement while the database had moved.
+ *
+ * Every match is collected and the last wins, so a later migration always
+ * overrides an earlier one. Finding nothing throws rather than passing.
+ */
+function boundOn(column: string): { low: number; high: number } {
+  const between = new RegExp(
+    `char_length\\(\\s*(?:trim\\(\\s*)?${column}\\s*\\)?\\s*\\)\\s+between\\s+(\\d+)\\s+and\\s+(\\d+)`,
+    'gi',
   );
+  const comparison = new RegExp(
+    `char_length\\(\\s*(?:trim\\(\\s*)?${column}\\s*\\)?\\s*\\)\\s*<=\\s*(\\d+)`,
+    'gi',
+  );
+
   let found: { low: number; high: number } | null = null;
 
   for (const file of readdirSync(MIGRATIONS).sort()) {
     if (!file.endsWith('.sql')) continue;
     const sql = readFileSync(join(MIGRATIONS, file), 'utf8');
-    // Only the `add constraint` half, so the `drop constraint` in the same file
-    // cannot be read as a definition.
+
     for (const statement of sql.split(';')) {
-      if (!statement.includes('add constraint') && !statement.includes('create table')) continue;
-      const match = pattern.exec(statement);
-      if (match === null) continue;
-      found = { low: Number(match[1]), high: Number(match[2]) };
+      const lowered = statement.toLowerCase();
+      // The definition halves only: a `drop constraint` in the same file must
+      // not be read as one.
+      if (!lowered.includes('add constraint') && !lowered.includes('create table')) continue;
+
+      for (const match of statement.matchAll(between)) {
+        found = { low: Number(match[1]), high: Number(match[2]) };
+      }
+      for (const match of statement.matchAll(comparison)) {
+        // `>= 1` is the usual partner; a bare `<=` leaves the floor at zero.
+        const low = /char_length\(\s*(?:trim\(\s*)?title\s*\)?\s*\)\s*>=\s*(\d+)/i.exec(statement);
+        found = { low: low === null ? 0 : Number(low[1]), high: Number(match[1]) };
+      }
     }
   }
 
-  if (found === null) throw new Error(`no CHECK found for ${constraint}`);
+  if (found === null) throw new Error(`no CHECK found on ${column}`);
   return found;
 }
 
 describe('the chore title bound', () => {
   it('matches the database CHECK', () => {
-    expect(boundFromMigrations('chores_title_check').high).toBe(CHORE_TITLE_MAX);
+    expect(boundOn('title').high).toBe(CHORE_TITLE_MAX);
   });
 
   it('still requires at least one character', () => {
     // The lower bound is the one a widening can silently drop.
-    expect(boundFromMigrations('chores_title_check').low).toBe(1);
+    expect(boundOn('title').low).toBe(1);
   });
 });
 
