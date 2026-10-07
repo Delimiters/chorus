@@ -1106,3 +1106,45 @@ describe('the form scrolling itself while you are using it', () => {
     expect(scrollSpy).toHaveBeenCalled();
   });
 });
+
+describe('a long name', () => {
+  /*
+   * The whole point of raising the cap, and it was unreachable.
+   *
+   * `maxLength` went to 200 while `canSave` still read `<= 120` and the API
+   * layer still threw past 120 — so a 150-character name typed fine and then
+   * `Add chore` did nothing at all, with the explanatory error deleted in the
+   * same change. A review found it; nothing in the suite did, because every
+   * existing test names a short chore.
+   *
+   * These assert through the button, which is the only thing that proves the
+   * three layers agree.
+   */
+  const long = 'a'.repeat(150);
+
+  it('past the old limit can be saved', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), long);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).title).toBe(long);
+  });
+
+  it('right at the new limit can be saved', async () => {
+    const { onSubmit } = await renderForm();
+    const atCap = 'b'.repeat(200);
+    await fireEvent.changeText(screen.getByLabelText('Name'), atCap);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).title).toBe(atCap);
+  });
+
+  it('is still refused when it is nothing but spaces', async () => {
+    // The lower bound the widening must not drop.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), '    ');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});

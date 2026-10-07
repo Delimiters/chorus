@@ -262,8 +262,20 @@ export function ChoreForm({
   );
 
   const trimmed = title.trim();
+  /*
+   * `CHORE_TITLE_MAX`, not a literal.
+   *
+   * This read 120 while the input allowed 200, so a 150-character name typed
+   * fine and then `Add chore` did nothing — a dead control with no explanation,
+   * which is the exact defect the field countdown exists to prevent. It only
+   * became reachable when the cap went up: at `maxLength={120}` the gate could
+   * never be crossed.
+   */
   const canSave =
-    trimmed.length > 0 && trimmed.length <= 120 && !isSaving && !createCategory.isPending;
+    trimmed.length > 0 &&
+    trimmed.length <= CHORE_TITLE_MAX &&
+    !isSaving &&
+    !createCategory.isPending;
 
   const submit = () => {
     if (!canSave) return;

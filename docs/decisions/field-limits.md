@@ -68,11 +68,56 @@ about the chore title specifically, and each of those has its own CHECK to move.
   for short and long fields, precedence against hint and error, and the haptic
   firing once per arrival rather than per render.
 - `supabase/tests/chore-title-length.test.sql` — 200 accepted, 121 accepted
-  (the point of the change), 201 rejected, empty rejected. **Nothing in the suite
-  asserted the old 120**, which is exactly how a widened CHECK loses its upper
-  bound unnoticed.
+  (the point of the change), 201 rejected, empty rejected. No *database* test
+  asserted the old 120, which is how a widened CHECK loses its upper bound
+  unnoticed.
+- `src/features/chores/ChoreForm.test.tsx` — a 150-character and a 200-character
+  name reach `onSubmit` **through the button**, and whitespace still does not.
+  This is the test the change actually needed; see below.
 
-Every guard mutation-verified. One of them — a `buzzed` ref meant to stop the
-haptic repeating — was **deleted** when the mutation showed no test could tell
-its presence from its absence: the effect's dependency list already runs it only
-when `full` flips, so the ref was dead state.
+## What the review caught, and it was the whole feature
+
+The cap was raised in three places and left at 120 in two more, so **a
+150-character name could be typed and then not saved**:
+
+- `canSave` in `ChoreForm` still read `trimmed.length <= 120`, so `Add chore`
+  was disabled with no explanation — and the same change deleted the
+  `'That name is too long.'` error that used to say why. At `maxLength={120}`
+  that gate was unreachable; raising the input's cap is what exposed it.
+- `choreRow` in `src/data/api/chores.ts` still threw past 120, so even a fixed
+  button would have failed on the way to the table.
+
+A dead control with nothing explaining it is precisely the defect this PR exists
+to remove, reintroduced one layer up. Both now read `CHORE_TITLE_MAX`.
+
+The claim that "nothing in the suite asserted the old 120" was **false**:
+`src/data/api/chores.test.ts` asserted that 121 characters throws, and it stayed
+green the whole time — a test pinning the old behaviour while the feature it
+blocked was described as shipped. It now asserts against the constant, plus that
+121 is accepted.
+
+Two more fixed in the same pass:
+
+- **A field that mounts already full no longer buzzes.** Opening a note whose
+  title is exactly 120 characters, or editing a chore named to the cap, fired a
+  haptic and interrupted a screen reader for a limit the reader had not just hit.
+  The effect skips its first run.
+- **The limit sentence no longer names the field.** It read "the longest a
+  ${label} can be", which produced "a notes", "a invite code" and "a household"
+  — three of the app's nine capped fields. An article cannot be derived from a
+  label, and the label is already on screen, so the sentence says only what the
+  label cannot: *"You've used all 200 characters — that's the limit."*
+
+Every guard mutation-verified, and two tests were rewritten after review showed
+they could not fail:
+
+- "renders no footer row" asserted only the absence of the countdown and the
+  limit sentence — both pinned elsewhere — so it survived rendering the row
+  unconditionally, the exact regression its name claims to prevent. It now
+  asserts the row's absence by `testID`.
+- The screen-reader announcement had no test at all and could be deleted with the
+  suite green.
+
+A `buzzed` ref was deleted earlier for the same reason, then a *different* ref
+(`wasFull`) was added deliberately — not to stop repeats, which the dependency
+list already handles, but to tell "mounted full" from "just became full".

@@ -16,11 +16,23 @@
  * full state explains itself, and the limit is never dressed as an error.
  */
 import { render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 
 import { Field } from './components';
 import { ThemeProvider } from './theme';
 
 jest.mock('./haptics', () => ({ tapped: jest.fn(), finished: jest.fn(), celebrated: jest.fn() }));
+
+const announce = jest
+  .spyOn(AccessibilityInfo, 'announceForAccessibility')
+  .mockImplementation(() => {});
+
+const haptics = jest.requireMock('./haptics') as { tapped: jest.Mock };
+
+beforeEach(() => {
+  announce.mockClear();
+  haptics.tapped.mockClear();
+});
 
 const show = (props: Parameters<typeof Field>[0]) =>
   render(
@@ -78,12 +90,24 @@ describe('the countdown', () => {
 });
 
 describe('being full', () => {
-  it('says so, in characters, naming the field', () => {
+  it('says so, in characters', () => {
     show({ label: 'Name', value: chars(200), maxLength: 200, onChangeText: () => {} });
 
     expect(
-      screen.getByText("That's the longest a name can be — 200 characters."),
+      screen.getByText("You've used all 200 characters — that's the limit."),
     ).toBeOnTheScreen();
+  });
+
+  it('says it without the label, which cannot take an article', () => {
+    /*
+     * The sentence named the field as "a ${label}", which produced "a notes",
+     * "a invite code" and "a household" across the app's nine capped fields.
+     * The label is already on screen directly above the input.
+     */
+    show({ label: 'Notes', value: chars(2000), maxLength: 2000, onChangeText: () => {} });
+
+    expect(screen.getByText(/You've used all 2000 characters/)).toBeOnTheScreen();
+    expect(screen.queryByText(/a notes/i)).toBeNull();
   });
 
   it('replaces the countdown rather than sitting beside it', () => {
@@ -103,7 +127,7 @@ describe('being full', () => {
     });
 
     expect(screen.getByText('Pick a different name.')).toBeOnTheScreen();
-    expect(screen.queryByText(/longest a name can be/)).toBeNull();
+    expect(screen.queryByText(/used all 120 characters/)).toBeNull();
   });
 
   it('takes the hint’s place while the field is full', () => {
@@ -118,38 +142,60 @@ describe('being full', () => {
     });
 
     expect(screen.queryByText('Short names read best.')).toBeNull();
-    expect(screen.getByText(/longest a name can be/)).toBeOnTheScreen();
+    expect(screen.getByText(/used all 120 characters/)).toBeOnTheScreen();
   });
 
-  it('buzzes once on arrival, not on every render that stays full', () => {
-    const { tapped } = jest.requireMock('./haptics') as { tapped: jest.Mock };
-    tapped.mockClear();
+  const back = (value: string, maxLength = 120) => (
+    <ThemeProvider>
+      <Field label="Name" value={value} maxLength={maxLength} onChangeText={() => {}} />
+    </ThemeProvider>
+  );
 
+  it('is silent for a field that is already full when it appears', () => {
+    /*
+     * A field seeded from existing data can mount at its cap — open a note whose
+     * title is exactly 120 characters, or edit a chore named right up to the
+     * limit. Buzzing the phone and interrupting a screen reader for a limit the
+     * reader did not just hit is startling and says nothing useful.
+     */
     show({ label: 'Name', value: chars(120), maxLength: 120, onChangeText: () => {} });
-    expect(tapped).toHaveBeenCalledTimes(1);
 
-    screen.rerender(
-      <ThemeProvider>
-        <Field label="Name" value={chars(120)} maxLength={120} onChangeText={() => {}} />
-      </ThemeProvider>,
-    );
-    expect(tapped).toHaveBeenCalledTimes(1);
+    expect(haptics.tapped).not.toHaveBeenCalled();
+    expect(announce).not.toHaveBeenCalled();
+  });
+
+  it('buzzes when you arrive at the limit', () => {
+    show({ label: 'Name', value: chars(119), maxLength: 120, onChangeText: () => {} });
+    expect(haptics.tapped).not.toHaveBeenCalled();
+
+    screen.rerender(back(chars(120)));
+    expect(haptics.tapped).toHaveBeenCalledTimes(1);
+  });
+
+  it('speaks the limit, which is the only way it reaches a screen reader', () => {
+    // The counter is not focused and the input's value has stopped changing, so
+    // nothing else announces it.
+    show({ label: 'Name', value: chars(119), maxLength: 120, onChangeText: () => {} });
+    screen.rerender(back(chars(120)));
+
+    expect(announce).toHaveBeenCalledWith('Full at 120 characters');
+  });
+
+  it('does not buzz again on every render that stays full', () => {
+    show({ label: 'Name', value: chars(119), maxLength: 120, onChangeText: () => {} });
+    screen.rerender(back(chars(120)));
+    screen.rerender(back(chars(120)));
+
+    expect(haptics.tapped).toHaveBeenCalledTimes(1);
   });
 
   it('buzzes again after you delete something and fill it back up', () => {
-    const { tapped } = jest.requireMock('./haptics') as { tapped: jest.Mock };
-    tapped.mockClear();
-
-    show({ label: 'Name', value: chars(120), maxLength: 120, onChangeText: () => {} });
-    const back = (value: string) => (
-      <ThemeProvider>
-        <Field label="Name" value={value} maxLength={120} onChangeText={() => {}} />
-      </ThemeProvider>
-    );
+    show({ label: 'Name', value: chars(119), maxLength: 120, onChangeText: () => {} });
+    screen.rerender(back(chars(120)));
     screen.rerender(back(chars(119)));
     screen.rerender(back(chars(120)));
 
-    expect(tapped).toHaveBeenCalledTimes(2);
+    expect(haptics.tapped).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -163,7 +209,26 @@ describe('a field with nothing to say', () => {
      */
     show({ label: 'Name', value: 'bins', maxLength: 120, onChangeText: () => {} });
 
-    expect(screen.queryByText(/left$/)).toBeNull();
-    expect(screen.queryByText(/longest/)).toBeNull();
+    /*
+     * The row itself, not just its contents. This asserted only the absence of
+     * the countdown and the limit sentence — both already pinned elsewhere — so
+     * it survived rendering the row unconditionally, which is the exact
+     * regression its name claims to prevent. A review caught that by mutation.
+     */
+    expect(screen.queryByTestId('field-footer')).toBeNull();
+  });
+
+  it('renders the footer row as soon as it has a hint to put in it', () => {
+    // The counter is safe to add precisely because by the time it matters the
+    // row is usually already there.
+    show({
+      label: 'Name',
+      value: 'bins',
+      maxLength: 120,
+      hint: 'Keep it short.',
+      onChangeText: () => {},
+    });
+
+    expect(screen.getByTestId('field-footer')).toBeOnTheScreen();
   });
 });

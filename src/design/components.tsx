@@ -6,7 +6,7 @@
  * they establish the patterns the rest will follow.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -205,24 +205,30 @@ export function Field({ label, error, hint, inputStyle, ...rest }: FieldProps) {
       : false;
 
   /*
-   * Buzzes once on arrival, not on every keystroke at the boundary.
+   * Buzzes when you *arrive* at the limit — not on every keystroke there, and
+   * not when a field is already full the moment it appears.
    *
-   * The dependency list is doing that work: `full` is a boolean derived from the
-   * value, so the effect re-runs only when it *flips*, and typing on at the
-   * limit re-renders without re-running this. A `buzzed` ref was here first and
-   * a mutation test proved it dead — no test could tell its presence from its
-   * absence, because nothing re-runs the effect while the field stays full.
+   * The first run is skipped deliberately. A field seeded from existing data can
+   * mount at its cap — open a note whose title is exactly 120 characters, or
+   * edit a chore named right up to 200 — and buzzing the phone and interrupting
+   * a screen reader for a limit the reader did not just hit is startling and
+   * meaningless. `wasFull` starting as `null` is what distinguishes "mounted
+   * full" from "just became full".
    *
-   * In an effect rather than during render regardless: a ref written during
-   * render makes the React Compiler bail out of this whole function silently.
+   * The ref is read and written inside the effect, never during render: a ref
+   * written during render makes the React Compiler bail out of this whole
+   * function, silently.
    */
+  const wasFull = useRef<boolean | null>(null);
   useEffect(() => {
-    if (!full) return;
+    const first = wasFull.current === null;
+    wasFull.current = full;
+    if (first || !full) return;
     tapped();
     // Nothing visual reaches a screen reader here — the counter is not focused
     // and the input's value has stopped changing — so the limit is spoken.
-    AccessibilityInfo.announceForAccessibility(`${label} is full at ${maxLength} characters`);
-  }, [full, label, maxLength]);
+    AccessibilityInfo.announceForAccessibility(`Full at ${String(maxLength)} characters`);
+  }, [full, maxLength]);
 
   return (
     <View style={{ gap: space.xs }}>
@@ -253,14 +259,27 @@ export function Field({ label, error, hint, inputStyle, ...rest }: FieldProps) {
         under every field in the app.
       */}
       {error !== undefined || full || hint !== undefined || counting ? (
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
+        <View
+          testID="field-footer"
+          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}
+        >
           <View style={{ flex: 1 }}>
             {error !== undefined ? (
               <Txt variant="small" tone="danger">
                 {error}
               </Txt>
             ) : full ? (
-              <Txt variant="small">{`That's the longest a ${label.toLowerCase()} can be — ${String(maxLength)} characters.`}</Txt>
+              /*
+                No label in the sentence.
+                
+                It read "That's the longest a ${label.toLowerCase()} can be",
+                which produced "a notes", "a invite code" and "a household" —
+                three of the nine capped fields in the app. An article cannot be
+                derived from a label, and the label is already on screen
+                directly above this line, so the sentence says the thing the
+                label cannot: why the keyboard stopped doing anything.
+              */
+              <Txt variant="small">{`You've used all ${String(maxLength)} characters — that's the limit.`}</Txt>
             ) : hint !== undefined ? (
               <Txt variant="small" tone="faint">
                 {hint}
