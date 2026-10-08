@@ -6,6 +6,7 @@
  * into the app bundle. Routes are thin wrappers; screens live here.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useRouter } from 'expo-router';
 
 import type { CalendarConfig } from '@/core/civil/types';
@@ -35,7 +36,10 @@ export function RoutineEditor({
 }) {
   const router = useRouter();
   const household = useHousehold();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
 
   const calendar: CalendarConfig = {
     weekStartsOn: (household.data?.weekStartsOn ?? 0) as CalendarConfig['weekStartsOn'],

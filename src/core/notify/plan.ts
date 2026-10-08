@@ -11,6 +11,7 @@
  * decides how. See docs/decisions/ADR-0005-local-notifications-first.md.
  */
 
+import { wallDateFor } from '../civil/daybreak';
 import { addDays, compareCivil, toEpochDay } from '../civil/date';
 import type { CivilDate, CivilTime } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
@@ -128,6 +129,11 @@ export interface PlanInput {
   /** Whose device this is. Only their chores are planned — see below. */
   readonly userId: string;
   readonly policy: ReminderPolicy;
+  /**
+   * The household's day break, so a reminder lands on the right *wall-clock*
+   * date. See `core/civil/daybreak.ts`.
+   */
+  readonly dayStartsAtHour: number;
 }
 
 /**
@@ -139,7 +145,7 @@ export interface PlanInput {
  * the main thing remote push buys, and it waits.
  */
 export function planReminders(input: PlanInput): readonly PlannedReminder[] {
-  const { policy, today, userId } = input;
+  const { policy, today, userId, dayStartsAtHour } = input;
   if (!policy.enabled) return [];
 
   const horizonEnd = addDays(today, Math.max(0, policy.horizonDays));
@@ -210,7 +216,16 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
         choreId: occ.choreId,
         title: occ.choreTitle,
         body: bodyFor(occ),
-        onDate: occ.dueOn,
+        /*
+         * The wall-clock date, which is not always the due date.
+         *
+         * With a 3 AM break, a chore due Monday with a 01:00 reminder fires on
+         * Tuesday *by the calendar* — 01:00 Tuesday is Monday night. Scheduled
+         * against Monday it was 23 hours early, and therefore already past when
+         * the plan was made, so it was dropped silently and never fired at all.
+         * The routines planner has had the equivalent of this since it shipped.
+         */
+        onDate: wallDateFor(occ.dueOn, atTime, dayStartsAtHour),
         atTime,
       });
     }

@@ -16,18 +16,28 @@
  * for as long as Today is open.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { owedBadge, owedByNow } from '@/core/routines/owed';
 import { useHousehold } from '@/data/hooks/useHousehold';
 import { useRoutineDay } from '@/data/hooks/useRoutines';
-import { useNowTime, useToday } from '@/data/today';
+import { useNowCivil } from '@/data/today';
 import { useUserId } from '@/stores/sessionStore';
 
 /** What the Routines segment should show — `null` for no badge. */
 export function useRoutineOwedBadge(): string | null {
   const household = useHousehold();
   const timeZone = household.data?.timeZone ?? 'UTC';
-  const today = useToday(timeZone);
-  const now = useNowTime(timeZone);
+  const dayStartsAtHour = safeDayStart(household.data?.dayStartsAtHour);
+  /*
+   * One clock for both, because this hook compares them.
+   *
+   * `useToday` and `useNowTime` are deliberately on different cadences, and the
+   * badge read them out of step: the day turned over exactly at the break while
+   * the minute poll could still say 02:59 — the largest "minutes into the day"
+   * there is — so every item of the new day counted as owed and the badge showed
+   * the whole day's total for up to a minute.
+   */
+  const { day: today, time: now } = useNowCivil(timeZone, dayStartsAtHour);
   const userId = useUserId();
 
   /*
@@ -44,5 +54,5 @@ export function useRoutineOwedBadge(): string | null {
    * week — that is what the Routines screen pages through — so a count with no
    * day in it counted the week, and one daily item read `5` on a Thursday.
    */
-  return owedBadge(owedByNow(occurrences, { userId, today, now }));
+  return owedBadge(owedByNow(occurrences, { userId, today, now, dayStartsAtHour }));
 }

@@ -10,6 +10,7 @@
  * wrapper, so neither has to give up its own scroll view or safe-area handling.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useRouter } from 'expo-router';
 
 import { useHousehold, useMembers } from '@/data/hooks/useHousehold';
@@ -27,7 +28,10 @@ export default function TodayTab() {
   const userId = useUserId();
   const members = useMembers();
   const household = useHousehold();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
 
   /*
    * Wait for the stored preference before choosing a screen.

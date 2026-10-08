@@ -15,6 +15,7 @@
  * keystroke of an edit would be slow and almost always a no-op.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useEffect, useMemo, useRef } from 'react';
 
 import type { PlannedReminder, ReminderPolicy } from '@/core/notify/plan';
@@ -42,7 +43,8 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
   const userId = useUserId();
   const household = useHousehold();
   const timeZone = household.data?.timeZone ?? 'UTC';
-  const today = useToday(timeZone);
+  const dayStartsAtHour = safeDayStart(household.data?.dayStartsAtHour);
+  const today = useToday(timeZone, dayStartsAtHour);
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
   /**
@@ -84,8 +86,8 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
      * entirely. The keep-alive is appended inside, from the merged list, so it
      * lands after whatever actually fires last.
      */
-    return planAllReminders({ chores: items, routines, today, userId, policy });
-  }, [enabled, items, routines, today, userId, policy]);
+    return planAllReminders({ chores: items, routines, today, userId, policy, dayStartsAtHour });
+  }, [enabled, items, routines, today, userId, policy, dayStartsAtHour]);
 
   /** The last plan actually written to the OS, so an identical one is skipped. */
   const written = useRef<string>('');

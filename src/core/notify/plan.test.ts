@@ -50,12 +50,22 @@ const occ = (over: Partial<ProjectedOccurrence> = {}): ProjectedOccurrence =>
     ...over,
   }) as ProjectedOccurrence;
 
+/*
+ * `dayStartsAtHour: 0` throughout this file, deliberately.
+ *
+ * Midnight is the behaviour every test here was written against, so holding it
+ * fixed makes the whole suite the "did the day break change chore reminders"
+ * check: at 0 the new `wallDateFor` call has to be a no-op, and any reminder
+ * that moves is a regression. The break's own effect is tested on its own
+ * terms, further down.
+ */
 const plan = (occurrences: ProjectedOccurrence[], policy: Partial<ReminderPolicy> = {}) =>
   planReminders({
     occurrences,
     today: TODAY,
     userId: ME,
     policy: { ...DEFAULT_POLICY, ...policy },
+    dayStartsAtHour: 0,
   });
 
 describe('what earns a reminder', () => {
@@ -417,6 +427,7 @@ describe('a chore with more than one reminder time', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     expect(plan.map((r) => r.atTime)).toEqual(['09:00', '19:00']);
   });
@@ -430,6 +441,7 @@ describe('a chore with more than one reminder time', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     expect(new Set(plan.map((r) => r.id)).size).toBe(2);
   });
@@ -442,6 +454,7 @@ describe('a chore with more than one reminder time', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     expect(single?.id).not.toContain('@');
   });
@@ -452,6 +465,7 @@ describe('a chore with more than one reminder time', () => {
       today: TODAY,
       userId: ME,
       policy: { ...DEFAULT_POLICY, defaultTime: '08:15' as CivilTime },
+      dayStartsAtHour: 0,
     });
     expect(plan.map((r) => r.atTime)).toEqual(['08:15']);
   });
@@ -472,9 +486,52 @@ describe('a chore with more than one reminder time', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     expect(plan.length).toBeLessThanOrEqual(MAX_PENDING);
     // And what survives is the nearest, not an arbitrary slice.
     expect(plan[0]?.onDate).toBe(addDays(TODAY, 1));
+  });
+});
+
+describe('a reminder in the small hours, under a day break', () => {
+  /*
+   * The part of the day break that is not about dates at all.
+   *
+   * A chore due Monday with a 01:00 reminder fires on *Tuesday* by the calendar,
+   * because 01:00 Tuesday is Monday night. Scheduled against Monday it is 23
+   * hours early — and for a chore due today that instant is already past, so the
+   * transport drops it without a word and the reminder never arrives.
+   *
+   * The routines planner has had the equivalent of this since it shipped; chores
+   * did not, because before the break no chore time could belong to another day.
+   */
+  const at = (time: string, dayStartsAtHour: number) =>
+    planReminders({
+      occurrences: [occ({ timesOfDay: [time] as CivilTime[] })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour,
+    })[0];
+
+  it('fires on the next calendar morning', () => {
+    expect(at('01:00', 3)?.onDate).toBe(addDays(TODAY, 1));
+  });
+
+  it('stays put at and after the break', () => {
+    expect(at('03:00', 3)?.onDate).toBe(TODAY);
+    expect(at('09:00', 3)?.onDate).toBe(TODAY);
+  });
+
+  it('does not move at all when the day starts at midnight', () => {
+    // The whole existing suite runs at 0; this states why that is a fair check.
+    expect(at('01:00', 0)?.onDate).toBe(TODAY);
+    expect(at('23:30', 0)?.onDate).toBe(TODAY);
+  });
+
+  it('keeps its time, only its date moves', () => {
+    // The hour is what the chore asked for; the date is bookkeeping.
+    expect(at('01:00', 3)?.atTime).toBe('01:00');
   });
 });

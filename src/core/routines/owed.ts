@@ -26,7 +26,9 @@
  */
 
 import type { CivilDate, CivilTime } from '../civil/types';
-import { DEFAULT_BUCKET_TIMES, minutesFromDayStart, type TimeBucket } from './buckets';
+import { addDays } from '../civil/date';
+import { dayOfWallClock, minutesIntoDay } from '../civil/daybreak';
+import { DEFAULT_BUCKET_TIMES, fallsOnNextCalendarDay, type TimeBucket } from './buckets';
 
 /**
  * Only the fields the count needs, so a fixture can stand in for the projection.
@@ -52,7 +54,7 @@ export interface OwedCandidate {
 }
 
 /**
- * When an item comes due, measured from the day's 05:00 start.
+ * When an item comes due, as minutes into the household day that contains it.
  *
  * A timed item is owed from its own time — setting one is a statement that the
  * thing happens *then*, and rounding it down to its bucket would throw that
@@ -68,8 +70,34 @@ export interface OwedCandidate {
  * `DEFAULT_BUCKET_TIMES.morning` is 07:00 and the reminder does not fire at the
  * boundary either.
  */
-function owedFrom(item: OwedCandidate): number {
-  return minutesFromDayStart(item.timeOfDay ?? DEFAULT_BUCKET_TIMES[item.bucket]);
+function timeFor(item: OwedCandidate): CivilTime {
+  return item.timeOfDay ?? DEFAULT_BUCKET_TIMES[item.bucket];
+}
+
+function owedFrom(item: OwedCandidate, dayStartsAtHour: number): number {
+  return minutesIntoDay(timeFor(item), dayStartsAtHour);
+}
+
+/**
+ * The household day an item actually happens on.
+ *
+ * Two boundaries, and this is the one place that has to reconcile them rather
+ * than pick one. A routine occurrence's `dueOn` is a **routine** day, which runs
+ * 05:00 to 05:00, so an item timed 04:00 on Monday happens on *Tuesday's*
+ * calendar morning — that is what `fallsOnNextCalendarDay` encodes, and the
+ * reminder for it is scheduled that way. Which **household** day that instant
+ * falls in is then a separate question, answered by the break.
+ *
+ * Filtering on `dueOn === today` while measuring the clock from the break got
+ * this wrong in both directions. A review caught the second one: with the break
+ * at 3, a Night item timed 04:00 looked like it was due an hour into Monday,
+ * so the badge counted it from Monday morning — twenty-three hours before the
+ * reminder for it, and before the thing exists.
+ */
+function householdDayOf(item: OwedCandidate, dayStartsAtHour: number): CivilDate {
+  const time = timeFor(item);
+  const wall = fallsOnNextCalendarDay(time) ? addDays(item.dueOn, 1) : item.dueOn;
+  return dayOfWallClock(wall, time, dayStartsAtHour);
 }
 
 /**
@@ -96,18 +124,38 @@ export function owedByNow(
      * the week.
      */
     readonly today: CivilDate;
+    /**
+     * The wall-clock time, which must come from the *same instant* as `today`.
+     *
+     * `useNowCivil` exists for that: read from two clocks these drifted for up
+     * to a minute at the break, and 02:59 is the largest "minutes into the day"
+     * there is — so every item of the new day counted as owed at once.
+     */
     readonly now: CivilTime;
+    /**
+     * The household's day break, which has to be the same origin `today` was
+     * computed from.
+     *
+     * Both sides of the comparison below used `minutesFromDayStart`, whose zero
+     * is the routine day's own fixed 05:00 — while `today` comes from the
+     * household break. Where the two disagree the count is simply wrong: with a
+     * break at noon, at 09:00 on Tuesday `today` is Monday, but "now" measured
+     * four hours into *Tuesday's* routine day, so every Monday afternoon and
+     * evening item silently stopped counting. Measuring both from the break
+     * leaves bucket sorting alone and makes the comparison mean something.
+     */
+    readonly dayStartsAtHour: number;
   },
 ): number {
-  const { userId, today, now } = options;
+  const { userId, today, now, dayStartsAtHour } = options;
   if (userId === null) return 0;
 
-  const elapsed = minutesFromDayStart(now);
+  const elapsed = minutesIntoDay(now, dayStartsAtHour);
 
   return items.filter(
     (item) =>
       item.ownerId === userId &&
-      item.dueOn === today &&
+      householdDayOf(item, dayStartsAtHour) === today &&
       /*
        * `due` alone, because for today's date it is the only incomplete status
        * the projector can produce: `statusOf` gives `upcoming` strictly in the
@@ -116,7 +164,7 @@ export function owedByNow(
        * and was in fact the clause letting the rest of the week in.
        */
       item.status === 'due' &&
-      owedFrom(item) <= elapsed,
+      owedFrom(item, dayStartsAtHour) <= elapsed,
   ).length;
 }
 
