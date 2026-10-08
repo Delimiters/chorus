@@ -82,6 +82,21 @@ Night. **Worth asking Jake whether routine buckets should follow the household
 break too** — it is a real question, not an oversight, and the answer changes
 what "Night" means rather than fixing a bug.
 
+What was *not* defensible, and a review found it: the **owed badge** read across
+the same seam, and there the consequence is a wrong number rather than a
+debatable label. `owedByNow` filtered on `item.dueOn === today` — the household
+day — while measuring elapsed time from the routine day's 05:00. With a break at
+noon, 09:00 on Tuesday is `today = Monday` and twenty-one hours in, but elapsed
+measured four hours, so every Monday afternoon and evening item silently stopped
+counting. Both sides now measure from the household break, which leaves bucket
+sorting untouched.
+
+And one reminder bug of exactly the class this change fixed for chores, found in
+the same pass: the **grouped bucket** reminder set `onDate` without the
+next-calendar-day rule its own per-item sibling has always applied. A Night
+reminder configured for 02:00 was scheduled almost a day early — and for today's
+bucket that instant is already past, so it was dropped and never arrived.
+
 ## Pinned by
 
 - `core/civil/daybreak.test.ts` — the rule itself, both directions, across month
@@ -100,5 +115,30 @@ what "Night" means rather than fixing a bug.
 - `supabase/tests/day-break.test.sql` — the default, both bounds, and that the
   column cannot be emptied.
 
-Every guard mutation-verified: six separate reversions, each turning a different
+Every guard mutation-verified: nine separate reversions, each turning a different
 set of tests red.
+
+Three tests were **removed** rather than kept. They pointed at the
+`Math.max(1000, …)` clamp in `msUntilNextDaybreak` and asserted arithmetic the
+inputs cannot violate — a review proved it by deleting the clamp and watching the
+whole suite stay green. The clamp stays, because `Intl` is an external dependency
+and a timer of zero spins a phone; the tests went, because a test that cannot go
+red reads like evidence and is not.
+
+## The DST night the timer cannot measure
+
+`msUntilNextDaybreak` returns a **wall-clock** delta and `setTimeout` counts
+**real** milliseconds, so on a transition night the two differ by an hour. The
+docstring used to claim that reading local parts meant "a DST transition does not
+skew it" — that removes the *offset* error, not the *transition* error, and the
+claim was false.
+
+Fall back, and the timer fires an hour before the break, on a clock that has not
+reached it: `today` recomputes to the value it already had. Keyed on `today`, the
+effect did not re-run, **nothing armed the next timer**, and a phone left on Today
+sat on the previous day until it was backgrounded — the exact stall the timer
+exists to prevent. The effect now depends on `now` and re-arms unconditionally,
+which costs one extra timer on two nights a year.
+
+Pinned by a test that plays the real night: 01:00 MDT on 7 November 2027, two
+wall-clock hours to the break, two real hours later it is 02:00 MST.

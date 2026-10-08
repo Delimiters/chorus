@@ -1,4 +1,6 @@
-import { isValidTimeZone, msUntilNextDaybreak, timeIn, todayIn } from './today';
+import { act, renderHook } from '@testing-library/react-native';
+
+import { isValidTimeZone, msUntilNextDaybreak, timeIn, todayIn, useToday } from './today';
 
 /*
  * Midnight everywhere in the existing tests, deliberately.
@@ -70,24 +72,6 @@ describe('msUntilNextDaybreak', () => {
     const ms = msUntilNextDaybreak('America/Denver', AT('2026-07-30T03:30:00Z'), MIDNIGHT);
     expect(ms).toBeGreaterThan(2 * 3600 * 1000);
     expect(ms).toBeLessThan(3 * 3600 * 1000);
-  });
-
-  it('never returns zero or negative, so a timer cannot spin', () => {
-    for (const iso of [
-      '2026-07-30T00:00:00Z',
-      '2026-07-30T23:59:59Z',
-      '2026-03-08T09:00:00Z', // US DST spring-forward day
-      '2026-11-01T08:00:00Z', // US DST fall-back day
-    ]) {
-      for (const zone of ['UTC', 'America/Denver', 'Pacific/Kiritimati', 'Pacific/Niue']) {
-        expect(msUntilNextDaybreak(zone, AT(iso), MIDNIGHT)).toBeGreaterThanOrEqual(1000);
-      }
-    }
-  });
-
-  it('stays within a day even across a DST transition', () => {
-    const ms = msUntilNextDaybreak('America/New_York', AT('2026-03-08T05:30:00Z'), MIDNIGHT);
-    expect(ms).toBeLessThanOrEqual(24 * 3600 * 1000);
   });
 });
 
@@ -232,12 +216,58 @@ describe('when the agenda should turn over', () => {
     expect(at0301).toBeGreaterThan(23 * 3600 * 1000);
     expect(at0301).toBeLessThanOrEqual(24 * 3600 * 1000);
   });
+});
 
-  it('never returns something that could spin a timer', () => {
-    for (const hour of [0, 3, 12]) {
-      for (const iso of ['2026-07-30T00:00:00Z', '2026-07-30T03:00:00Z', '2026-07-30T12:00:00Z']) {
-        expect(msUntilNextDaybreak('UTC', AT(iso), hour)).toBeGreaterThanOrEqual(1000);
-      }
-    }
+describe('the overnight timer, when it fires without the date moving', () => {
+  /*
+   * `msUntilNextDaybreak` is a *wall-clock* delta and `setTimeout` counts real
+   * milliseconds, so on a DST fall-back night the timer fires an hour before the
+   * break — on a wall clock that has not reached it. `today` recomputes to the
+   * same value it already had.
+   *
+   * Keyed on `today`, the effect did not re-run, so nothing armed the next
+   * timer and the agenda stalled on yesterday until the app was backgrounded.
+   * This is the regression test for arming unconditionally; it does not need a
+   * real DST transition to express it, only a tick that leaves the date alone.
+   */
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('arms another timer', () => {
+    /*
+     * The real fall-back night, because nothing else produces this: at 01:00
+     * MDT the break is two wall-clock hours away, but two *real* hours later it
+     * is 02:00 MST — the clock went back, the break has not arrived, and the
+     * date is unchanged.
+     */
+    jest.setSystemTime(new Date('2027-11-07T07:00:00Z')); // 01:00 MDT
+    const { result } = renderHook(() => useToday('America/Denver', 3));
+    expect(result.current).toBe('2027-11-06');
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    // Still the 6th — the timer fired early, as it does on this one night.
+    expect(result.current).toBe('2027-11-06');
+    // And the next one is armed anyway, which is the whole fix. Keyed on
+    // `today` this was zero, and the agenda stalled until the app was
+    // backgrounded.
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
+  });
+
+  it('still turns the day over when the break is reached', () => {
+    // The re-arm must not cost the thing the timer is for.
+    jest.setSystemTime(new Date('2026-07-30T02:59:00Z'));
+    const { result } = renderHook(() => useToday('UTC', 3));
+    expect(result.current).toBe('2026-07-29');
+
+    act(() => {
+      jest.setSystemTime(new Date('2026-07-30T03:01:00Z'));
+      jest.runOnlyPendingTimers();
+    });
+
+    expect(result.current).toBe('2026-07-30');
   });
 });

@@ -555,7 +555,14 @@ describe('when the day ends', () => {
     await renderScreen();
 
     expect(screen.getByText(/Shared, because you share a plan/)).toBeOnTheScreen();
-    expect(screen.getByText(/only affects what you do from now on/)).toBeOnTheScreen();
+    /*
+     * "Nothing is rewritten" is true of the database and misleading on its own:
+     * change the setting at 01:00 and `today` moves under you, so the chore you
+     * ticked a minute ago can land on the other side of the new line without a
+     * single row changing. A review found the copy claiming the absolute.
+     */
+    expect(screen.getByText(/Nothing already recorded is rewritten/)).toBeOnTheScreen();
+    expect(screen.getByText(/on the other side of it/)).toBeOnTheScreen();
   });
 
   it('moves the hour by one when you press it', async () => {
@@ -565,13 +572,26 @@ describe('when the day ends', () => {
     expect(mockUpdate).toHaveBeenCalledWith({ dayStartsAtHour: 4 });
   });
 
-  it('cannot be pushed past noon or below midnight', async () => {
+  it('cannot be pushed past noon', async () => {
     // The bounds are the control's, so a bad value never reaches the CHECK.
     mockHousehold = { ...mockHousehold, dayStartsAtHour: 12 };
     await renderScreen();
 
-    const up = screen.getByRole('button', { name: 'Increase day ends at' });
-    expect(up.props.accessibilityState?.disabled).toBe(true);
+    expect(
+      screen.getByRole('button', { name: 'Increase day ends at' }).props.accessibilityState
+        ?.disabled,
+    ).toBe(true);
+  });
+
+  it('cannot be pushed below midnight', async () => {
+    // The other end, which the test above was named for and did not check.
+    mockHousehold = { ...mockHousehold, dayStartsAtHour: 0 };
+    await renderScreen();
+
+    expect(
+      screen.getByRole('button', { name: 'Decrease day ends at' }).props.accessibilityState
+        ?.disabled,
+    ).toBe(true);
   });
 
   it('shows the default while the household is still loading', async () => {

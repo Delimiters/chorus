@@ -20,12 +20,26 @@ function item(over: Partial<OwedCandidate> = {}): OwedCandidate {
   };
 }
 
+/*
+ * `dayStartsAtHour: 5` throughout the existing tests, deliberately.
+ *
+ * Five is the routine day's own origin, which is what every assertion here was
+ * written against — so holding it there makes this file the "did measuring from
+ * the household break change the count" check. The break's own effect is tested
+ * on its own terms at the bottom.
+ */
+const ROUTINE_DAY = 5;
+
 describe('what has come due by now', () => {
   it('counts an untimed item once its bucket’s reminder time has arrived', () => {
     const items = [item({ bucket: 'afternoon' })];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('12:29') })).toBe(0);
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('12:30') })).toBe(1);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('12:29'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(0);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('12:30'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(1);
   });
 
   /*
@@ -36,26 +50,36 @@ describe('what has come due by now', () => {
   it('counts a timed item from its own time, not its bucket’s', () => {
     const items = [item({ bucket: 'night', timeOfDay: t('21:00') })];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('20:00') })).toBe(0);
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('21:00') })).toBe(1);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('20:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(0);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('21:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(1);
   });
 
   it('keeps counting what you skipped earlier in the day', () => {
     const items = [item({ bucket: 'morning' }), item({ bucket: 'afternoon' })];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('17:30') })).toBe(2);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('17:30'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(2);
   });
 
   it('does not count what has not come due yet', () => {
     const items = [item({ bucket: 'evening' }), item({ bucket: 'night' })];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('09:00') })).toBe(0);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('09:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(0);
   });
 
   it('stops counting an item once it is done', () => {
     const items = [item({ status: 'completed' }), item({ status: 'due' })];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('09:00') })).toBe(1);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('09:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(1);
   });
 
   /*
@@ -85,7 +109,9 @@ describe('what has come due by now', () => {
       item({ dueOn: TOMORROW, status: 'upcoming' }),
     ];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('14:00') })).toBe(1);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('14:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(1);
   });
 
   /*
@@ -99,6 +125,7 @@ describe('what has come due by now', () => {
         userId: ME,
         today: TODAY,
         now: t('14:00'),
+        dayStartsAtHour: ROUTINE_DAY,
       }),
     ).toBe(0);
   });
@@ -116,23 +143,39 @@ describe('what has come due by now', () => {
   it('counts only today even for an item that calls itself due', () => {
     const items = [item({ dueOn: YESTERDAY }), item({ dueOn: TOMORROW }), item({ dueOn: TODAY })];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('14:00') })).toBe(1);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('14:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(1);
   });
 
   it('ignores an upcoming item even if its bucket has somehow started', () => {
     expect(
-      owedByNow([item({ status: 'upcoming' })], { userId: ME, today: TODAY, now: t('14:00') }),
+      owedByNow([item({ status: 'upcoming' })], {
+        userId: ME,
+        today: TODAY,
+        now: t('14:00'),
+        dayStartsAtHour: ROUTINE_DAY,
+      }),
     ).toBe(0);
   });
 
   it('never counts your housemate’s shared routine — you cannot do their stretches', () => {
     const items = [item({ ownerId: THEM }), item({ ownerId: ME })];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('09:00') })).toBe(1);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('09:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(1);
   });
 
   it('counts nothing when nobody is signed in', () => {
-    expect(owedByNow([item()], { userId: null, today: TODAY, now: t('09:00') })).toBe(0);
+    expect(
+      owedByNow([item()], {
+        userId: null,
+        today: TODAY,
+        now: t('09:00'),
+        dayStartsAtHour: ROUTINE_DAY,
+      }),
+    ).toBe(0);
   });
 
   /*
@@ -149,9 +192,13 @@ describe('what has come due by now', () => {
       item({ bucket: 'night' }),
     ];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('00:30') })).toBe(4);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('00:30'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(4);
     // And the same list at eight in the morning owes only the morning one.
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('08:00') })).toBe(1);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('08:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(1);
   });
 
   /*
@@ -169,14 +216,22 @@ describe('what has come due by now', () => {
       item({ bucket: 'night' }),
     ];
 
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('05:00') })).toBe(0);
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('06:59') })).toBe(0);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('05:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(0);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('06:59'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(0);
     // And owed once the morning reminder time arrives, not before.
-    expect(owedByNow(items, { userId: ME, today: TODAY, now: t('07:00') })).toBe(1);
+    expect(
+      owedByNow(items, { userId: ME, today: TODAY, now: t('07:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(1);
   });
 
   it('is zero for an empty routine', () => {
-    expect(owedByNow([], { userId: ME, today: TODAY, now: t('09:00') })).toBe(0);
+    expect(
+      owedByNow([], { userId: ME, today: TODAY, now: t('09:00'), dayStartsAtHour: ROUTINE_DAY }),
+    ).toBe(0);
   });
 });
 
@@ -193,5 +248,79 @@ describe('owedBadge', () => {
 
   it('caps past nine, where the exact figure stops being the point', () => {
     expect(owedBadge(10)).toBe('9+');
+  });
+});
+
+describe('counting against the household day break', () => {
+  /*
+   * Both sides of "has this come due yet" have to be measured from the same
+   * origin as `today`, or the count is simply wrong — and wrong in a direction
+   * nobody would question, because a badge reading 2 instead of 5 looks like a
+   * badge.
+   *
+   * The old code measured elapsed time from the routine day's fixed 05:00 while
+   * `today` came from the household break. A review found the consequence at the
+   * far end of the allowed range.
+   */
+  const evening = item({ dueOn: TODAY, status: 'due', bucket: 'evening', timeOfDay: null });
+  const morning = item({ dueOn: TODAY, status: 'due', bucket: 'morning', timeOfDay: null });
+
+  it('counts a whole day of items once that day has passed', () => {
+    /*
+     * The case that was broken: with the break at noon, 09:00 on Tuesday is
+     * still *Monday*, twenty-one hours into it — so Monday's morning and evening
+     * items have both long since come due. Measured from 05:00 instead, "now"
+     * looked like four hours into the day and the evening item vanished from
+     * the count.
+     */
+    const count = owedByNow([morning, evening], {
+      userId: ME,
+      today: TODAY,
+      now: t('09:00'),
+      dayStartsAtHour: 12,
+    });
+
+    expect(count).toBe(2);
+  });
+
+  it('still waits for an item to come due', () => {
+    // The guard that stops this from being "count everything": at 13:00 with a
+    // noon break we are one hour in, and neither has arrived.
+    const count = owedByNow([morning, evening], {
+      userId: ME,
+      today: TODAY,
+      now: t('13:00'),
+      dayStartsAtHour: 12,
+    });
+
+    expect(count).toBe(0);
+  });
+
+  it('counts the small hours as part of the night before', () => {
+    /*
+     * With a 3 AM break, 01:00 on Tuesday is twenty-two hours into Monday — so
+     * Monday's evening item is owed, which is the whole point of the break.
+     */
+    const count = owedByNow([evening], {
+      userId: ME,
+      today: TODAY,
+      now: t('01:00'),
+      dayStartsAtHour: 3,
+    });
+
+    expect(count).toBe(1);
+  });
+
+  it('agrees with the old behaviour at the routine day’s own origin', () => {
+    // At 5 the new measure is the old one, which is what pins the rest of this
+    // file as a no-change check.
+    expect(
+      owedByNow([morning, evening], {
+        userId: ME,
+        today: TODAY,
+        now: t('20:00'),
+        dayStartsAtHour: ROUTINE_DAY,
+      }),
+    ).toBe(2);
   });
 });

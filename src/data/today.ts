@@ -131,9 +131,20 @@ export function useNowTime(timeZone: string): CivilTime {
 /**
  * Milliseconds until the next day break in `timeZone`.
  *
- * Computed by asking for the local wall-clock time rather than by assuming a
- * fixed offset, so a DST transition on the boundary night does not skew it. The
- * result is clamped to at least a second so a rounding error can't spin a timer.
+ * Computed from local wall-clock parts rather than from a fixed offset, so the
+ * zone's *offset* cannot skew it.
+ *
+ * It is a **wall-clock** delta, and `setTimeout` counts real milliseconds, so on
+ * a DST transition night the two differ by an hour: the comment here used to
+ * claim a transition "does not skew it", which was false. Reading local parts
+ * removes the offset error, not the transition error. Spring forward and the
+ * timer fires an hour after the break; fall back and it fires an hour before —
+ * landing on a wall clock that has not reached the break yet.
+ *
+ * That is survivable only because the caller re-arms unconditionally; see
+ * `useToday`. Correcting the duration itself would mean searching for the
+ * instant whose local time is the break, which is a different and much larger
+ * piece of machinery for a once-a-year hour.
  */
 export function msUntilNextDaybreak(timeZone: string, now: Date, dayStartsAtHour: number): number {
   const zone = isValidTimeZone(timeZone) ? timeZone : 'UTC';
@@ -161,6 +172,16 @@ export function msUntilNextDaybreak(timeZone: string, now: Date, dayStartsAtHour
   const breakMs = safeDayStart(dayStartsAtHour) * 3600 * 1000;
   const dayMs = 24 * 3600 * 1000;
   const remaining = elapsed < breakMs ? breakMs - elapsed : dayMs + breakMs - elapsed;
+  /*
+   * A belt, and deliberately not a tested one.
+   *
+   * `remaining` is provably at least a second for every input the types allow,
+   * so the clamp cannot fire — a review proved it by deleting it and watching
+   * the whole suite stay green. Three tests used to point at this line and
+   * assert arithmetic that cannot be violated; they were removed rather than
+   * left reading like evidence. The clamp stays because the formatter is an
+   * external dependency and a timer of zero spins a phone.
+   */
   return Math.max(1000, remaining);
 }
 
@@ -186,15 +207,29 @@ export function useToday(timeZone: string, dayStartsAtHour: number): CivilDate {
     };
     const subscription = AppState.addEventListener('change', onAppState);
 
-    // One timer per day rather than a poll. Re-armed by this effect re-running
-    // when `today` changes.
-    const timer = setTimeout(refresh, msUntilNextDaybreak(timeZone, new Date(), dayStartsAtHour));
+    /*
+     * One timer per day rather than a poll, re-armed on **every** refresh.
+     *
+     * The dependency is `now`, not `today`, and that is the whole point: a
+     * timer that fires without the date having changed must still arm the next
+     * one. Keyed on `today` it did not, because `refresh()` would set a new
+     * `now`, `today` would recompute to the same value, and the effect would not
+     * re-run — leaving nothing scheduled.
+     *
+     * Unreachable in ordinary time, and reachable twice a year: this is a
+     * wall-clock duration handed to a real-time timer, so on a fall-back night
+     * it fires an hour before the break, on a wall clock that has not got there
+     * yet. On 7 November a phone left on Today would have sat on the 6th until
+     * somebody backgrounded the app. Re-arming always costs one extra timer on
+     * two nights a year and removes the stall entirely.
+     */
+    const timer = setTimeout(refresh, msUntilNextDaybreak(timeZone, now, dayStartsAtHour));
 
     return () => {
       subscription.remove();
       clearTimeout(timer);
     };
-  }, [timeZone, today, dayStartsAtHour]);
+  }, [timeZone, now, dayStartsAtHour]);
 
   return today;
 }

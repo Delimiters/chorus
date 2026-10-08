@@ -87,6 +87,21 @@ export function wallDateFor(day: CivilDate, atTime: CivilTime, dayStartsAtHour: 
 }
 
 /**
+ * How far into the household's day a time falls, in minutes.
+ *
+ * The zero is the break, so a day is a single 0–1439 span however late it
+ * starts. `routines/buckets.ts` has the same shape with its own fixed 05:00
+ * origin, for naming the parts of a day; this one exists so that anything
+ * comparing a time against *the day the app thinks it is* measures both sides
+ * from the same place.
+ */
+export function minutesIntoDay(time: CivilTime, dayStartsAtHour: number): number {
+  const minutes = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+  const start = safeDayStart(dayStartsAtHour) * 60;
+  return (minutes - start + 1440) % 1440;
+}
+
+/**
  * How the break reads in a sentence: `3` → `"3 AM"`.
  *
  * Here rather than in the settings screen because the notification copy and the

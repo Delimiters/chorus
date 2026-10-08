@@ -219,7 +219,7 @@ export function SettingsScreen() {
           */}
           <FieldGroup
             label="Day ends at"
-            hint={`Anything finished before ${describeDayStart(dayStartsAtHour)} counts towards the day before, so a late night does not land on tomorrow. Shared, because you share a plan — and it only affects what you do from now on, not what is already recorded.`}
+            hint={`Anything finished before ${describeDayStart(dayStartsAtHour)} counts towards the day before, so a late night does not land on tomorrow. Shared, because you share a plan. Nothing already recorded is rewritten — but moving this line now can put something you ticked tonight on the other side of it.`}
           >
             <Stepper
               value={dayStartsAtHour}

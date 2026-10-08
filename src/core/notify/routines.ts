@@ -123,7 +123,19 @@ export function planRoutineReminders(input: {
       choreId: group.bucket,
       title: `${describeBucket(group.bucket)} routine`,
       body: group.count === 1 ? '1 thing to do' : `${group.count} things to do`,
-      onDate: group.date,
+      /*
+       * Through the same next-calendar-day rule the timed path above uses.
+       *
+       * A bucket's reminder time is configurable, so Night's can be set to
+       * 02:00 — and 02:00 belongs to the routine day that began the previous
+       * morning. Without this it was scheduled against the day itself, almost
+       * twenty-four hours early, and for today's bucket that instant is already
+       * past, so the transport dropped it and the reminder never arrived. The
+       * timed path has had the guard since it shipped; this one never got it.
+       */
+      onDate: fallsOnNextCalendarDay(policy.bucketTimes[group.bucket])
+        ? addDays(group.date, 1)
+        : group.date,
       // The chosen reminder time, not the bucket boundary. Morning begins at
       // 05:00 because the day does; that is not when anyone wants telling.
       atTime: policy.bucketTimes[group.bucket],

@@ -26,7 +26,8 @@
  */
 
 import type { CivilDate, CivilTime } from '../civil/types';
-import { DEFAULT_BUCKET_TIMES, minutesFromDayStart, type TimeBucket } from './buckets';
+import { minutesIntoDay } from '../civil/daybreak';
+import { DEFAULT_BUCKET_TIMES, type TimeBucket } from './buckets';
 
 /**
  * Only the fields the count needs, so a fixture can stand in for the projection.
@@ -68,8 +69,8 @@ export interface OwedCandidate {
  * `DEFAULT_BUCKET_TIMES.morning` is 07:00 and the reminder does not fire at the
  * boundary either.
  */
-function owedFrom(item: OwedCandidate): number {
-  return minutesFromDayStart(item.timeOfDay ?? DEFAULT_BUCKET_TIMES[item.bucket]);
+function owedFrom(item: OwedCandidate, dayStartsAtHour: number): number {
+  return minutesIntoDay(item.timeOfDay ?? DEFAULT_BUCKET_TIMES[item.bucket], dayStartsAtHour);
 }
 
 /**
@@ -97,12 +98,25 @@ export function owedByNow(
      */
     readonly today: CivilDate;
     readonly now: CivilTime;
+    /**
+     * The household's day break, which has to be the same origin `today` was
+     * computed from.
+     *
+     * Both sides of the comparison below used `minutesFromDayStart`, whose zero
+     * is the routine day's own fixed 05:00 — while `today` comes from the
+     * household break. Where the two disagree the count is simply wrong: with a
+     * break at noon, at 09:00 on Tuesday `today` is Monday, but "now" measured
+     * four hours into *Tuesday's* routine day, so every Monday afternoon and
+     * evening item silently stopped counting. Measuring both from the break
+     * leaves bucket sorting alone and makes the comparison mean something.
+     */
+    readonly dayStartsAtHour: number;
   },
 ): number {
-  const { userId, today, now } = options;
+  const { userId, today, now, dayStartsAtHour } = options;
   if (userId === null) return 0;
 
-  const elapsed = minutesFromDayStart(now);
+  const elapsed = minutesIntoDay(now, dayStartsAtHour);
 
   return items.filter(
     (item) =>
@@ -116,7 +130,7 @@ export function owedByNow(
        * and was in fact the clause letting the rest of the week in.
        */
       item.status === 'due' &&
-      owedFrom(item) <= elapsed,
+      owedFrom(item, dayStartsAtHour) <= elapsed,
   ).length;
 }
 

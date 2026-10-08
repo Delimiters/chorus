@@ -46,5 +46,5 @@ export function useRoutineOwedBadge(): string | null {
    * week — that is what the Routines screen pages through — so a count with no
    * day in it counted the week, and one daily item read `5` on a Thursday.
    */
-  return owedBadge(owedByNow(occurrences, { userId, today, now }));
+  return owedBadge(owedByNow(occurrences, { userId, today, now, dayStartsAtHour }));
 }
