@@ -39,9 +39,14 @@ jest.mock('@/data/hooks/useHousehold', () => ({
 jest.mock('@/data/hooks/useRoutines', () => ({
   useRoutineDay: () => ({ occurrences: mockOccurrences, summary: null, isLoading: false }),
 }));
+/*
+ * One clock, as the hook now reads it. The badge compares the day against the
+ * time, and reading them from two separately-polled sources drifted for up to a
+ * minute at the day break — so the hook takes both from one instant and the
+ * mock has to as well, or the fixture is a shape production cannot produce.
+ */
 jest.mock('@/data/today', () => ({
-  useToday: () => '2026-10-01',
-  useNowTime: () => mockNow,
+  useNowCivil: () => ({ day: '2026-10-01', time: mockNow }),
 }));
 jest.mock('@/stores/sessionStore', () => ({ useUserId: () => 'me' }));
 

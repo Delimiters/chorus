@@ -176,13 +176,65 @@ export function msUntilNextDaybreak(timeZone: string, now: Date, dayStartsAtHour
    * A belt, and deliberately not a tested one.
    *
    * `remaining` is provably at least a second for every input the types allow,
-   * so the clamp cannot fire — a review proved it by deleting it and watching
-   * the whole suite stay green. Three tests used to point at this line and
-   * assert arithmetic that cannot be violated; they were removed rather than
-   * left reading like evidence. The clamp stays because the formatter is an
-   * external dependency and a timer of zero spins a phone.
+   * so neither branch below can fire — a review proved it by deleting the clamp
+   * and watching the whole suite stay green. Three tests used to point at this
+   * line and assert arithmetic that cannot be violated; they were removed rather
+   * than left reading like evidence.
+   *
+   * It stays because `Intl` is an external dependency: if a part ever came back
+   * unparseable, `elapsed` would be `NaN`, and `Math.max(1000, NaN)` is `NaN` —
+   * which `setTimeout` coerces to zero and spins the phone. So the guard is on
+   * finiteness rather than on magnitude alone, which is what the comment here
+   * used to claim it did.
    */
+  if (!Number.isFinite(remaining)) return 24 * 3600 * 1000;
   return Math.max(1000, remaining);
+}
+
+/**
+ * The civil day *and* the wall-clock time, from one instant.
+ *
+ * `useToday` and `useNowTime` hold separate clocks on deliberately different
+ * cadences — a date changes once a day and a time changes constantly — and
+ * anything comparing the two across that gap reads them out of step. The
+ * routines badge did: `useToday`'s timer turns the day over exactly at the
+ * break while the minute poll can still report 02:59 for up to a minute
+ * afterwards, which is the *largest* possible "minutes into the day" value. So
+ * every item of the brand-new day counted as already owed and the badge showed
+ * the whole day's total for up to sixty seconds before snapping to zero.
+ *
+ * One `Date`, both answers, so they cannot disagree. Polled at a minute like
+ * `useNowTime`, and with the same warning: **only call this from a leaf.**
+ */
+export function useNowCivil(
+  timeZone: string,
+  dayStartsAtHour: number,
+): { readonly day: CivilDate; readonly time: CivilTime } {
+  const [now, setNow] = useState(() => new Date());
+
+  const value = useMemo(
+    () => ({
+      day: todayIn(timeZone, now, dayStartsAtHour),
+      time: timeIn(timeZone, now),
+    }),
+    [timeZone, now, dayStartsAtHour],
+  );
+
+  useEffect(() => {
+    const refresh = (): void => setNow(new Date());
+    const onAppState = (state: AppStateStatus): void => {
+      if (state === 'active') refresh();
+    };
+    const subscription = AppState.addEventListener('change', onAppState);
+    const timer = setInterval(refresh, 60_000);
+
+    return () => {
+      subscription.remove();
+      clearInterval(timer);
+    };
+  }, []);
+
+  return value;
 }
 
 /**

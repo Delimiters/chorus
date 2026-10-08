@@ -1,6 +1,13 @@
 import { act, renderHook } from '@testing-library/react-native';
 
-import { isValidTimeZone, msUntilNextDaybreak, timeIn, todayIn, useToday } from './today';
+import {
+  isValidTimeZone,
+  msUntilNextDaybreak,
+  timeIn,
+  todayIn,
+  useNowCivil,
+  useToday,
+} from './today';
 
 /*
  * Midnight everywhere in the existing tests, deliberately.
@@ -269,5 +276,50 @@ describe('the overnight timer, when it fires without the date moving', () => {
     });
 
     expect(result.current).toBe('2026-07-30');
+  });
+});
+
+describe('reading the day and the time from one instant', () => {
+  /*
+   * `useToday` and `useNowTime` are on deliberately different cadences, and the
+   * routines badge compared them: the day turned over exactly at the break while
+   * the minute poll could still report 02:59 — the largest "minutes into the
+   * day" value there is — so for up to a minute every item of the brand-new day
+   * counted as already owed.
+   */
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('cannot report a time from one day and a date from the next', () => {
+    jest.setSystemTime(new Date('2026-07-30T02:59:30Z'));
+    const { result } = renderHook(() => useNowCivil('UTC', 3));
+
+    // Before the break: the previous day, and a time near the end of it.
+    expect(result.current.day).toBe('2026-07-29');
+    expect(result.current.time).toBe('02:59');
+
+    act(() => {
+      jest.setSystemTime(new Date('2026-07-30T03:00:30Z'));
+      jest.advanceTimersByTime(60_000);
+    });
+
+    /*
+     * After it: both move together, which is the only property that matters.
+     * Compared against the same instant rather than a literal, because
+     * advancing the fake timers moves the clock as well as firing the poll.
+     */
+    const instant = new Date();
+    expect(result.current.day).toBe(todayIn('UTC', instant, 3));
+    expect(result.current.time).toBe(timeIn('UTC', instant));
+    expect(result.current.day).toBe('2026-07-30');
+  });
+
+  it('agrees with useToday for the same instant', () => {
+    // Same answer, different cadence — not a second opinion about the date.
+    jest.setSystemTime(new Date('2026-07-30T01:00:00Z'));
+    const both = renderHook(() => useNowCivil('UTC', 3));
+    const date = renderHook(() => useToday('UTC', 3));
+
+    expect(both.result.current.day).toBe(date.result.current);
   });
 });

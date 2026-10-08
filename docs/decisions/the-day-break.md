@@ -91,6 +91,22 @@ measured four hours, so every Monday afternoon and evening item silently stopped
 counting. Both sides now measure from the household break, which leaves bucket
 sorting untouched.
 
+The first attempt at that fix introduced its own regression, which the
+re-review caught: measuring an item's due-from against the household break while
+its `dueOn` still meant a routine day made an item timed 04:00 look like it was
+due an hour into Monday — so the badge counted it from Monday morning, almost a
+day before the reminder for it, and before the thing exists. `owedByNow` now maps
+the item through `fallsOnNextCalendarDay` to the calendar day it happens on and
+*then* asks which household day that instant falls in. It is the one place that
+reconciles the two boundaries rather than picking one.
+
+The badge also read its day and its clock from two separately-polled sources.
+`useToday` turns the day over exactly at the break while the minute poll can
+still report 02:59 for up to a minute — the largest "minutes into the day" value
+there is — so every item of the brand-new day counted as owed and the badge
+showed the whole day's total before snapping to zero. `useNowCivil` returns both
+from one instant.
+
 And one reminder bug of exactly the class this change fixed for chores, found in
 the same pass: the **grouped bucket** reminder set `onDate` without the
 next-calendar-day rule its own per-item sibling has always applied. A Night
@@ -115,8 +131,16 @@ bucket that instant is already past, so it was dropped and never arrived.
 - `supabase/tests/day-break.test.sql` — the default, both bounds, and that the
   column cannot be emptied.
 
-Every guard mutation-verified: nine separate reversions, each turning a different
-set of tests red.
+Every guard mutation-verified: twelve separate reversions, each turning a
+different set of tests red — including each of the three parts of the owed fix
+(the household-day filter, the next-calendar-day remap, and the origin `elapsed`
+is measured from), which fail on different tests.
+
+Known and left alone: a **bucket reminder time set before 05:00** moves a day
+later, because under the routine-day model 04:30 belongs to the routine day that
+began the previous morning. Consistent, and useless if somebody actually sets
+Morning to 04:30 through the "Other…" wheel. Worth a look alongside the question
+of whether routine buckets should follow the household break at all.
 
 Three tests were **removed** rather than kept. They pointed at the
 `Math.max(1000, …)` clamp in `msUntilNextDaybreak` and asserted arithmetic the

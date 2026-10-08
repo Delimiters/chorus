@@ -1,3 +1,4 @@
+import { addDays } from '../civil/date';
 import type { CivilDate, CivilTime } from '../civil/types';
 
 import { owedBadge, owedByNow, type OwedCandidate } from './owed';
@@ -253,74 +254,80 @@ describe('owedBadge', () => {
 
 describe('counting against the household day break', () => {
   /*
-   * Both sides of "has this come due yet" have to be measured from the same
-   * origin as `today`, or the count is simply wrong — and wrong in a direction
-   * nobody would question, because a badge reading 2 instead of 5 looks like a
-   * badge.
+   * Both sides of "has this come due yet" have to be measured against the same
+   * day as `today`, or the count is wrong in a direction nobody would question —
+   * a badge reading 2 instead of 5 just looks like a badge.
    *
-   * The old code measured elapsed time from the routine day's fixed 05:00 while
-   * `today` came from the household break. A review found the consequence at the
-   * far end of the allowed range.
+   * There are two boundaries in play and this is the one place that reconciles
+   * them. An item's `dueOn` is a **routine** day (05:00 to 05:00), so an item
+   * timed 04:00 happens on the *next* calendar morning; which **household** day
+   * that instant falls in is then the break's question.
    */
-  const evening = item({ dueOn: TODAY, status: 'due', bucket: 'evening', timeOfDay: null });
-  const morning = item({ dueOn: TODAY, status: 'due', bucket: 'morning', timeOfDay: null });
+  const TOMORROW = addDays(TODAY, 1);
+  const YESTER = addDays(TODAY, -1);
+  const evening = (dueOn: CivilDate) =>
+    item({ dueOn, status: 'due', bucket: 'evening', timeOfDay: null });
+  const smallHours = (dueOn: CivilDate) =>
+    item({ dueOn, status: 'due', bucket: 'night', timeOfDay: t('04:00') });
+  const count = (items: ReturnType<typeof item>[], today: CivilDate, now: string, hour = 3) =>
+    owedByNow(items, { userId: ME, today, now: t(now), dayStartsAtHour: hour });
 
-  it('counts a whole day of items once that day has passed', () => {
-    /*
-     * The case that was broken: with the break at noon, 09:00 on Tuesday is
-     * still *Monday*, twenty-one hours into it — so Monday's morning and evening
-     * items have both long since come due. Measured from 05:00 instead, "now"
-     * looked like four hours into the day and the evening item vanished from
-     * the count.
-     */
-    const count = owedByNow([morning, evening], {
-      userId: ME,
-      today: TODAY,
-      now: t('09:00'),
-      dayStartsAtHour: 12,
-    });
-
-    expect(count).toBe(2);
+  it('counts the evening once the evening has passed', () => {
+    expect(count([evening(TODAY)], TODAY, '23:00')).toBe(1);
   });
 
-  it('still waits for an item to come due', () => {
-    // The guard that stops this from being "count everything": at 13:00 with a
-    // noon break we are one hour in, and neither has arrived.
-    const count = owedByNow([morning, evening], {
-      userId: ME,
-      today: TODAY,
-      now: t('13:00'),
-      dayStartsAtHour: 12,
-    });
-
-    expect(count).toBe(0);
+  it('does not count it before it arrives', () => {
+    expect(count([evening(TODAY)], TODAY, '16:00')).toBe(0);
   });
 
-  it('counts the small hours as part of the night before', () => {
-    /*
-     * With a 3 AM break, 01:00 on Tuesday is twenty-two hours into Monday — so
-     * Monday's evening item is owed, which is the whole point of the break.
-     */
-    const count = owedByNow([evening], {
-      userId: ME,
-      today: TODAY,
-      now: t('01:00'),
-      dayStartsAtHour: 3,
-    });
+  it('still counts last night at one in the morning', () => {
+    // The whole point of the break: at 01:00 the day is still yesterday, and
+    // yesterday's evening item is owed.
+    expect(count([evening(YESTER)], YESTER, '01:00')).toBe(1);
+  });
 
-    expect(count).toBe(1);
+  it('does not count an item that has not happened yet, a day early', () => {
+    /*
+     * The regression a review caught in the first version of this fix. An item
+     * timed 04:00 on Monday happens on *Tuesday* morning — the reminder for it
+     * is scheduled that way — but measuring its due-from against Monday's break
+     * made it look an hour into Monday, so the badge counted it from Monday
+     * morning onwards: twenty-three hours early, and before the thing exists.
+     */
+    expect(count([smallHours(TODAY)], TODAY, '23:00')).toBe(0);
+  });
+
+  it('counts it when its morning actually comes', () => {
+    // Non-vacuity for the pair above: at 04:30 the item is an hour and a half
+    // into the household day it belongs to.
+    expect(count([smallHours(TODAY)], TOMORROW, '04:30')).toBe(1);
+  });
+
+  it('files an item by the household day its instant falls in', () => {
+    /*
+     * With the break at noon, an item timed 07:00 on a routine Monday happens at
+     * 07:00 — which is still *Sunday's* household day, because Monday's has not
+     * begun. So it is not Monday's business, and `today = Monday` must not count
+     * it.
+     */
+    const morning = item({ dueOn: TODAY, status: 'due', bucket: 'morning', timeOfDay: null });
+    expect(count([morning], TODAY, '13:00', 12)).toBe(0);
+    expect(count([morning], YESTER, '11:00', 12)).toBe(1);
   });
 
   it('agrees with the old behaviour at the routine day’s own origin', () => {
-    // At 5 the new measure is the old one, which is what pins the rest of this
-    // file as a no-change check.
+    // At 5 the measure is the old one, which is what pins the rest of this file
+    // as a no-change check.
     expect(
-      owedByNow([morning, evening], {
-        userId: ME,
-        today: TODAY,
-        now: t('20:00'),
-        dayStartsAtHour: ROUTINE_DAY,
-      }),
+      owedByNow(
+        [evening(TODAY), item({ dueOn: TODAY, status: 'due', bucket: 'morning', timeOfDay: null })],
+        {
+          userId: ME,
+          today: TODAY,
+          now: t('20:00'),
+          dayStartsAtHour: ROUTINE_DAY,
+        },
+      ),
     ).toBe(2);
   });
 });
