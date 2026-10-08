@@ -194,12 +194,14 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     const choresOnly = planReminders({
       occurrences: chores,
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
 
     expect(merged.filter((r) => r.id !== KEEP_ALIVE_ID)).toEqual(choresOnly);
@@ -212,6 +214,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     expect(merged.some(isRoutineReminder)).toBe(true);
     expect(merged.some((r) => !isRoutineReminder(r) && r.id !== KEEP_ALIVE_ID)).toBe(true);
@@ -237,6 +240,7 @@ describe('planAllReminders', () => {
             today: TODAY,
             userId: ME,
             policy: DEFAULT_POLICY,
+            dayStartsAtHour: 0,
           });
           expect(merged.length).toBeLessThanOrEqual(MAX_PENDING);
         },
@@ -259,6 +263,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
 
     const chores = merged.filter((r) => !isRoutineReminder(r) && r.id !== KEEP_ALIVE_ID);
@@ -285,6 +290,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
 
     expect(merged.filter(isRoutineReminder)).toHaveLength(10);
@@ -311,6 +317,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     const withoutKeepAlive = merged.filter((r) => r.id !== KEEP_ALIVE_ID);
     expect(withoutKeepAlive[0]?.onDate).toBe(TODAY);
@@ -323,6 +330,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     expect(merged.filter((r) => r.id === KEEP_ALIVE_ID)).toHaveLength(1);
   });
@@ -335,6 +343,7 @@ describe('planAllReminders', () => {
         today: TODAY,
         userId: ME,
         policy: { ...DEFAULT_POLICY, enabled: false },
+        dayStartsAtHour: 0,
       }),
     ).toEqual([]);
   });

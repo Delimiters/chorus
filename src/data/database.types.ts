@@ -638,6 +638,7 @@ export type Database = {
           auto_plan: boolean
           created_at: string
           created_by: string | null
+          day_starts_at_hour: number
           default_reminder_time: string | null
           id: string
           name: string
@@ -649,6 +650,7 @@ export type Database = {
           auto_plan?: boolean
           created_at?: string
           created_by?: string | null
+          day_starts_at_hour?: number
           default_reminder_time?: string | null
           id?: string
           name: string
@@ -660,6 +662,7 @@ export type Database = {
           auto_plan?: boolean
           created_at?: string
           created_by?: string | null
+          day_starts_at_hour?: number
           default_reminder_time?: string | null
           id?: string
           name?: string

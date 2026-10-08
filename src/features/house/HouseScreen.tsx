@@ -7,6 +7,7 @@
  * That is the whole feature.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
 import { ScrollView, View } from 'react-native';
@@ -41,7 +42,10 @@ export function HouseScreen() {
   const household = useHousehold();
   const members = useMembers();
   const signOut = useSignOut();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
 
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
 

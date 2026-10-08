@@ -34,6 +34,7 @@
  * room to say so.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -106,7 +107,10 @@ export function ChoreChartScreen() {
   const household = useHousehold();
   const members = useMembers();
   const userId = useUserId();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
   const toggle = useToggleCompletion();
 
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as Weekday;

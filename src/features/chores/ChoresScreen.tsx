@@ -6,6 +6,7 @@
  * opens it for editing; the button at the bottom adds one.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
@@ -43,7 +44,10 @@ export function ChoresScreen() {
   const oneOffDone = useOneOffCompletions();
   const toggleSomeday = useToggleSomeday();
   const household = useHousehold();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
   const categories = useCategoryList();
 
   /** When each one-off chore was ticked off, if it was. */

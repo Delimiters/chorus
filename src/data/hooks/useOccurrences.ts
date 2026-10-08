@@ -11,6 +11,7 @@
  * the projector. See docs/ARCHITECTURE.md.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useQuery, useQueryClient, useMutation, skipToken } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
@@ -127,7 +128,8 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
   const householdId = useActiveHouseholdId();
   const household = useHousehold();
   const timeZone = household.data?.timeZone ?? 'UTC';
-  const today = useToday(timeZone);
+  const dayStartsAtHour = safeDayStart(household.data?.dayStartsAtHour);
+  const today = useToday(timeZone, dayStartsAtHour);
 
   const calendar = useMemo<CalendarConfig>(
     () => ({ weekStartsOn: (household.data?.weekStartsOn ?? 0) as CalendarConfig['weekStartsOn'] }),
@@ -472,7 +474,8 @@ export function useToday_View() {
   const household = useHousehold();
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as CalendarConfig['weekStartsOn'];
   const timeZone = household.data?.timeZone ?? 'UTC';
-  const today = useToday(timeZone);
+  const dayStartsAtHour = safeDayStart(household.data?.dayStartsAtHour);
+  const today = useToday(timeZone, dayStartsAtHour);
   const userId = useUserId();
 
   /*
@@ -552,7 +555,10 @@ export function useToggleCompletion() {
   const userId = useUserId();
   const queryClient = useQueryClient();
   const household = useHousehold();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
 
   return useMutation({
     mutationFn: async ({ item, complete, completedOn }: ToggleInput) => {

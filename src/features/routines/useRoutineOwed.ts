@@ -16,6 +16,7 @@
  * for as long as Today is open.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { owedBadge, owedByNow } from '@/core/routines/owed';
 import { useHousehold } from '@/data/hooks/useHousehold';
 import { useRoutineDay } from '@/data/hooks/useRoutines';
@@ -26,7 +27,8 @@ import { useUserId } from '@/stores/sessionStore';
 export function useRoutineOwedBadge(): string | null {
   const household = useHousehold();
   const timeZone = household.data?.timeZone ?? 'UTC';
-  const today = useToday(timeZone);
+  const dayStartsAtHour = safeDayStart(household.data?.dayStartsAtHour);
+  const today = useToday(timeZone, dayStartsAtHour);
   const now = useNowTime(timeZone);
   const userId = useUserId();
 

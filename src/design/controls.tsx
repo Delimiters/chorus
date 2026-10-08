@@ -204,7 +204,15 @@ export function Stepper({ value, onChange, min = 1, max = 30, label, unit }: Ste
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
       {button(-1, atMin, '−', 'Decrease')}
       <View
-        accessibilityLabel={`${label}: ${value}`}
+        /*
+         * The formatted value, not the bare number.
+         *
+         * This read "day ends at: 3" where the screen says "3 AM", and "weeks
+         * between: 3" where it says "every 3 weeks" — a screen reader was
+         * getting a number with its units stripped off, which for an hour is
+         * ambiguous between 3 AM and 3 PM.
+         */
+        accessibilityLabel={`${label}: ${unit ? unit(value) : String(value)}`}
         style={{ minWidth: 76, alignItems: 'center' }}
       >
         <Txt variant="bodyStrong" style={{ fontVariant: ['tabular-nums'] }}>

@@ -150,11 +150,24 @@ export function planAllReminders(input: {
   readonly today: CivilDate;
   readonly userId: string;
   readonly policy: ReminderPolicy;
+  /**
+   * The household's day break, passed through to the chore planner so a
+   * reminder before it lands on the right wall-clock date.
+   *
+   * Routine reminders do **not** use it: their own day runs 05:00 to 05:00 so
+   * that Night is a single span, and `fallsOnNextCalendarDay` has done the
+   * equivalent job since routines shipped. The two boundaries answer different
+   * questions — which date a record belongs to, and which part of the day a
+   * time is called — and are left separate on purpose. Where they disagree, in
+   * the window between a break earlier than 05:00 and 05:00 itself, a routine
+   * sorts by its own day and is recorded against the household's.
+   */
+  readonly dayStartsAtHour: number;
 }): readonly PlannedReminder[] {
-  const { chores, routines, today, userId, policy } = input;
+  const { chores, routines, today, userId, policy, dayStartsAtHour } = input;
   if (!policy.enabled) return [];
 
-  const chorePlan = planReminders({ occurrences: chores, today, userId, policy });
+  const chorePlan = planReminders({ occurrences: chores, today, userId, policy, dayStartsAtHour });
   const routinePlan = planRoutineReminders({ occurrences: routines, today, userId, policy });
 
   const nearestFirst = (a: PlannedReminder, b: PlannedReminder): number =>

@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
+import { dayOfWallClock, safeDayStart } from '@/core/civil/daybreak';
 import type { CivilDate, CivilTime } from '@/core/civil/types';
 
 /** True if the runtime recognises this IANA zone. */
@@ -45,7 +46,7 @@ export function isValidTimeZone(timeZone: string): boolean {
  *
  * @param now the instant to convert; injected so this is testable
  */
-export function todayIn(timeZone: string, now: Date): CivilDate {
+export function todayIn(timeZone: string, now: Date, dayStartsAtHour: number): CivilDate {
   const zone = isValidTimeZone(timeZone) ? timeZone : 'UTC';
   const formatted = new Intl.DateTimeFormat('en-CA', {
     timeZone: zone,
@@ -53,7 +54,15 @@ export function todayIn(timeZone: string, now: Date): CivilDate {
     month: '2-digit',
     day: '2-digit',
   }).format(now);
-  return civilDate(formatted);
+  /*
+   * The household's day break, applied here and nowhere else.
+   *
+   * `dayStartsAtHour` is required rather than defaulted on purpose: this
+   * function's answer *is* "today" for the whole app, and a default would let a
+   * call site keep midnight silently. The same number lived in five places the
+   * last time a cap moved, and the ones that went stale were the optional ones.
+   */
+  return dayOfWallClock(civilDate(formatted), timeIn(zone, now), dayStartsAtHour);
 }
 
 /**
@@ -120,13 +129,13 @@ export function useNowTime(timeZone: string): CivilTime {
 }
 
 /**
- * Milliseconds until the next midnight in `timeZone`.
+ * Milliseconds until the next day break in `timeZone`.
  *
  * Computed by asking for the local wall-clock time rather than by assuming a
  * fixed offset, so a DST transition on the boundary night does not skew it. The
  * result is clamped to at least a second so a rounding error can't spin a timer.
  */
-export function msUntilNextMidnight(timeZone: string, now: Date): number {
+export function msUntilNextDaybreak(timeZone: string, now: Date, dayStartsAtHour: number): number {
   const zone = isValidTimeZone(timeZone) ? timeZone : 'UTC';
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: zone,
@@ -141,19 +150,32 @@ export function msUntilNextMidnight(timeZone: string, now: Date): number {
   // `en-GB` renders midnight as 24 rather than 00 in some runtimes.
   const hour = get('hour') % 24;
   const elapsed = (hour * 3600 + get('minute') * 60 + get('second')) * 1000;
-  const remaining = 24 * 3600 * 1000 - elapsed;
+  /*
+   * Until the *break*, not until midnight.
+   *
+   * With a 3 AM day the agenda has to turn over at 3 AM. A midnight timer would
+   * refresh three hours early and compute the same date it already had — so a
+   * phone left open overnight sat on the old day until something else happened
+   * to re-render, which is the bug `useToday`'s timer exists to prevent.
+   */
+  const breakMs = safeDayStart(dayStartsAtHour) * 3600 * 1000;
+  const dayMs = 24 * 3600 * 1000;
+  const remaining = elapsed < breakMs ? breakMs - elapsed : dayMs + breakMs - elapsed;
   return Math.max(1000, remaining);
 }
 
 /**
  * The current civil date in the household's timezone, kept fresh.
  *
- * Re-derives on foreground and at local midnight. Returns a `CivilDate` suitable
- * for passing straight into the engine.
+ * Re-derives on foreground and at the household's day break. Returns a
+ * `CivilDate` suitable for passing straight into the engine.
  */
-export function useToday(timeZone: string): CivilDate {
+export function useToday(timeZone: string, dayStartsAtHour: number): CivilDate {
   const [now, setNow] = useState(() => new Date());
-  const today = useMemo(() => todayIn(timeZone, now), [timeZone, now]);
+  const today = useMemo(
+    () => todayIn(timeZone, now, dayStartsAtHour),
+    [timeZone, now, dayStartsAtHour],
+  );
 
   useEffect(() => {
     const refresh = (): void => setNow(new Date());
@@ -166,13 +188,13 @@ export function useToday(timeZone: string): CivilDate {
 
     // One timer per day rather than a poll. Re-armed by this effect re-running
     // when `today` changes.
-    const timer = setTimeout(refresh, msUntilNextMidnight(timeZone, new Date()));
+    const timer = setTimeout(refresh, msUntilNextDaybreak(timeZone, new Date(), dayStartsAtHour));
 
     return () => {
       subscription.remove();
       clearTimeout(timer);
     };
-  }, [timeZone, today]);
+  }, [timeZone, today, dayStartsAtHour]);
 
   return today;
 }
