@@ -966,8 +966,29 @@ export function PlanView() {
      * and `view.mine` is dated on or before today while `view.upcoming` is
      * after, so the earliest `dueOn` is today's whenever today's exists.
      */
-    const candidates = [...view.mine, ...view.upcoming].filter(
-      (item) => live.includes(item.choreId) && !planned.has(item.occurrenceKey),
+    /*
+     * Soonest first, *then* drop what is already there — and not the other way
+     * round, which is how the same bug came back wearing a different number.
+     *
+     * The already-planned filter used to run on the candidates, before the
+     * soonest was chosen. So when the auto-fill had already put today's
+     * occurrence on the plan — which it does, a fraction of a second earlier,
+     * for any chore due today — today's was filtered out and this picked the
+     * *next* one. Jake: *"I made one called get 2k rewards or something like
+     * that, said to put on plan when i created, and it was on there twice."*
+     * Two rows a tenth of a second apart, keyed `…:2026-10-08:0:-` and
+     * `…:2026-10-09:0:-`, both planned for the 8th: today's chore and
+     * tomorrow's, sitting together on one day.
+     *
+     * Worse than a duplicate row, because the second one is a real future
+     * occurrence: ticking it marks tomorrow's job done today, and tomorrow
+     * opens with the chore already crossed off.
+     *
+     * Choosing first and filtering second makes "already on the plan" mean the
+     * intent is satisfied, which is what it should always have meant.
+     */
+    const candidates = [...view.mine, ...view.upcoming].filter((item) =>
+      live.includes(item.choreId),
     );
 
     const soonestPerChore = new Map<string, (typeof candidates)[number]>();
@@ -975,7 +996,11 @@ export function PlanView() {
       const held = soonestPerChore.get(item.choreId);
       if (held === undefined || item.dueOn < held.dueOn) soonestPerChore.set(item.choreId, item);
     }
-    const wanted = [...soonestPerChore.values()];
+    const soonest = [...soonestPerChore.values()];
+    // Already on the day: nothing to write, but the queue entry is spent — it
+    // asked for this chore to be on today and it is.
+    const satisfied = soonest.filter((i) => planned.has(i.occurrenceKey));
+    const wanted = soonest.filter((i) => !planned.has(i.occurrenceKey));
 
     /*
      * Onto the plan of whoever the chore is actually for.
@@ -1001,7 +1026,11 @@ export function PlanView() {
         ? []
         : wanted.filter((i) => i.assignee.kind === 'member' && i.assignee.memberId === housemateId);
 
-    const settled = [...stale, ...[...mine, ...forThem].map((i) => i.choreId)];
+    const settled = [
+      ...stale,
+      ...satisfied.map((i) => i.choreId),
+      ...[...mine, ...forThem].map((i) => i.choreId),
+    ];
     if (settled.length > 0) clearPlanOnCreate(settled);
     // Deliberate: somebody ticked "add to today's plan" on the form. The one
     // that lands on the housemate's day is worth telling her about.

@@ -486,6 +486,87 @@ describe('a chore created with "put it on today"', () => {
     expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['newchore']);
   });
 
+  it('adds nothing when the auto-fill already put today on the plan', async () => {
+    /*
+     * Jake: *"I made one called get 2k rewards or something like that, said to
+     * put on plan when i created, and it was on there twice."* Two rows a tenth
+     * of a second apart, keyed `…:2026-10-08:0:-` and `…:2026-10-09:0:-`, both
+     * planned for the 8th — today's occurrence and *tomorrow's*, on one day.
+     *
+     * The auto-fill adds today's for any chore due today, a fraction of a second
+     * before this effect runs. The already-planned filter used to be applied to
+     * the candidates, so today's was removed from consideration and the soonest
+     * of what was left was tomorrow's.
+     *
+     * The fixture is his: a daily chore starting today, already on the plan, and
+     * tomorrow's occurrence visible in `view.upcoming` exactly as the horizon
+     * query returns it.
+     */
+    mockPlanOnCreate = [{ choreId: 'rewards', queuedOn: mockToday }];
+    mockView.mine = [item('rewards')];
+    mockView.upcoming = [
+      item('rewards', {
+        occurrenceKey: 'v1:rewards:tomorrow',
+        dueOn: civilDate('2026-09-02'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('rewards')];
+    mockEntries = [
+      { occurrenceKey: 'v1:rewards', choreId: 'rewards', plannedFor: mockToday, position: 1 },
+    ];
+    renderView();
+
+    /*
+     * Waited on a signal from the same effect pass, not on a sleep.
+     *
+     * This asserted a negative after 20ms, which passes whenever the effect has
+     * simply not run yet — the shape that makes a test look like evidence while
+     * proving nothing. Clearing the queue happens in the same pass as the write
+     * would, so once it has happened the decision is made.
+     */
+    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['rewards']));
+    // Not tomorrow's, and not today's again — the intent is already satisfied.
+    expect(addedKeys()).not.toContain('v1:rewards:tomorrow');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('still settles the intent, so it cannot fire again later', async () => {
+    /*
+     * Non-vacuity for the pair above: "add nothing" must not mean "leave the
+     * queue armed". A queue entry that survives re-runs on every render, and
+     * would plant tomorrow's row the moment today's came off the plan.
+     */
+    mockPlanOnCreate = [{ choreId: 'rewards', queuedOn: mockToday }];
+    mockView.mine = [item('rewards')];
+    mockChores = [recurring('rewards')];
+    mockEntries = [
+      { occurrenceKey: 'v1:rewards', choreId: 'rewards', plannedFor: mockToday, position: 1 },
+    ];
+    renderView();
+
+    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['rewards']));
+  });
+
+  it('still takes the soonest when nothing is on the plan yet', async () => {
+    // The behaviour the ordering must not cost: "put it on today" means today's
+    // occurrence, never next week's.
+    mockPlanOnCreate = [{ choreId: 'rewards', queuedOn: mockToday }];
+    mockView.mine = [item('rewards')];
+    mockView.upcoming = [
+      item('rewards', {
+        occurrenceKey: 'v1:rewards:tomorrow',
+        dueOn: civilDate('2026-09-02'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('rewards')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toContain('v1:rewards'));
+    expect(addedKeys()).not.toContain('v1:rewards:tomorrow');
+  });
+
   it('waits for the occurrence instead of throwing the intent away', async () => {
     /*
      * The defect this replaces, and the test that used to enshrine it.
