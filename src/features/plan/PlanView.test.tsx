@@ -517,7 +517,15 @@ describe('a chore created with "put it on today"', () => {
     ];
     renderView();
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    /*
+     * Waited on a signal from the same effect pass, not on a sleep.
+     *
+     * This asserted a negative after 20ms, which passes whenever the effect has
+     * simply not run yet — the shape that makes a test look like evidence while
+     * proving nothing. Clearing the queue happens in the same pass as the write
+     * would, so once it has happened the decision is made.
+     */
+    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['rewards']));
     // Not tomorrow's, and not today's again — the intent is already satisfied.
     expect(addedKeys()).not.toContain('v1:rewards:tomorrow');
     expect(mockAdd).not.toHaveBeenCalled();
