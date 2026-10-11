@@ -15,6 +15,7 @@
  * appears to promise.
  */
 
+import { toggleListPrefix, type ListKind } from '@/core/text/notes';
 import { NOTE_BODY_MAX, NOTE_TITLE_MAX } from '@/core/text/limits';
 import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
@@ -61,6 +62,28 @@ export function NoteEditor({
   const [title, setTitle] = useState(initialTitle ?? '');
   const [body, setBody] = useState(initialBody);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /*
+   * Where the caret is, so the list buttons know which line they are about.
+   * `TextInput` reports it and nothing else does — there is no way to ask.
+   */
+  const [caret, setCaret] = useState(0);
+  /*
+   * The caret position to force after a list button, and `null` the rest of the
+   * time.
+   *
+   * Controlling `selection` permanently fights typing on Android: every render
+   * puts the caret back where the prop says, which drops characters. So it is
+   * set for exactly the render after a button press and cleared again on the
+   * next selection change the field reports.
+   */
+  const [forceCaret, setForceCaret] = useState<number | null>(null);
+
+  const applyList = (kind: ListKind) => {
+    const next = toggleListPrefix(body, caret, kind);
+    setBody(next.text);
+    setCaret(next.cursor);
+    setForceCaret(next.cursor);
+  };
 
   const since = editedAt === null ? null : formatSince(editedAt);
   // Nothing to save is not an error, it is just nothing — the button says so
@@ -89,7 +112,28 @@ export function NoteEditor({
           placeholder="Anything worth coming back to"
           multiline
           maxLength={NOTE_BODY_MAX}
+          onSelectionChange={(event) => {
+            setCaret(event.nativeEvent.selection.start);
+            setForceCaret(null);
+          }}
+          {...(forceCaret === null ? {} : { selection: { start: forceCaret, end: forceCaret } })}
         />
+
+        {/*
+          Two buttons, because typing "- " works but nobody discovers it.
+          Jake asked for bullet points and numbered lists; the markup is the
+          convention people already type, and these are how you find out it is
+          there. Both toggle, and pressing one on the other's line swaps the
+          marker rather than stacking it.
+        */}
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <View style={{ flex: 1 }}>
+            <Button label="• Bullet" variant="secondary" onPress={() => applyList('bullets')} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button label="1. Numbered" variant="secondary" onPress={() => applyList('numbers')} />
+          </View>
+        </View>
 
         {error === null ? null : (
           <Txt variant="small" tone="danger">
