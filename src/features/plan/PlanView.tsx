@@ -378,10 +378,44 @@ export function PlanView() {
      * shows two identical disabled rows, which mirrors what the plan screen
      * draws and cannot be picked either way.
      */
+    /*
+     * One row per chore, and it is the most urgent occurrence of it.
+     *
+     * Jake: *"the add to plan picker is still showing multiple entries,
+     * seemingly because it's showing a past due entry and one that's due in the
+     * future. When I'm adding a chore to the plan it should only show up once
+     * and it should be the currently due or past due occurrence of it. There is
+     * no reason to add a future occurrence if it's past due, that makes no
+     * sense."*
+     *
+     * The groups were already deduplicated **by occurrence key** — which is why
+     * this survived: a chore late since the 7th and recurring every fortnight
+     * has a genuinely different key for the 7th and for the 21st, so "Late" and
+     * "Later" each held one and neither was a duplicate by the only test being
+     * applied.
+     *
+     * The groups are already in urgency order — left over, late, due today,
+     * coming up, later, no date — so the first time a chore is seen is its most
+     * urgent occurrence, and every later sighting is a worse answer to the same
+     * question. `locked` is walked first and claims the chore outright: if it is
+     * already on the day, "already on today" is the whole truth and offering a
+     * future occurrence underneath it is the same nonsense one step along.
+     */
+    const seen = new Set<string>();
+    const once = (group: PickerGroup): PickerGroup => {
+      const items = group.items.filter((item) => !seen.has(item.choreId));
+      for (const item of items) seen.add(item.choreId);
+      return { ...group, items };
+    };
+
+    const narrowed = candidates.map((group) =>
+      group.locked === true ? group : { ...group, items: group.items.filter(forThisDay) },
+    );
+    const locked = narrowed.filter((g) => g.locked === true).map(once);
+    const open = narrowed.filter((g) => g.locked !== true).map(once);
+
     return candidates
-      .map((group) =>
-        group.locked === true ? group : { ...group, items: group.items.filter(forThisDay) },
-      )
+      .map((group) => [...locked, ...open].find((g) => g.key === group.key) ?? group)
       .filter((group) => group.items.length > 0);
   }, [
     entries,
