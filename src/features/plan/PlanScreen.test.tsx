@@ -1742,19 +1742,36 @@ describe('today’s work against the backlog', () => {
 
 describe('whose flagged section a flagged chore leads', () => {
   /*
-   * Jake, once he noticed the plan has a Flagged group per person: *"If
-   * something is assigned specifically to one person and is flagged it should
-   * only show up in their flagged section. I can still see it if I want to
-   * scroll down to the other person's flagged section for stuff that isn't
-   * assigned to me."*
+   * A flag hoists the row on whatever day it sits on.
    *
-   * Flags stay shared. This changes where a flagged row is *hoisted*, not who
-   * can see or lift it: "Flagged" means "before everything else on this list",
-   * and somebody else's turn is not before everything else on yours.
+   * This describe used to assert the opposite for one case — a row whose turn
+   * was the other person's stayed in its ordinary group — from Jake's earlier
+   * instruction: *"If something is assigned specifically to one person and is
+   * flagged it should only show up in their flagged section."*
+   *
+   * He then hit it on a rotating chore that was Emily's turn and four days
+   * late: *"it was sitting at the BOTTOM of past due even though it was
+   * flagged. I unflagged and reflagged, and all it did was put it to the top of
+   * past due. Anything flagged needs to show up in the flagged section at the
+   * top regardless of when it is/was due."*
+   *
+   * The two instructions come apart exactly there: the first is about a chore
+   * *assigned to one person*, and a rotation is not that. The first still holds
+   * where it was aimed — a chore of Emily's does not reach Jake's day unless
+   * somebody puts it there, and the auto-fill will not. Once a row is on your
+   * day, a flag on it means "this one first" about your day.
+   *
+   * Flags stay shared either way: this decides where a row is *hoisted*, never
+   * who can see or lift it.
    */
   const headings = () => screen.getAllByRole('header').map((h) => String(h.props.children));
 
-  it('does not lead your day with a chore that is their turn', () => {
+  it('leads your day even when the turn is theirs', () => {
+    /*
+     * The pet fountain: a rotating chore on Emily's turn, on Jake's plan,
+     * flagged. It belongs at the top of his day because he flagged it and it is
+     * on his day — the turn decides who the app nags, not where the row sits.
+     */
     mockRecurring = new Set(['mail', 'dishes']);
     mockMyFlags = new Set(['mail']);
     mockEntries = [entry('mail', 1), entry('dishes', 2)];
@@ -1763,10 +1780,27 @@ describe('whose flagged section a flagged chore leads', () => {
       item('dishes', 'Dishes'),
     ]);
 
-    // Still on the list — it is on your plan and you can still act on it —
-    // just not hoisted above everything you are actually doing.
-    expect(screen.getByText('Post')).toBeOnTheScreen();
-    expect(headings()).not.toContain('Flagged');
+    expect(headings()).toContain('Flagged');
+  });
+
+  it('leads your day even when it is late', () => {
+    /*
+     * The half of it Jake actually complained about. A flagged row that is also
+     * overdue used to land in "Past due", where the flag's hoist moved it to the
+     * top of *that* group — visible movement, no visible effect, which reads as
+     * a broken feature.
+     */
+    mockRecurring = new Set(['mail', 'dishes']);
+    mockMyFlags = new Set(['mail']);
+    mockEntries = [entry('mail', 1), entry('dishes', 2)];
+    renderScreen([
+      item('mail', 'Post', 'overdue', { kind: 'member', memberId: THEM, turn: 0 }),
+      item('dishes', 'Dishes'),
+    ]);
+
+    expect(headings()).toContain('Flagged');
+    // And not left behind in the group it used to be filed under.
+    expect(headings()).not.toContain('Past due');
   });
 
   it('still leads with a flagged chore that is your turn', () => {

@@ -2315,3 +2315,139 @@ describe('filling your housemate’s day', () => {
     await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
   });
 });
+
+describe('the picker offers a chore once', () => {
+  /*
+   * Jake: *"the add to plan picker is still showing multiple entries, seemingly
+   * because it's showing a past due entry and one that's due in the future. When
+   * I'm adding a chore to the plan it should only show up once and it should be
+   * the currently due or past due occurrence of it. There is no reason to add a
+   * future occurrence if it's past due, that makes no sense."*
+   *
+   * His was the pet fountain: a fortnightly rotation late since the 7th, so the
+   * late occurrence and the next one are genuinely different keys — which is why
+   * deduplicating by key never caught it.
+   */
+  const openPicker = () =>
+    fireEvent.press(
+      screen.getByRole('button', {
+        name: /Choose what to do today|Pick my own|Add to my day|^Add something$/,
+      }),
+    );
+
+  it('offers the late occurrence, not the future one as well', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [
+      item('fountain', { dueOn: civilDate('2026-08-28'), status: 'overdue', daysOverdue: 4 }),
+    ];
+    mockHorizon = [
+      item('fountain', {
+        occurrenceKey: 'v1:fountain:later',
+        dueOn: civilDate('2026-09-11'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('fountain')];
+    renderView();
+    const behind = screen.queryAllByText('fountain').length;
+    openPicker();
+
+    await waitFor(() => expect(screen.queryAllByText('fountain').length).toBe(behind + 1));
+    // The one offered is the late one, which is the whole point.
+    expect(screen.getByText('LATE · 1')).toBeOnTheScreen();
+    expect(screen.queryByText('LATER · 1')).toBeNull();
+  });
+
+  it('still offers a chore whose only occurrence is in the future', async () => {
+    // Non-vacuity: getting ahead of something is why "Later" exists at all.
+    mockAutoPlan = false;
+    mockHorizon = [
+      item('weeding', {
+        occurrenceKey: 'v1:weeding:later',
+        dueOn: civilDate('2026-09-11'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('weeding')];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('LATER · 1')).toBeOnTheScreen());
+  });
+
+  it('says only that it is already on today, with nothing to add underneath', async () => {
+    /*
+     * Already planned *and* recurring: the locked group claims the chore, so a
+     * future occurrence is not offered beneath it. Offering one is the same
+     * nonsense one step along — you cannot usefully add next fortnight's copy of
+     * something sitting on today.
+     */
+    mockAutoPlan = false;
+    mockView.mine = [item('fountain')];
+    mockHorizon = [
+      item('fountain', {
+        occurrenceKey: 'v1:fountain:later',
+        dueOn: civilDate('2026-09-11'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('fountain')];
+    mockEntries = [
+      { occurrenceKey: 'v1:fountain', choreId: 'fountain', plannedFor: mockToday, position: 1 },
+    ];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
+    expect(screen.queryByText('LATER · 1')).toBeNull();
+  });
+});
+
+describe('shared work that is on both plans', () => {
+  /*
+   * Jake: *"I'm trying to add 'scoop litter box pan' to my day and it's not
+   * working ... It gets added then disappears. i can see it on emily's plan but
+   * not mine."*
+   *
+   * His data: an `anyone` daily chore, and two plan rows for 2026-10-10 with the
+   * **same** occurrence key — `anyone` work carries no subject, so both people's
+   * rows name the same occurrence. Hers was written by the morning fill at
+   * 05:07, his by hand at 14:53. The row is in the database; his phone does not
+   * draw it.
+   */
+  it('appears on your day as well as theirs', async () => {
+    mockAutoPlan = false;
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+    const shared = item('litter', { assignee: { kind: 'anyone' } });
+    mockView.mine = [shared];
+    mockChores = [recurring('litter')];
+    mockEntries = [
+      { occurrenceKey: 'v1:litter', choreId: 'litter', plannedFor: mockToday, position: 1 },
+    ];
+    mockAllEntries = [
+      {
+        occurrenceKey: 'v1:litter',
+        choreId: 'litter',
+        plannedFor: mockToday,
+        position: 1,
+        userId: mockMe,
+      },
+      {
+        occurrenceKey: 'v1:litter',
+        choreId: 'litter',
+        plannedFor: mockToday,
+        position: 1,
+        userId: mockThem,
+      },
+    ];
+    renderView();
+
+    // Once under his heading and once under hers: the same occurrence, claimed
+    // by both, which is what `anyone` means.
+    // His day draws it; the housemate column is a separate assertion elsewhere.
+    await waitFor(() => expect(screen.getAllByText('litter')).toHaveLength(1));
+  });
+});
