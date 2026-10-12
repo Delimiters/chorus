@@ -1,5 +1,6 @@
 /** Reading and editing a note somebody already wrote. */
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 
 import { useMembers } from '@/data/hooks/useHousehold';
 import { useDeleteNote, useNotes, useUpdateNote } from '@/data/hooks/useNotes';
@@ -12,6 +13,7 @@ import { space } from '@/design/tokens';
 import { useUserId } from '@/stores/sessionStore';
 
 import { NoteEditor } from './NoteEditor';
+import { NoteReader } from './NoteReader';
 
 export function EditNoteScreen() {
   const router = useRouter();
@@ -22,6 +24,12 @@ export function EditNoteScreen() {
   const { colors } = useTheme();
   const update = useUpdateNote();
   const remove = useDeleteNote();
+  /*
+   * Reading by default, which is what opening a note usually means — and the
+   * only state in which its links can be tapped, because a `TextInput`
+   * swallows the tap. Editing is the deliberate act.
+   */
+  const [editing, setEditing] = useState(false);
 
   /*
    * A dead end otherwise. Every pushed screen in this app falls back to a
@@ -77,6 +85,19 @@ export function EditNoteScreen() {
         ? 'You'
         : ((members.data ?? []).find((m) => m.userId === note.updatedBy)?.displayName ?? null);
 
+  if (!editing) {
+    return (
+      <NoteReader
+        title={note.title}
+        body={note.body}
+        editedBy={editorName}
+        editedAt={note.updatedAt}
+        onEdit={() => setEditing(true)}
+        onBack={leave}
+      />
+    );
+  }
+
   return (
     <NoteEditor
       initialTitle={note.title}
@@ -85,11 +106,33 @@ export function EditNoteScreen() {
       editedAt={note.updatedAt}
       saving={update.isPending}
       error={((update.error ?? remove.error) as Error | null)?.message ?? null}
-      onBack={leave}
+      /*
+       * Back out of editing, not out of the note. Somebody who opened a note to
+       * read it, tapped Edit and changed their mind wants the note, not the
+       * list.
+       *
+       * Labelled "Cancel", which is `BackBar`'s own convention for a form where
+       * leaving discards work — and it does: the editor's text lives in its own
+       * state, so unmounting it drops anything unsaved. A review pointed out
+       * that "Back to note" reads as navigation and gives no hint of that.
+       */
+      onBack={() => setEditing(false)}
+      backLabel="Cancel"
+      /*
+       * Saving returns to reading rather than popping the screen. The old
+       * behaviour threw you back to the board, which meant checking your own
+       * edit took another tap — and on a note full of links, reading is where
+       * you wanted to be anyway.
+       */
       onSave={(input) =>
-        update.mutate({ id: note.id, ...input }, { onSuccess: () => router.back() })
+        update.mutate({ id: note.id, ...input }, { onSuccess: () => setEditing(false) })
       }
-      onDelete={() => remove.mutate(note.id, { onSuccess: () => router.back() })}
+      /*
+       * `leave()`, not `router.back()`. On a cold start into `/note/<id>` —
+       * a deep link, or a notification tap — there is no history, so the pop
+       * does nothing and the next render falls into "That note is gone".
+       */
+      onDelete={() => remove.mutate(note.id, { onSuccess: leave })}
     />
   );
 }

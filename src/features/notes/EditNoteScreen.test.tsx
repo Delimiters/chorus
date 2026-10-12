@@ -57,6 +57,14 @@ const renderScreen = () =>
     </ThemeProvider>,
   );
 
+/*
+ * Markers are hidden from assistive tech on purpose — VoiceOver would stop on
+ * every glyph and announce "ballot box with check" before each item — so a
+ * test looking for one has to say it is looking at hidden elements. The
+ * state those glyphs carry is on the item's own label instead.
+ */
+const marker = (glyph: string) => screen.getAllByText(glyph, { includeHiddenElements: true });
+
 beforeEach(() => {
   mockNotes = {
     data: [
@@ -81,16 +89,40 @@ beforeEach(() => {
 });
 
 describe('opening a note', () => {
-  it('shows what is in it, and who touched it last', () => {
+  /*
+   * Reading, not editing. Jake: *"I should be able to open it and still just
+   * view, so it's easy to click links and whatnot, and then have an edit button
+   * to actually change the text."* Opening into a `TextInput` made the links
+   * untappable, because the field swallows the tap — so the most useful thing
+   * in a note was the one thing you could not use.
+   */
+  const edit = () => fireEvent.press(screen.getByText('Edit'));
+
+  it('shows the note as text, not as a field', () => {
     renderScreen();
 
-    expect(screen.getByDisplayValue('Boiler')).toBeOnTheScreen();
+    expect(screen.getByText('Chase the landlord.')).toBeOnTheScreen();
+    expect(screen.getByText('Boiler')).toBeOnTheScreen();
+    expect(screen.queryByDisplayValue('Chase the landlord.')).toBeNull();
+  });
+
+  it('says who touched it last', () => {
+    renderScreen();
+
+    expect(screen.getByText(/Emily/)).toBeOnTheScreen();
+  });
+
+  it('opens the editor when you ask for it', () => {
+    renderScreen();
+    edit();
+
     expect(screen.getByDisplayValue('Chase the landlord.')).toBeOnTheScreen();
-    expect(screen.getByText(/Emily edited this just now/)).toBeOnTheScreen();
+    expect(screen.getByDisplayValue('Boiler')).toBeOnTheScreen();
   });
 
   it('saves the edit', () => {
     renderScreen();
+    edit();
 
     fireEvent.changeText(
       screen.getByDisplayValue('Chase the landlord.'),
@@ -102,6 +134,101 @@ describe('opening a note', () => {
       expect.objectContaining({ id: 'n1', body: 'Chased. He is sending someone.' }),
       expect.anything(),
     );
+  });
+
+  it('goes back to reading when you cancel editing, not to the board', () => {
+    /*
+     * Somebody who opened a note to read it, tapped Edit and changed their mind
+     * wants the note — not the list. Popping the screen would be two taps to
+     * get back to what they were looking at.
+     *
+     * Labelled "Cancel" because it discards: the editor's text is its own state
+     * and unmounting it drops anything unsaved.
+     */
+    renderScreen();
+    edit();
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByText('Chase the landlord.')).toBeOnTheScreen();
+    expect(mockBack).not.toHaveBeenCalled();
+  });
+
+  it('draws a bulleted note as a list', () => {
+    mockNotes = {
+      ...mockNotes,
+      data: [{ ...mockNotes.data![0]!, body: '- milk\n- eggs' }],
+    };
+    renderScreen();
+
+    // The markers, and the items as their own text rather than one blob.
+    expect(marker('•')).toHaveLength(2);
+    expect(screen.getByText('milk')).toBeOnTheScreen();
+    expect(screen.getByText('eggs')).toBeOnTheScreen();
+  });
+
+  it('draws a numbered note with its numbers', () => {
+    mockNotes = {
+      ...mockNotes,
+      data: [{ ...mockNotes.data![0]!, body: '1. pharmacy\n1. vet' }],
+    };
+    renderScreen();
+
+    // Renumbered on render, so a list typed "1. 1." reads 1, 2.
+    expect(marker('1.')).toHaveLength(1);
+    expect(marker('2.')).toHaveLength(1);
+  });
+
+  it('makes a link in the note tappable', () => {
+    mockNotes = {
+      ...mockNotes,
+      data: [{ ...mockNotes.data![0]!, body: 'order from https://example.com/part' }],
+    };
+    renderScreen();
+
+    expect(screen.getByRole('link', { name: 'https://example.com/part' })).toBeOnTheScreen();
+  });
+
+  it('says so when the note is empty rather than drawing nothing', () => {
+    mockNotes = { ...mockNotes, data: [{ ...mockNotes.data![0]!, body: '   ' }] };
+    renderScreen();
+
+    expect(screen.getByText('This note is empty.')).toBeOnTheScreen();
+  });
+});
+
+describe('the list buttons in the editor', () => {
+  it('turn the current line into a bullet', () => {
+    renderScreen();
+    fireEvent.press(screen.getByText('Edit'));
+
+    const field = screen.getByDisplayValue('Chase the landlord.');
+    fireEvent(field, 'selectionChange', { nativeEvent: { selection: { start: 5, end: 5 } } });
+    fireEvent.press(screen.getByText('• Bullet'));
+
+    expect(screen.getByDisplayValue('- Chase the landlord.')).toBeOnTheScreen();
+  });
+
+  it('turn it into a numbered item', () => {
+    renderScreen();
+    fireEvent.press(screen.getByText('Edit'));
+
+    const field = screen.getByDisplayValue('Chase the landlord.');
+    fireEvent(field, 'selectionChange', { nativeEvent: { selection: { start: 0, end: 0 } } });
+    fireEvent.press(screen.getByText('1. Numbered'));
+
+    expect(screen.getByDisplayValue('1. Chase the landlord.')).toBeOnTheScreen();
+  });
+
+  it('take the marker off again', () => {
+    renderScreen();
+    fireEvent.press(screen.getByText('Edit'));
+
+    const field = screen.getByDisplayValue('Chase the landlord.');
+    fireEvent(field, 'selectionChange', { nativeEvent: { selection: { start: 0, end: 0 } } });
+    fireEvent.press(screen.getByText('• Bullet'));
+    fireEvent.press(screen.getByText('• Bullet'));
+
+    expect(screen.getByDisplayValue('Chase the landlord.')).toBeOnTheScreen();
   });
 });
 
@@ -151,8 +278,17 @@ describe('when something goes wrong', () => {
 });
 
 describe('deleting', () => {
-  it('asks first, because a note has no undo', () => {
+  /*
+   * Delete lives in the editor, which is now a deliberate tap away — reading a
+   * note should not put a destructive button under your thumb.
+   */
+  const openEditor = () => {
     renderScreen();
+    fireEvent.press(screen.getByText('Edit'));
+  };
+
+  it('asks first, because a note has no undo', () => {
+    openEditor();
 
     fireEvent.press(screen.getByText('Delete'));
     expect(screen.getByText(/This deletes it for both of you/)).toBeOnTheScreen();
@@ -163,7 +299,7 @@ describe('deleting', () => {
   });
 
   it('lets you back out', () => {
-    renderScreen();
+    openEditor();
 
     fireEvent.press(screen.getByText('Delete'));
     fireEvent.press(screen.getByText('Keep it'));
@@ -185,6 +321,7 @@ describe('how much a note can hold', () => {
    */
   it('takes a heading as long as every other title', async () => {
     renderScreen();
+    fireEvent.press(screen.getByText('Edit'));
     const title = screen.getByLabelText('Title');
 
     await userEvent.type(title, 'a'.repeat(NOTE_TITLE_MAX + 10));
@@ -201,8 +338,70 @@ describe('how much a note can hold', () => {
      * guards the pair against drifting apart.
      */
     renderScreen();
+    fireEvent.press(screen.getByText('Edit'));
 
     expect(screen.getByLabelText('Note').props.maxLength).toBe(NOTE_BODY_MAX);
     expect(NOTE_TITLE_MAX).toBeLessThan(NOTE_BODY_MAX);
+  });
+});
+
+describe('a note pasted from another app', () => {
+  /*
+   * Emily's real note is a checklist pasted from one app and an outline pasted
+   * from another. These are the shapes that actually arrived, which is why they
+   * are here rather than in a sketch.
+   */
+  const withBody = (body: string) => {
+    mockNotes = { ...mockNotes, data: [{ ...mockNotes.data![0]!, body }] };
+    renderScreen();
+  };
+
+  it('draws a pasted checklist as boxes, not as brackets', () => {
+    withBody('- [ ] wash blankets\n- [x] hand towels');
+
+    expect(marker('☐')).toHaveLength(1);
+    expect(marker('☑')).toHaveLength(1);
+    expect(screen.getByText('wash blankets')).toBeOnTheScreen();
+    // The syntax it understood is not shown back to her.
+    expect(screen.queryByText(/\[ \]/)).toBeNull();
+  });
+
+  it('draws iOS Notes’ own boxes the same way', () => {
+    withBody('☐ wash blankets\n☑ hand towels');
+
+    expect(marker('☐')).toHaveLength(1);
+    expect(marker('☑')).toHaveLength(1);
+  });
+
+  it('keeps a pasted outline’s levels, with a different dot each', () => {
+    withBody('\t• Update Chorus\n\t\t○ Bills:\n\t\t\t§ Utility bill');
+
+    expect(screen.getByText('Update Chorus')).toBeOnTheScreen();
+    expect(screen.getByText('Bills:')).toBeOnTheScreen();
+    expect(screen.getByText('Utility bill')).toBeOnTheScreen();
+    // Level one, two and three draw differently, so the shape reads at a glance.
+    expect(marker('◦')).toHaveLength(1);
+    expect(marker('▪')).toHaveLength(1);
+  });
+
+  it('still makes a link tappable inside a checklist item', () => {
+    withBody('- [ ] Sensory deprivation:https://share.google/isCqATEO9A4VX1QTk');
+
+    expect(
+      screen.getByRole('link', { name: 'https://share.google/isCqATEO9A4VX1QTk' }),
+    ).toBeOnTheScreen();
+  });
+
+  it('leaves the stored text exactly as it was when you open it to edit', () => {
+    /*
+     * The guarantee that matters for somebody else's note: formatting happens
+     * on the way to the screen, never on the way to the database. Opening the
+     * editor shows what she typed, character for character.
+     */
+    const original = '☐ wash blankets\n\t• Update Chorus';
+    withBody(original);
+    fireEvent.press(screen.getByText('Edit'));
+
+    expect(screen.getByDisplayValue(original)).toBeOnTheScreen();
   });
 });

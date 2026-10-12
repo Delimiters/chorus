@@ -23,10 +23,53 @@
 
 import { Linking, Text } from 'react-native';
 
-import { noteSegments } from '@/core/text/links';
+import { noteSegments, type NoteSegment } from '@/core/text/links';
 
 import { Txt } from './components';
 import { useColors } from './theme';
+
+/**
+ * The runs of one line, as nested `Text` so they reflow as a sentence.
+ *
+ * Exported for the block renderer, which needs the same tappable links inside a
+ * bullet. Two copies of the link styling and the swallowed `openURL` failure
+ * would be two things to fix next time.
+ */
+export function NoteSpans({
+  spans,
+  linkColor,
+}: {
+  readonly spans: readonly NoteSegment[];
+  readonly linkColor: string;
+}) {
+  return (
+    <>
+      {spans.map((segment, index) =>
+        segment.kind === 'text' ? (
+          <Text key={index}>{segment.value}</Text>
+        ) : (
+          <Text
+            key={index}
+            accessibilityRole="link"
+            accessibilityHint="Opens in your browser"
+            style={{ color: linkColor, textDecorationLine: 'underline' }}
+            /*
+             * Failure is swallowed deliberately. `openURL` rejects when no app
+             * can handle the scheme, and there is nothing useful to say about
+             * that on a chore sheet — an unhandled rejection would be a red
+             * screen over somebody's note.
+             */
+            onPress={() => {
+              void Linking.openURL(segment.href).catch(() => {});
+            }}
+          >
+            {segment.value}
+          </Text>
+        ),
+      )}
+    </>
+  );
+}
 
 interface Props {
   readonly note: string;
@@ -43,29 +86,7 @@ export function NoteText({ note, variant = 'small', numberOfLines }: Props) {
 
   return (
     <Txt variant={variant} tone="muted" {...(numberOfLines !== undefined ? { numberOfLines } : {})}>
-      {segments.map((segment, index) =>
-        segment.kind === 'text' ? (
-          <Text key={index}>{segment.value}</Text>
-        ) : (
-          <Text
-            key={index}
-            accessibilityRole="link"
-            accessibilityHint="Opens in your browser"
-            style={{ color: colors.inkA, textDecorationLine: 'underline' }}
-            /*
-             * Failure is swallowed deliberately. `openURL` rejects when no app
-             * can handle the scheme, and there is nothing useful to say about
-             * that on a chore sheet — an unhandled rejection would be a red
-             * screen over somebody's note.
-             */
-            onPress={() => {
-              void Linking.openURL(segment.href).catch(() => {});
-            }}
-          >
-            {segment.value}
-          </Text>
-        ),
-      )}
+      <NoteSpans spans={segments} linkColor={colors.inkA} />
     </Txt>
   );
 }
