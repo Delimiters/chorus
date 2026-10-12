@@ -57,6 +57,14 @@ const renderScreen = () =>
     </ThemeProvider>,
   );
 
+/*
+ * Markers are hidden from assistive tech on purpose — VoiceOver would stop on
+ * every glyph and announce "ballot box with check" before each item — so a
+ * test looking for one has to say it is looking at hidden elements. The
+ * state those glyphs carry is on the item's own label instead.
+ */
+const marker = (glyph: string) => screen.getAllByText(glyph, { includeHiddenElements: true });
+
 beforeEach(() => {
   mockNotes = {
     data: [
@@ -128,15 +136,18 @@ describe('opening a note', () => {
     );
   });
 
-  it('goes back to reading when you back out of editing, not to the board', () => {
+  it('goes back to reading when you cancel editing, not to the board', () => {
     /*
      * Somebody who opened a note to read it, tapped Edit and changed their mind
      * wants the note — not the list. Popping the screen would be two taps to
      * get back to what they were looking at.
+     *
+     * Labelled "Cancel" because it discards: the editor's text is its own state
+     * and unmounting it drops anything unsaved.
      */
     renderScreen();
     edit();
-    fireEvent.press(screen.getByRole('button', { name: 'Back to note' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(screen.getByText('Chase the landlord.')).toBeOnTheScreen();
     expect(mockBack).not.toHaveBeenCalled();
@@ -150,7 +161,7 @@ describe('opening a note', () => {
     renderScreen();
 
     // The markers, and the items as their own text rather than one blob.
-    expect(screen.getAllByText('•')).toHaveLength(2);
+    expect(marker('•')).toHaveLength(2);
     expect(screen.getByText('milk')).toBeOnTheScreen();
     expect(screen.getByText('eggs')).toBeOnTheScreen();
   });
@@ -163,8 +174,8 @@ describe('opening a note', () => {
     renderScreen();
 
     // Renumbered on render, so a list typed "1. 1." reads 1, 2.
-    expect(screen.getByText('1.')).toBeOnTheScreen();
-    expect(screen.getByText('2.')).toBeOnTheScreen();
+    expect(marker('1.')).toHaveLength(1);
+    expect(marker('2.')).toHaveLength(1);
   });
 
   it('makes a link in the note tappable', () => {
@@ -348,8 +359,8 @@ describe('a note pasted from another app', () => {
   it('draws a pasted checklist as boxes, not as brackets', () => {
     withBody('- [ ] wash blankets\n- [x] hand towels');
 
-    expect(screen.getByText('☐')).toBeOnTheScreen();
-    expect(screen.getByText('☑')).toBeOnTheScreen();
+    expect(marker('☐')).toHaveLength(1);
+    expect(marker('☑')).toHaveLength(1);
     expect(screen.getByText('wash blankets')).toBeOnTheScreen();
     // The syntax it understood is not shown back to her.
     expect(screen.queryByText(/\[ \]/)).toBeNull();
@@ -358,8 +369,8 @@ describe('a note pasted from another app', () => {
   it('draws iOS Notes’ own boxes the same way', () => {
     withBody('☐ wash blankets\n☑ hand towels');
 
-    expect(screen.getByText('☐')).toBeOnTheScreen();
-    expect(screen.getByText('☑')).toBeOnTheScreen();
+    expect(marker('☐')).toHaveLength(1);
+    expect(marker('☑')).toHaveLength(1);
   });
 
   it('keeps a pasted outline’s levels, with a different dot each', () => {
@@ -369,8 +380,8 @@ describe('a note pasted from another app', () => {
     expect(screen.getByText('Bills:')).toBeOnTheScreen();
     expect(screen.getByText('Utility bill')).toBeOnTheScreen();
     // Level one, two and three draw differently, so the shape reads at a glance.
-    expect(screen.getByText('◦')).toBeOnTheScreen();
-    expect(screen.getByText('▪')).toBeOnTheScreen();
+    expect(marker('◦')).toHaveLength(1);
+    expect(marker('▪')).toHaveLength(1);
   });
 
   it('still makes a link tappable inside a checklist item', () => {

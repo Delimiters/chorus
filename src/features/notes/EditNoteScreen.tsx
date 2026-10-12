@@ -109,14 +109,15 @@ export function EditNoteScreen() {
       /*
        * Back out of editing, not out of the note. Somebody who opened a note to
        * read it, tapped Edit and changed their mind wants the note, not the
-       * list — and the bar says so rather than saying "Notes".
+       * list.
        *
-       * "Back to note" rather than "Note", because the body field is labelled
-       * "Note" and two things answering to one name makes the screen ambiguous
-       * to a screen reader as well as to a test.
+       * Labelled "Cancel", which is `BackBar`'s own convention for a form where
+       * leaving discards work — and it does: the editor's text lives in its own
+       * state, so unmounting it drops anything unsaved. A review pointed out
+       * that "Back to note" reads as navigation and gives no hint of that.
        */
       onBack={() => setEditing(false)}
-      backLabel="Back to note"
+      backLabel="Cancel"
       /*
        * Saving returns to reading rather than popping the screen. The old
        * behaviour threw you back to the board, which meant checking your own
@@ -126,7 +127,12 @@ export function EditNoteScreen() {
       onSave={(input) =>
         update.mutate({ id: note.id, ...input }, { onSuccess: () => setEditing(false) })
       }
-      onDelete={() => remove.mutate(note.id, { onSuccess: () => router.back() })}
+      /*
+       * `leave()`, not `router.back()`. On a cold start into `/note/<id>` —
+       * a deep link, or a notification tap — there is no history, so the pop
+       * does nothing and the next render falls into "That note is gone".
+       */
+      onDelete={() => remove.mutate(note.id, { onSuccess: leave })}
     />
   );
 }

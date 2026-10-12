@@ -162,44 +162,103 @@ function lines(note: string): string[] {
 
 interface Line {
   readonly kind: 'bullet' | 'number' | 'text' | 'blank';
+  /** For rendering: the text with the marker *and* any `[ ]` taken off. */
   readonly content: string;
+  /**
+   * For rewriting: everything after the marker, **verbatim**.
+   *
+   * The two are different and the difference is somebody's note. A review found
+   * the list buttons rebuilding a line from `content`, which had already lost
+   * the `[ ]` and the leading tabs — so one tap on Emily's pasted checklist
+   * turned "- [ ] water plants" into "water plants" and flattened her outline a
+   * level, as a permanent write with no undo. Rewrites use this; only the
+   * renderer uses `content`.
+   */
+  readonly rest: string;
+  /** The original leading whitespace, so a rewrite can put it back. */
+  readonly indent: string;
   readonly number: number;
   readonly depth: number;
   readonly checked: boolean | null;
 }
 
+/**
+ * A capture group the pattern guarantees.
+ *
+ * `noUncheckedIndexedAccess` types every group as possibly absent, and the
+ * `?? ''` that satisfies it is a branch no input can take — the groups below are
+ * not optional in their patterns, so a match always fills them. Four dead
+ * branches were enough to drop this file under its coverage gate, which is the
+ * gate doing its job: untestable code is code to remove, not to test.
+ */
+function group(match: RegExpExecArray, index: number): string {
+  return match[index] as string;
+}
+
 function classify(line: string): Line {
   const bullet = BULLET.exec(line);
   if (bullet !== null) {
-    const marker = bullet[2] ?? '';
+    const indent = group(bullet, 1);
+    const marker = group(bullet, 2);
+    // Group 3 *is* optional — "- " with nothing after it is a bullet being
+    // typed — so this fallback is reachable and stays.
     const body = bullet[3] ?? '';
     const box = CHECKBOX.exec(body);
     const fromMarker = BOX_MARKERS[marker];
+    /*
+     * `§` only counts when the line is indented.
+     *
+     * It earns its place from OneNote's third level, where it always sits
+     * behind tabs. Unindented, a line opening with it is far more likely to be
+     * prose — "§ 12 of the lease says no pets" — and turning that into a bullet
+     * would eat the section sign.
+     */
+    if (marker === '§' && indent === '') {
+      return {
+        kind: 'text',
+        content: line,
+        rest: line,
+        indent: '',
+        number: 0,
+        depth: 0,
+        checked: null,
+      };
+    }
     return {
       kind: 'bullet',
-      content: box === null ? body : (box[2] ?? ''),
+      content: box === null ? body : group(box, 2),
+      rest: body,
+      indent,
       number: 0,
-      depth: depthOf(bullet[1] ?? ''),
+      depth: depthOf(indent),
       // `- [x]` written here wins over the marker, because it is the more
       // specific statement; otherwise a pasted box carries its own state.
-      checked: box !== null ? box[1] !== ' ' : (fromMarker ?? null),
+      checked: box !== null ? group(box, 1) !== ' ' : (fromMarker ?? null),
     };
   }
 
   const numbered = NUMBER.exec(line);
   if (numbered !== null) {
+    const body = numbered[3] ?? '';
+    // The same checkbox reading as a bullet gets, so "1. [ ] thing" does not
+    // print the brackets it understood.
+    const box = CHECKBOX.exec(body);
     return {
       kind: 'number',
-      content: numbered[3] ?? '',
-      number: Number(numbered[2]),
-      depth: depthOf(numbered[1] ?? ''),
-      checked: null,
+      content: box === null ? body : group(box, 2),
+      rest: body,
+      indent: group(numbered, 1),
+      number: Number(group(numbered, 2)),
+      depth: depthOf(group(numbered, 1)),
+      checked: box === null ? null : group(box, 1) !== ' ',
     };
   }
 
   return {
     kind: line.trim() === '' ? 'blank' : 'text',
     content: line,
+    rest: line.trimStart(),
+    indent: line.slice(0, line.length - line.trimStart().length),
     number: 0,
     depth: 0,
     checked: null,
@@ -286,19 +345,6 @@ export function noteBlocks(note: string): readonly NoteBlock[] {
   return blocks;
 }
 
-/**
- * Whether a note uses any markup at all.
- *
- * For deciding whether a preview is worth parsing: a card showing two lines of
- * a plain note has nothing to gain from block layout.
- */
-export function hasMarkup(note: string): boolean {
-  return lines(note).some((line) => {
-    const kind = classify(line).kind;
-    return kind === 'bullet' || kind === 'number';
-  });
-}
-
 /** Which marker a list button applies. */
 export type ListKind = 'bullets' | 'numbers';
 
@@ -345,10 +391,19 @@ export function toggleListPrefix(
     cursor: Math.max(start, start + body.length - (end - at)),
   });
 
-  // Off: the content stays, the marker goes.
-  if (isAlready) return replace(current.content);
+  /*
+   * Built from `indent` + `rest`, never from `content`.
+   *
+   * `rest` is everything after the marker exactly as it was typed, so a `[ ]`
+   * survives a marker swap and a pasted outline keeps its level. Rebuilding
+   * from `content` is what stripped both.
+   */
+  const keep = current.indent + current.rest;
 
-  if (kind === 'bullets') return replace(`- ${current.content}`);
+  // Off: the marker goes, the indent and the rest stay.
+  if (isAlready) return replace(keep);
+
+  if (kind === 'bullets') return replace(`${current.indent}- ${current.rest}`);
 
   /*
    * The next number in the run above, so holding the button down a list counts
@@ -365,7 +420,7 @@ export function toggleListPrefix(
     break;
   }
 
-  return replace(`${String(previous + 1)}. ${current.content}`);
+  return replace(`${current.indent}${String(previous + 1)}. ${current.rest}`);
 }
 
 /**

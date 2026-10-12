@@ -78,7 +78,17 @@ export function NoteEditor({
    */
   const [forceCaret, setForceCaret] = useState<number | null>(null);
 
+  /*
+   * Only once the field has told us where the caret is.
+   *
+   * `caret` starts at 0, so before this the buttons acted on line 1 of a note
+   * nobody had touched — one stray tap on somebody else's pasted checklist. A
+   * review found it against Emily's note, where line 1 is a checklist item.
+   */
+  const [located, setLocated] = useState(false);
+
   const applyList = (kind: ListKind) => {
+    if (!located) return;
     const next = toggleListPrefix(body, caret, kind);
     setBody(next.text);
     setCaret(next.cursor);
@@ -128,6 +138,7 @@ export function NoteEditor({
           onSelectionChange={(event) => {
             setCaret(event.nativeEvent.selection.start);
             setForceCaret(null);
+            setLocated(true);
           }}
           {...(forceCaret === null ? {} : { selection: { start: forceCaret, end: forceCaret } })}
         />

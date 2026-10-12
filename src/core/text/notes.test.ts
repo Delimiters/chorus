@@ -1,4 +1,4 @@
-import { hasMarkup, noteBlocks, notePreview, toggleListPrefix, type NoteBlock } from './notes';
+import { noteBlocks, notePreview, toggleListPrefix, type NoteBlock } from './notes';
 
 /*
  * Narrowed on `kind` rather than cast. A cast here would let a parser that
@@ -132,36 +132,48 @@ describe('a note that mixes everything', () => {
     expect(items(blocks[3]!)).toEqual(['1:pharmacy', '2:vet']);
   });
 
-  it('loses no words', () => {
+  it('loses nothing: every rendered line is a source line minus its marker', () => {
     /*
-     * The guarantee that matters for somebody's note: every character of input
-     * is still somewhere in the output. A parser that silently eats a line is
-     * worse than no parser.
+     * The invariant, not a word list.
+     *
+     * This asserted that six hand-written phrases appeared somewhere in one
+     * joined blob — which a review showed is blind to order and to duplication:
+     * reversing every list's items, or duplicating the last one, left it green.
+     * Lines in order, each a suffix of its source line, catches all of that and
+     * does not need updating when the fixture grows.
      */
-    const note = ['Buy:', '- milk', '* eggs', '2) bread', 'done by 5', 'see www.example.com'].join(
-      '\n',
+    const note = [
+      'Buy:',
+      '- milk',
+      '* eggs',
+      '2) bread',
+      'done by 5',
+      'see www.example.com',
+      '- [ ] water plants ',
+      '\t\t○ Bills:',
+    ].join('\n');
+
+    const rendered = noteBlocks(note).flatMap((b) =>
+      b.kind === 'paragraph'
+        ? b.spans
+            .map((s) => s.value)
+            .join('')
+            .split('\n')
+        : b.items.map((i) => i.spans.map((s) => s.value).join('')),
     );
-    const rendered = noteBlocks(note)
-      .flatMap((b) =>
-        b.kind === 'paragraph'
-          ? b.spans.map((s) => s.value)
-          : b.items.flatMap((i) => i.spans.map((s) => s.value)),
-      )
-      .join('');
+    const source = note.split('\n').filter((l) => l.trim() !== '');
 
-    for (const word of ['Buy:', 'milk', 'eggs', 'bread', 'done by 5', 'www.example.com']) {
-      expect(rendered).toContain(word);
-    }
-  });
-});
-
-describe('spotting markup without parsing', () => {
-  it('knows the difference', () => {
-    expect(hasMarkup('- milk')).toBe(true);
-    expect(hasMarkup('1. milk')).toBe(true);
-    expect(hasMarkup('just a note')).toBe(false);
-    expect(hasMarkup('3-4 bags')).toBe(false);
-    expect(hasMarkup('')).toBe(false);
+    expect(rendered).toHaveLength(source.length);
+    rendered.forEach((line, index) => {
+      const from = source[index]!;
+      // Every character of the rendered line is the tail of its source line…
+      expect(from.endsWith(line)).toBe(true);
+      // …and all that was eaten is whitespace, a marker, and a checkbox.
+      const prefix = from.slice(0, from.length - line.length);
+      expect(prefix).toMatch(
+        /^[ \t]*(?:[-*•○▪§‣◦⁃–—☐☑☒✓✔✗✘]|\d{1,3}[.)])?[ \t]*(?:\[[ xX]\])?[ \t]*$/,
+      );
+    });
   });
 });
 
@@ -263,8 +275,7 @@ describe('a note that came from somewhere else', () => {
     expect(noteBlocks('- milk\r- eggs').map((b) => b.kind)).toEqual(['bullets']);
   });
 
-  it('previews and markup detection agree about them', () => {
-    expect(hasMarkup('- milk\r\n- eggs')).toBe(true);
+  it('previews them the same way', () => {
     expect(notePreview('- milk\r\n- eggs')).toBe('milk\neggs');
   });
 });
@@ -441,5 +452,70 @@ describe('Emily’s note, exactly as it is stored', () => {
     ]) {
       expect(rendered).toContain(phrase);
     }
+  });
+});
+
+describe('a list button on somebody else’s pasted note', () => {
+  /*
+   * The bug a review caught, and the one Jake warned about: *"there is actually
+   * a note now that emily added so we don't want to mess it up."*
+   *
+   * The buttons rebuilt the line from the *rendered* content, which has already
+   * lost the `[ ]` and the leading tabs — so one tap turned "- [ ] water
+   * plants" into "water plants" and flattened her outline a level, as a
+   * permanent write with no undo. These use her real lines.
+   */
+  const tap = (line: string, kind: 'bullets' | 'numbers') => toggleListPrefix(line, 3, kind).text;
+
+  it('keeps the checkbox when swapping the marker', () => {
+    expect(tap('- [ ] water plants', 'numbers')).toBe('1. [ ] water plants');
+  });
+
+  it('keeps the checkbox when taking the marker off', () => {
+    expect(tap('- [ ] water plants', 'bullets')).toBe('[ ] water plants');
+  });
+
+  it('keeps the indentation of a pasted outline', () => {
+    expect(tap('\t\t○ Bills:', 'numbers')).toBe('\t\t1. Bills:');
+    expect(tap('\t• Update Chorus', 'bullets')).toBe('\t• Update Chorus'.replace('• ', ''));
+  });
+
+  it('keeps two-space indentation too', () => {
+    expect(tap('  - b', 'numbers')).toBe('  1. b');
+  });
+
+  it('round-trips without losing a level', () => {
+    // Off then on must give back what it started with, indent included.
+    const original = '\t\t- Bills:';
+    const off = toggleListPrefix(original, 5, 'bullets').text;
+    expect(toggleListPrefix(off, 5, 'bullets').text).toBe(original);
+  });
+
+  it('keeps the exact spacing she typed, including the missing one', () => {
+    // Her note has "- [ ]fill out forms" with no space after the bracket.
+    // A rewrite must not tidy that up — it is her text, not ours.
+    expect(tap('- [ ]fill out forms', 'numbers')).toBe('1. [ ]fill out forms');
+  });
+});
+
+describe('a section sign', () => {
+  it('is prose when it starts a line on its own', () => {
+    // "§ 12 of the lease says no pets" is a sentence, not a bullet.
+    expect(noteBlocks('§ 12 of the lease says no pets').map((b) => b.kind)).toEqual(['paragraph']);
+  });
+
+  it('is still a bullet when indented, which is where OneNote puts it', () => {
+    const blocks = noteBlocks('\t\t\t§ Utility bill');
+    expect(blocks.map((b) => b.kind)).toEqual(['bullets']);
+    expect(items(blocks[0]!)).toEqual(['1:Utility bill']);
+  });
+});
+
+describe('a checkbox on a numbered line', () => {
+  it('is read, not printed', () => {
+    const blocks = noteBlocks('1. [ ] thing');
+    expect(items(blocks[0]!)).toEqual(['1:thing']);
+    const first = blocks[0]!;
+    expect(first.kind === 'numbers' && first.items[0]!.checked).toBe(false);
   });
 });
