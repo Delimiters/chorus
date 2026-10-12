@@ -35,6 +35,48 @@ interface Props {
 /** Wide enough for "100." at body size, so the text column never moves. */
 const MARKER_WIDTH = 26;
 
+/**
+ * How far each indent level insets.
+ *
+ * Small on purpose: Emily's pasted outline goes four levels deep, and at the
+ * usual 24pt that would push the deepest text into a column two words wide on
+ * an iPhone 14.
+ */
+const INDENT = 14;
+
+/**
+ * A different dot per level, cycling.
+ *
+ * Emily's pasted outline goes three deep, and at 14pt of inset per level the
+ * indent alone is a weak signal — two levels look like a ragged edge. Varying
+ * the glyph is what every outliner does, and it is the difference between
+ * reading the shape and counting pixels. It also happens to echo what OneNote
+ * wrote in the first place.
+ */
+const DOTS = ['•', '◦', '▪'] as const;
+
+/**
+ * What goes in the marker column.
+ *
+ * A function rather than a nested ternary, because the first version of that
+ * put `checked === null` first and made the depth glyph unreachable — four
+ * branches on two fields is one more than a conditional expression reads
+ * clearly at.
+ *
+ * A box for a checklist item, a dot for a plain bullet. Drawn, never tapped: a
+ * checkbox somebody can tick is a chore, and this app has chores — one here
+ * would be a second, worse version with no history and no rotation.
+ */
+function markerFor(
+  kind: 'bullets' | 'numbers',
+  item: { readonly number: number; readonly depth: number; readonly checked: boolean | null },
+): string {
+  if (kind === 'numbers') return `${String(item.number)}.`;
+  if (item.checked === true) return '☑';
+  if (item.checked === false) return '☐';
+  return DOTS[item.depth % DOTS.length] ?? '•';
+}
+
 export function NoteBody({ note, variant = 'body' }: Props) {
   const colors = useColors();
   const blocks = noteBlocks(note);
@@ -55,7 +97,14 @@ export function NoteBody({ note, variant = 'body' }: Props) {
         return (
           <View key={index} style={{ gap: space.xs }}>
             {block.items.map((item, row) => (
-              <View key={row} style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+              <View
+                key={row}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'flex-start',
+                  paddingLeft: item.depth * INDENT,
+                }}
+              >
                 <Txt
                   variant={variant}
                   tone="muted"
@@ -67,14 +116,24 @@ export function NoteBody({ note, variant = 'body' }: Props) {
                     fontVariant: ['tabular-nums'],
                   }}
                 >
-                  {block.kind === 'numbers' ? `${String(item.number)}.` : '•'}
+                  {markerFor(block.kind, item)}
                 </Txt>
                 {/*
                   `flex: 1` with `minWidth: 0` so a long item wraps inside its
                   own column instead of pushing the row wider than the screen —
                   the same pair the plan's rows need for a long chore name.
                 */}
-                <Txt variant={variant} style={{ flex: 1, minWidth: 0 }}>
+                <Txt
+                  variant={variant}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    // A ticked item reads as done without being interactive.
+                    ...(item.checked === true
+                      ? { textDecorationLine: 'line-through', color: colors.textFaint }
+                      : {}),
+                  }}
+                >
                   <NoteSpans spans={item.spans} linkColor={colors.inkA} />
                 </Txt>
               </View>

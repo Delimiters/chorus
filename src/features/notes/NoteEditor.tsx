@@ -108,7 +108,20 @@ export function NoteEditor({
         <Field
           label="Note"
           value={body}
-          onChangeText={setBody}
+          onChangeText={(next) => {
+            /*
+             * Clearing `forceCaret` here as well as on a selection change.
+             *
+             * The forced `selection` prop is meant to last one render. If the
+             * field ever applies it without reporting a selection change back,
+             * nothing else would clear it — and then every keystroke would
+             * re-render with the caret pinned to the old offset, which drops
+             * characters. Typing is the other signal that the moment has
+             * passed, so it clears here too.
+             */
+            setForceCaret(null);
+            setBody(next);
+          }}
           placeholder="Anything worth coming back to"
           multiline
           maxLength={NOTE_BODY_MAX}

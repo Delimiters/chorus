@@ -242,3 +242,204 @@ describe('a card preview', () => {
     expect(notePreview('')).toBe('');
   });
 });
+
+describe('a note that came from somewhere else', () => {
+  it('parses lists pasted with Windows line endings', () => {
+    /*
+     * `.` in a regex does not match `\r`, so "- milk\r" failed the bullet
+     * pattern and a list pasted from a browser rendered as prose.
+     */
+    const blocks = noteBlocks('- milk\r\n- eggs');
+    expect(blocks.map((b) => b.kind)).toEqual(['bullets']);
+    expect(items(blocks[0]!)).toEqual(['1:milk', '2:eggs']);
+  });
+
+  it('leaves no stray carriage return inside the text', () => {
+    // An invisible character in the middle of somebody's note.
+    expect(text(noteBlocks('one\r\ntwo')[0]!)).toBe('one\ntwo');
+  });
+
+  it('handles an old-Mac lone carriage return too', () => {
+    expect(noteBlocks('- milk\r- eggs').map((b) => b.kind)).toEqual(['bullets']);
+  });
+
+  it('previews and markup detection agree about them', () => {
+    expect(hasMarkup('- milk\r\n- eggs')).toBe(true);
+    expect(notePreview('- milk\r\n- eggs')).toBe('milk\neggs');
+  });
+});
+
+describe('a note nobody would write but somebody will paste', () => {
+  it('stays linear on a long note', () => {
+    // 5,000 lines, half of them list items. Guards against a quadratic rescan.
+    const note = Array.from({ length: 5000 }, (_, i) =>
+      i % 2 === 0 ? `- item ${String(i)}` : `prose ${String(i)}`,
+    ).join('\n');
+    const started = Date.now();
+    const blocks = noteBlocks(note);
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('keeps emoji and non-Latin text intact', () => {
+    const blocks = noteBlocks('- 🥛 milk\n- 牛乳');
+    expect(items(blocks[0]!)).toEqual(['1:🥛 milk', '2:牛乳']);
+  });
+
+  it('treats a line of only whitespace between items as a break', () => {
+    const blocks = noteBlocks('- milk\n   \n- eggs');
+    expect(blocks.map((b) => b.kind)).toEqual(['bullets', 'bullets']);
+  });
+
+  it('survives a note that is only markers', () => {
+    expect(items(noteBlocks('-\n-\n-')[0]!)).toEqual(['1:', '2:', '3:']);
+    expect(items(noteBlocks('1.\n2.')[0]!)).toEqual(['1:', '2:']);
+  });
+
+  it('keeps tabs working as the space after a marker', () => {
+    expect(items(noteBlocks('-\tmilk')[0]!)).toEqual(['1:milk']);
+  });
+});
+
+describe('a checklist pasted from another app', () => {
+  /*
+   * Jake: *"It would be cool if when you pasted something in from ios notes it
+   * kind of intelligently turned the checklist markup that copies over into
+   * bullet points."* Copying a checklist out of Notes brings the boxes with it
+   * as the marker; copying a plain list brings `◦` or a dash.
+   */
+  const boxes = (block: NoteBlock) =>
+    block.kind === 'paragraph' ? [] : block.items.map((i) => i.checked);
+
+  it('reads ballot boxes as checklist items', () => {
+    const blocks = noteBlocks('☐ wash blankets\n☑ hand towels');
+    expect(blocks.map((b) => b.kind)).toEqual(['bullets']);
+    expect(items(blocks[0]!)).toEqual(['1:wash blankets', '2:hand towels']);
+    expect(boxes(blocks[0]!)).toEqual([false, true]);
+  });
+
+  it('reads check marks as done', () => {
+    expect(boxes(noteBlocks('✓ called the vet')[0]!)).toEqual([true]);
+  });
+
+  it('reads the markdown form the same way', () => {
+    // So a list pasted from Notes and one typed here render identically.
+    const blocks = noteBlocks('- [ ] wash blankets\n- [x] hand towels');
+    expect(items(blocks[0]!)).toEqual(['1:wash blankets', '2:hand towels']);
+    expect(boxes(blocks[0]!)).toEqual([false, true]);
+  });
+
+  it('does not show the brackets it understood', () => {
+    // "• [ ] wash blankets" would be showing somebody their own syntax.
+    expect(items(noteBlocks('- [ ] wash blankets')[0]!)).toEqual(['1:wash blankets']);
+  });
+
+  it('copes with the missing space Emily’s note actually has', () => {
+    // Her note contains "- [ ]fill out forms at pots.net" — no space after the
+    // bracket. Worth a test precisely because it came from a real paste.
+    expect(items(noteBlocks('- [ ]fill out forms')[0]!)).toEqual(['1:fill out forms']);
+  });
+
+  it('leaves an ambiguous cross as a plain bullet', () => {
+    // "✗" means done in some apps and skipped in others. A box drawn the wrong
+    // way round is worse than a dot.
+    expect(boxes(noteBlocks('✗ maybe')[0]!)).toEqual([null]);
+  });
+
+  it('takes a dash that autocorrect turned into an em dash', () => {
+    expect(items(noteBlocks('— milk\n– eggs')[0]!)).toEqual(['1:milk', '2:eggs']);
+  });
+
+  it('keeps a plain bullet unchecked rather than unticked', () => {
+    // `null`, not `false`: a dash is not an empty box, and drawing one would
+    // put checkboxes on every list in the app.
+    expect(boxes(noteBlocks('- milk')[0]!)).toEqual([null]);
+  });
+});
+
+describe('an outline pasted from OneNote', () => {
+  /*
+   * Emily's note, as it really arrived: tab-indented, `•` at level one, `○` at
+   * level two, `§` below that. Flattening it would throw away the only thing
+   * that says which bill belongs to which heading.
+   */
+  const depths = (block: NoteBlock) =>
+    block.kind === 'paragraph' ? [] : block.items.map((i) => i.depth);
+
+  it('keeps the levels', () => {
+    const blocks = noteBlocks('\t• Update Chorus\n\t\t○ Bills:\n\t\t\t§ Utility bill');
+    expect(blocks.map((b) => b.kind)).toEqual(['bullets']);
+    expect(items(blocks[0]!)).toEqual(['1:Update Chorus', '2:Bills:', '3:Utility bill']);
+    expect(depths(blocks[0]!)).toEqual([1, 2, 3]);
+  });
+
+  it('counts two spaces as a level, which is the other convention', () => {
+    expect(depths(noteBlocks('- a\n  - b\n    - c')[0]!)).toEqual([0, 1, 2]);
+  });
+
+  it('stops indenting before the text runs out of room', () => {
+    // Nine levels deep would leave a column two words wide on a phone.
+    expect(depths(noteBlocks('\t\t\t\t\t\t\t\t\t- deep')[0]!)).toEqual([4]);
+  });
+});
+
+describe('Emily’s note, exactly as it is stored', () => {
+  /*
+   * The real thing, not a sketch of it: her note is the only one on the board
+   * and the whole point of this change is that it reads better afterwards and
+   * loses nothing. Anything invented would not have the missing space after
+   * "[ ]", the URL jammed against a colon, or the OneNote glyphs.
+   */
+  const NOTE = [
+    '- [ ] Sensory deprivation:https://share.google/isCqATEO9A4VX1QTk',
+    '- [ ]fill out forms at pots.net for cardiology share',
+    '- [ ] water plants ',
+    '',
+    '\t• Update Chorus',
+    '\t\t○ Bills:',
+    '\t\t\t§ Utility bill',
+  ].join('\n');
+
+  it('reads as a checklist and an outline, not one grey block', () => {
+    const blocks = noteBlocks(NOTE);
+    expect(blocks.map((b) => b.kind)).toEqual(['bullets', 'bullets']);
+
+    const first = blocks[0]!;
+    expect(first.kind === 'bullets' && first.items.map((i) => i.checked)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+
+    const second = blocks[1]!;
+    expect(second.kind === 'bullets' && second.items.map((i) => i.depth)).toEqual([1, 2, 3]);
+  });
+
+  it('finds the link she jammed against a colon', () => {
+    const first = noteBlocks(NOTE)[0]!;
+    const spans = first.kind === 'bullets' ? first.items[0]!.spans : [];
+    const link = spans.find((s) => s.kind === 'link');
+    expect(link?.kind === 'link' && link.href).toBe('https://share.google/isCqATEO9A4VX1QTk');
+  });
+
+  it('loses not one word of it', () => {
+    const rendered = noteBlocks(NOTE)
+      .flatMap((b) =>
+        b.kind === 'paragraph'
+          ? b.spans.map((s) => s.value)
+          : b.items.flatMap((i) => i.spans.map((s) => s.value)),
+      )
+      .join(' ');
+
+    for (const phrase of [
+      'Sensory deprivation',
+      'fill out forms at pots.net for cardiology share',
+      'water plants',
+      'Update Chorus',
+      'Bills:',
+      'Utility bill',
+    ]) {
+      expect(rendered).toContain(phrase);
+    }
+  });
+});

@@ -333,3 +333,64 @@ describe('how much a note can hold', () => {
     expect(NOTE_TITLE_MAX).toBeLessThan(NOTE_BODY_MAX);
   });
 });
+
+describe('a note pasted from another app', () => {
+  /*
+   * Emily's real note is a checklist pasted from one app and an outline pasted
+   * from another. These are the shapes that actually arrived, which is why they
+   * are here rather than in a sketch.
+   */
+  const withBody = (body: string) => {
+    mockNotes = { ...mockNotes, data: [{ ...mockNotes.data![0]!, body }] };
+    renderScreen();
+  };
+
+  it('draws a pasted checklist as boxes, not as brackets', () => {
+    withBody('- [ ] wash blankets\n- [x] hand towels');
+
+    expect(screen.getByText('☐')).toBeOnTheScreen();
+    expect(screen.getByText('☑')).toBeOnTheScreen();
+    expect(screen.getByText('wash blankets')).toBeOnTheScreen();
+    // The syntax it understood is not shown back to her.
+    expect(screen.queryByText(/\[ \]/)).toBeNull();
+  });
+
+  it('draws iOS Notes’ own boxes the same way', () => {
+    withBody('☐ wash blankets\n☑ hand towels');
+
+    expect(screen.getByText('☐')).toBeOnTheScreen();
+    expect(screen.getByText('☑')).toBeOnTheScreen();
+  });
+
+  it('keeps a pasted outline’s levels, with a different dot each', () => {
+    withBody('\t• Update Chorus\n\t\t○ Bills:\n\t\t\t§ Utility bill');
+
+    expect(screen.getByText('Update Chorus')).toBeOnTheScreen();
+    expect(screen.getByText('Bills:')).toBeOnTheScreen();
+    expect(screen.getByText('Utility bill')).toBeOnTheScreen();
+    // Level one, two and three draw differently, so the shape reads at a glance.
+    expect(screen.getByText('◦')).toBeOnTheScreen();
+    expect(screen.getByText('▪')).toBeOnTheScreen();
+  });
+
+  it('still makes a link tappable inside a checklist item', () => {
+    withBody('- [ ] Sensory deprivation:https://share.google/isCqATEO9A4VX1QTk');
+
+    expect(
+      screen.getByRole('link', { name: 'https://share.google/isCqATEO9A4VX1QTk' }),
+    ).toBeOnTheScreen();
+  });
+
+  it('leaves the stored text exactly as it was when you open it to edit', () => {
+    /*
+     * The guarantee that matters for somebody else's note: formatting happens
+     * on the way to the screen, never on the way to the database. Opening the
+     * editor shows what she typed, character for character.
+     */
+    const original = '☐ wash blankets\n\t• Update Chorus';
+    withBody(original);
+    fireEvent.press(screen.getByText('Edit'));
+
+    expect(screen.getByDisplayValue(original)).toBeOnTheScreen();
+  });
+});

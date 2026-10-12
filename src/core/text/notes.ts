@@ -38,6 +38,25 @@ export interface NoteListItem {
   readonly spans: readonly NoteSegment[];
   /** The number shown, for an ordered list. Bullets ignore it. */
   readonly number: number;
+  /**
+   * How far the line was indented, 0 for the outer level.
+   *
+   * Emily's real note is an outline pasted out of OneNote — tab-indented, with
+   * `•` at one level, `○` at the next and `§` below that. Flattening it to one
+   * level would throw away the only thing that says which bill belongs to which
+   * month, so the depth is carried and the renderer indents by it.
+   */
+  readonly depth: number;
+  /**
+   * `null` for an ordinary bullet; a box for `- [ ]` / `- [x]`.
+   *
+   * Her note is full of them, and rendering the brackets literally — "• [ ]
+   * wash blankets" — would be showing her the syntax of whatever app she pasted
+   * from. **Display only**: they are not tappable, because a checkbox somebody
+   * can tick is a chore, and this app already has chores. Ticking one here
+   * would be a second, worse version of that with no history and no rotation.
+   */
+  readonly checked: boolean | null;
 }
 
 export type NoteBlock =
@@ -47,13 +66,76 @@ export type NoteBlock =
   | { readonly kind: 'numbers'; readonly items: readonly NoteListItem[] };
 
 /**
- * A bullet: a dash, asterisk or bullet character, then a space.
+ * A bullet, at any indent, in whatever the thing you pasted from calls a bullet.
+ *
+ * Three real sources, all of which turned up in this household's first week:
+ *
+ * - **typed**: `-`, `*`
+ * - **OneNote**, which is what Emily pasted: `•` at level one, `○` at level
+ *   two, `§` below that, tab-indented. Reading its glyphs is what makes her
+ *   outline render as an outline rather than as one grey block.
+ * - **iOS Notes**, which Jake asked for by name — *"when you pasted something
+ *   in from ios notes it kind of intelligently turned the checklist markup that
+ *   copies over into bullet points"*. Copying a checklist out of it yields
+ *   ballot boxes and check marks as the marker, and copying a plain list yields
+ *   `◦` or a dash.
+ *
+ * Dashes include the en and em dash, because that is what Notes and Word write
+ * when autocorrect has been at a hyphen. A line of prose that opens with an em
+ * dash loses to this, which is the right trade in a notes field.
  *
  * The space is required, so "3-4 bags" and "*not* the big one" stay prose. A
- * dash with nothing after it is an empty bullet somebody is in the middle of
+ * marker with nothing after it is an empty bullet somebody is in the middle of
  * typing, so that counts too.
  */
-const BULLET = /^[ \t]*[-*•](?:[ \t]+(.*))?$/;
+const BULLET = /^([ \t]*)([-*•○▪§‣◦⁃–—☐☑☒✓✔✗✘])(?:[ \t]+(.*))?$/;
+
+/** `[ ]`, `[x]` or `[X]` straight after a bullet's marker. */
+const CHECKBOX = /^\[([ xX])\][ \t]*(.*)$/;
+
+/**
+ * Markers that are themselves a checkbox, from a pasted checklist.
+ *
+ * Mapped rather than passed through, so a list pasted from Notes reads the same
+ * as one typed as `- [ ]` here.
+ *
+ * `✗` and `✘` are bullets above but deliberately **absent** here: they mean
+ * "done" in some apps and "skipped" in others, so they keep the line and lose
+ * only the claim about its state. A box drawn the wrong way round is worse than
+ * a plain dot.
+ */
+const BOX_MARKERS: Record<string, boolean> = {
+  '☐': false,
+  '☑': true,
+  '☒': true,
+  '✓': true,
+  '✔': true,
+};
+
+/**
+ * How deep a line is indented, as a level rather than a character count.
+ *
+ * A tab is one level, two spaces are one level — the two conventions people
+ * actually paste. Capped, because an outline indented nine deep would push its
+ * text off a phone and the information is in the *order* by then, not the inset.
+ */
+const MAX_DEPTH = 4;
+
+function depthOf(indent: string): number {
+  let level = 0;
+  let spaces = 0;
+  for (const ch of indent) {
+    if (ch === '\t') level += 1;
+    else {
+      spaces += 1;
+      if (spaces === 2) {
+        level += 1;
+        spaces = 0;
+      }
+    }
+  }
+  return Math.min(level, MAX_DEPTH);
+}
 
 /**
  * A number, then a dot or paren, then a space: `1. milk`, `2) eggs`.
@@ -63,24 +145,65 @@ const BULLET = /^[ \t]*[-*•](?:[ \t]+(.*))?$/;
  * twenty-six. It costs a list that reaches a thousand items, which no note on
  * this household's board is going to be.
  */
-const NUMBER = /^[ \t]*(\d{1,3})[.)](?:[ \t]+(.*))?$/;
+const NUMBER = /^([ \t]*)(\d{1,3})[.)](?:[ \t]+(.*))?$/;
+
+/**
+ * Line endings, normalised before anything looks at a line.
+ *
+ * A note pasted from a browser or a Windows machine arrives with `\r\n`, and
+ * `.` in a regex does not match `\r` — so "- milk\r" failed the bullet pattern
+ * and the whole list rendered as prose. Splitting on `\n` alone also leaves a
+ * stray `\r` at the end of every line, which is an invisible character in the
+ * middle of somebody's note.
+ */
+function lines(note: string): string[] {
+  return note.replace(/\r\n?/g, '\n').split('\n');
+}
 
 interface Line {
   readonly kind: 'bullet' | 'number' | 'text' | 'blank';
   readonly content: string;
   readonly number: number;
+  readonly depth: number;
+  readonly checked: boolean | null;
 }
 
 function classify(line: string): Line {
   const bullet = BULLET.exec(line);
-  if (bullet !== null) return { kind: 'bullet', content: bullet[1] ?? '', number: 0 };
+  if (bullet !== null) {
+    const marker = bullet[2] ?? '';
+    const body = bullet[3] ?? '';
+    const box = CHECKBOX.exec(body);
+    const fromMarker = BOX_MARKERS[marker];
+    return {
+      kind: 'bullet',
+      content: box === null ? body : (box[2] ?? ''),
+      number: 0,
+      depth: depthOf(bullet[1] ?? ''),
+      // `- [x]` written here wins over the marker, because it is the more
+      // specific statement; otherwise a pasted box carries its own state.
+      checked: box !== null ? box[1] !== ' ' : (fromMarker ?? null),
+    };
+  }
 
   const numbered = NUMBER.exec(line);
   if (numbered !== null) {
-    return { kind: 'number', content: numbered[2] ?? '', number: Number(numbered[1]) };
+    return {
+      kind: 'number',
+      content: numbered[3] ?? '',
+      number: Number(numbered[2]),
+      depth: depthOf(numbered[1] ?? ''),
+      checked: null,
+    };
   }
 
-  return { kind: line.trim() === '' ? 'blank' : 'text', content: line, number: 0 };
+  return {
+    kind: line.trim() === '' ? 'blank' : 'text',
+    content: line,
+    number: 0,
+    depth: 0,
+    checked: null,
+  };
 }
 
 /**
@@ -126,7 +249,7 @@ export function noteBlocks(note: string): readonly NoteBlock[] {
     items = [];
   };
 
-  for (const raw of note.split('\n')) {
+  for (const raw of lines(note)) {
     const line = classify(raw);
 
     if (line.kind === 'blank') {
@@ -150,7 +273,12 @@ export function noteBlocks(note: string): readonly NoteBlock[] {
       // there; a list starting "3." was almost certainly continuing something.
       listStart = line.kind === 'number' ? line.number : 1;
     }
-    items.push({ spans: noteSegments(line.content), number: listStart + items.length });
+    items.push({
+      spans: noteSegments(line.content),
+      number: listStart + items.length,
+      depth: line.depth,
+      checked: line.checked,
+    });
   }
 
   flushProse();
@@ -165,7 +293,7 @@ export function noteBlocks(note: string): readonly NoteBlock[] {
  * a plain note has nothing to gain from block layout.
  */
 export function hasMarkup(note: string): boolean {
-  return note.split('\n').some((line) => {
+  return lines(note).some((line) => {
     const kind = classify(line).kind;
     return kind === 'bullet' || kind === 'number';
   });
@@ -252,8 +380,7 @@ export function toggleListPrefix(
  * or two of what the note says.
  */
 export function notePreview(note: string): string {
-  return note
-    .split('\n')
+  return lines(note)
     .map((line) => {
       const parsed = classify(line);
       return parsed.kind === 'bullet' || parsed.kind === 'number' ? parsed.content : line;
