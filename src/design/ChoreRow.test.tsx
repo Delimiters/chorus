@@ -238,3 +238,114 @@ describe('a sub-header dot', () => {
     expect(dotStyle(dot).backgroundColor).not.toBe('#B3261E');
   });
 });
+
+describe('steps on the plan', () => {
+  const row = (over: Partial<Parameters<typeof ChoreRow>[0]> = {}) => (
+    <ThemeProvider>
+      <ChoreRow
+        item={ITEM}
+        ink={null}
+        turnLabel={null}
+        scheduleLabel="Every 14 days"
+        category={{ name: 'Cleaning', ink: 'blue' }}
+        subtasks={[]}
+        compact
+        stepsOpenByDefault
+        onToggle={jest.fn()}
+        onOpen={jest.fn()}
+        {...over}
+      />
+    </ThemeProvider>
+  );
+
+  it('opens the steps when they arrive after the row', () => {
+    /*
+     * Jake, on build 61: *"I'm still noticing chores with steps not always
+     * being expanded to show the steps on the plan page."*
+     *
+     * `useState(…)` runs its argument on the first render only, and the steps
+     * come from a query — so a row that mounted before `useSubtasks` resolved
+     * saw none, seeded itself closed, and stayed closed once they landed. With
+     * a warm cache the query is already settled, which is what made it "not
+     * always".
+     */
+    const view = render(row({ subtasks: [] }));
+    expect(screen.queryByText('Strip the bed')).toBeNull();
+
+    view.rerender(row({ subtasks: [{ id: 's1', title: 'Strip the bed' }] }));
+
+    expect(screen.getByText('Strip the bed')).toBeOnTheScreen();
+  });
+
+  it('still lets you fold them away, and stays folded', () => {
+    // The override: once somebody has an opinion it outlives any later change
+    // to the default.
+    render(row({ subtasks: [{ id: 's1', title: 'Strip the bed' }] }));
+    expect(screen.getByText('Strip the bed')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('steps-toggle'));
+
+    expect(screen.queryByText('Strip the bed')).toBeNull();
+  });
+});
+
+describe('the expander on a row with nothing to expand', () => {
+  /*
+   * Jake: *"chores that will not show any additional information once expanded
+   * do not need to have a button to expand them on the plan page. If all it
+   * does is change the size of the cell there is no reason to have it."*
+   */
+  const bare = (over: Partial<Parameters<typeof ChoreRow>[0]> = {}) => (
+    <ThemeProvider>
+      <ChoreRow
+        item={ITEM}
+        ink={null}
+        turnLabel={null}
+        scheduleLabel=""
+        category={null}
+        subtasks={[]}
+        compact
+        onToggle={jest.fn()}
+        onOpen={jest.fn()}
+        {...over}
+      />
+    </ThemeProvider>
+  );
+
+  it('is not drawn at all', () => {
+    render(bare());
+
+    expect(screen.queryByTestId('steps-toggle')).toBeNull();
+  });
+
+  it('is drawn when there are steps', () => {
+    render(bare({ subtasks: [{ id: 's1', title: 'Strip the bed' }] }));
+
+    expect(screen.getByTestId('steps-toggle')).toBeOnTheScreen();
+  });
+
+  it('is drawn when there is a note', () => {
+    render(bare({ notes: 'bring the small bin' }));
+
+    expect(screen.getByTestId('steps-toggle')).toBeOnTheScreen();
+  });
+
+  it('is drawn when there is a schedule to show', () => {
+    render(bare({ scheduleLabel: 'Every 14 days' }));
+
+    expect(screen.getByTestId('steps-toggle')).toBeOnTheScreen();
+  });
+
+  it('is drawn when it is somebody’s turn', () => {
+    render(bare({ turnLabel: 'Emily' }));
+
+    expect(screen.getByTestId('steps-toggle')).toBeOnTheScreen();
+  });
+
+  it('is still drawn on a full-height row with steps', () => {
+    // Non-compact rows show their detail already; the control is for the steps.
+    render(bare({ compact: false, subtasks: [{ id: 's1', title: 'Strip the bed' }] }));
+
+    expect(screen.getByTestId('steps-toggle')).toBeOnTheScreen();
+  });
+});
