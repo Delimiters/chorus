@@ -1614,6 +1614,13 @@ describe('whose job a row is', () => {
      */
     mockMyFlags = new Set(['mail']);
     mockEntries = [entry('mail', 1)];
+    /*
+     * The row needs something worth expanding, or there is no control to press:
+     * a plan row whose only extra is its assignee name — which shows in both
+     * states — no longer draws a chevron at all. The invariant under test is
+     * the meta column, not the chevron's existence.
+     */
+    mockChoreNotes = new Map([['mail', 'bring the small bin']]);
     renderScreen([item('mail', 'Post', 'due', { kind: 'member', memberId: THEM, turn: 0 })]);
 
     expect(screen.getAllByText('Sam')).toHaveLength(1);
@@ -1875,5 +1882,41 @@ describe('the plan’s row sheet as a mini chore view', () => {
 
     expect(screen.getByText('Take off today')).toBeOnTheScreen();
     expect(screen.queryByTestId('chore-detail')).toBeNull();
+  });
+});
+
+describe('the expander on the plan', () => {
+  /*
+   * Jake: *"chores that will not show any additional information once expanded
+   * do not need to have a button to expand them on the plan page. If all it
+   * does is change the size of the cell there is no reason to have it."*
+   *
+   * On the plan the schedule label is deliberately blank and the assignee shows
+   * in both states, so for a plain chore there is genuinely nothing behind the
+   * chevron.
+   */
+  it('is absent for a chore with nothing behind it', () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.queryByLabelText(/Dishes\. Show details\./)).toBeNull();
+  });
+
+  it('is there when the chore has steps', () => {
+    mockEntries = [entry('dishes', 1)];
+    mockSubtasks = new Map([['dishes', [{ id: 's1', title: 'Rinse first' }]]]);
+    renderScreen([item('dishes', 'Dishes')]);
+
+    // Open by default, so the control is the way to *fold* them.
+    expect(screen.getByLabelText(/Dishes\. Hide details\./)).toBeOnTheScreen();
+    expect(screen.getByText('Rinse first')).toBeOnTheScreen();
+  });
+
+  it('is there when the chore has a note', () => {
+    mockEntries = [entry('dishes', 1)];
+    mockChoreNotes = new Map([['dishes', 'Use the good soap under the sink']]);
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByLabelText(/Dishes\. Show details\./)).toBeOnTheScreen();
   });
 });
