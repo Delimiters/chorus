@@ -279,13 +279,58 @@ describe('steps on the plan', () => {
 
   it('still lets you fold them away, and stays folded', () => {
     // The override: once somebody has an opinion it outlives any later change
-    // to the default.
-    render(row({ subtasks: [{ id: 's1', title: 'Strip the bed' }] }));
+    // to the default. The second half of that was unasserted — a review showed
+    // the test passed against a component that discarded the fold whenever the
+    // step count changed.
+    const view = render(row({ subtasks: [{ id: 's1', title: 'Strip the bed' }] }));
     expect(screen.getByText('Strip the bed')).toBeOnTheScreen();
 
     fireEvent.press(screen.getByTestId('steps-toggle'));
+    expect(screen.queryByText('Strip the bed')).toBeNull();
+
+    view.rerender(
+      row({
+        subtasks: [
+          { id: 's1', title: 'Strip the bed' },
+          { id: 's2', title: 'Flip the mattress' },
+        ],
+      }),
+    );
 
     expect(screen.queryByText('Strip the bed')).toBeNull();
+    expect(screen.queryByText('Flip the mattress')).toBeNull();
+  });
+
+  it('folds back by itself when the last thing worth showing goes', () => {
+    /*
+     * `override` outlives the chevron, and the chevron goes when there is no
+     * detail — so a row tapped open whose note was then cleared stayed expanded
+     * around nothing with no control to fold it. A review found it pinned at a
+     * 44pt minimum height over one line of text.
+     */
+    // Blank schedule label, as the plan passes: otherwise the schedule line is
+    // itself a reason to keep the chevron.
+    const view = render(row({ subtasks: [], notes: 'bring the small bin', scheduleLabel: '' }));
+    fireEvent.press(screen.getByTestId('steps-toggle'));
+    expect(screen.getByText('bring the small bin')).toBeOnTheScreen();
+
+    const padding = () =>
+      (StyleSheet.flatten(screen.getByTestId('row-body').props.style) as Record<string, unknown>)
+        .paddingVertical;
+    const expanded = padding();
+
+    view.rerender(row({ subtasks: [], notes: null, scheduleLabel: '' }));
+
+    expect(screen.queryByTestId('steps-toggle')).toBeNull();
+    /*
+     * Collapsed, not merely uncontrollable. Asserting the chevron's absence
+     * alone passed against a row left pinned open around nothing — the actual
+     * defect — because the chevron is gone either way. The row's own padding is
+     * what says slim.
+     */
+    // 7 when slim, 8 when expanded on a compact row.
+    expect(padding()).not.toBe(expanded);
+    expect(padding()).toBe(7);
   });
 });
 
@@ -340,6 +385,48 @@ describe('the expander on a row with nothing to expand', () => {
     render(bare({ turnLabel: 'Emily' }));
 
     expect(screen.getByTestId('steps-toggle')).toBeOnTheScreen();
+  });
+
+  it('is drawn when the chore is crucial', () => {
+    // A clause a review found untested: dropping it left a crucial row with no
+    // chevron and its "Crucial" chip unreachable on the plan.
+    render(bare({ priority: 'crucial' }));
+
+    expect(screen.getByTestId('steps-toggle')).toBeOnTheScreen();
+  });
+
+  it('is absent on a finished row that already says who did it', () => {
+    /*
+     * The other untested clause. The expanded branch suppresses the schedule
+     * line in exactly this case, so there would be a chevron revealing nothing.
+     */
+    render(
+      bare({
+        scheduleLabel: 'Every 14 days',
+        item: { ...ITEM, status: 'completed', completedBy: 'u1' } as never,
+      }),
+    );
+
+    expect(screen.queryByTestId('steps-toggle')).toBeNull();
+  });
+
+  it('leaves its footprint behind so the title does not move', () => {
+    /*
+     * The control goes; its 20pt box stays. Without that, a row with no detail
+     * hands 32pt back to its title — so titles end at different widths down a
+     * list, and a row that gains steps a beat after mounting re-wraps its title
+     * under your thumb. jest-expo does no layout, so this asserts the declared
+     * size — an empty `View` in its place would hand the 32pt straight back.
+     */
+    render(bare());
+
+    expect(screen.queryByTestId('steps-toggle')).toBeNull();
+    const spacer = StyleSheet.flatten(screen.getByTestId('steps-spacer').props.style) as Record<
+      string,
+      unknown
+    >;
+    expect(spacer.width).toBe(20);
+    expect(spacer.height).toBe(20);
   });
 
   it('is still drawn on a full-height row with steps', () => {
