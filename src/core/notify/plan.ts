@@ -12,6 +12,7 @@
  */
 
 import { wallDateFor } from '../civil/daybreak';
+import { MAX_NAGGING_PER_DAY, nagBody, nagSteps } from './insist';
 import { addDays, compareCivil, toEpochDay } from '../civil/date';
 import type { CivilDate, CivilTime } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
@@ -121,6 +122,14 @@ export interface PlannedReminder {
   readonly body: string;
   readonly onDate: CivilDate;
   readonly atTime: CivilTime;
+  /**
+   * Whether this one should break through a Focus mode and make a sound.
+   *
+   * Only a nagging chore's reminders ask for it. Marking everything Time
+   * Sensitive would be the notification equivalent of writing in capitals: iOS
+   * lets the user turn the whole category off, and they would.
+   */
+  readonly insistent?: boolean;
 }
 
 export interface PlanInput {
@@ -134,6 +143,15 @@ export interface PlanInput {
    * date. See `core/civil/daybreak.ts`.
    */
   readonly dayStartsAtHour: number;
+  /**
+   * Chores that should keep asking until they are done.
+   *
+   * A set of chore ids rather than a flag on the occurrence, because the
+   * setting belongs to the chore and the projector has no reason to carry it
+   * through. Optional so every existing caller keeps compiling and means "no
+   * chore nags".
+   */
+  readonly insistChoreIds?: ReadonlySet<string>;
 }
 
 /**
@@ -147,6 +165,10 @@ export interface PlanInput {
 export function planReminders(input: PlanInput): readonly PlannedReminder[] {
   const { policy, today, userId, dayStartsAtHour } = input;
   if (!policy.enabled) return [];
+
+  const insist = input.insistChoreIds ?? new Set<string>();
+  /** How many chores have already claimed a ladder on each firing date. */
+  const naggedOn = new Map<CivilDate, number>();
 
   const horizonEnd = addDays(today, Math.max(0, policy.horizonDays));
 
@@ -210,7 +232,51 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
      * existing pending notifications are still matched rather than duplicated.
      */
     const times = occ.timesOfDay.length === 0 ? [policy.defaultTime] : occ.timesOfDay;
+    /*
+     * A nagging chore gets a ladder instead of one reminder.
+     *
+     * Rationed per day rather than per chore: `MAX_PENDING` is sixty and the
+     * planner keeps the *soonest*, so an unbounded number of nags in one
+     * morning would push the rest of the week's reminders off the end of the
+     * queue. Past the ration a chore still gets its single ordinary reminder,
+     * so the feature degrades to the old behaviour instead of failing.
+     *
+     * Counted on the date the reminder *fires*, which is what the operating
+     * system's queue is full of, and in the order the occurrences come — which
+     * `sortForDisplay` has already put in due-date order, so the earliest
+     * chores of a day win the ration rather than whichever was created first.
+     */
+    const nagging = insist.has(occ.choreId);
+    const budget = nagging ? (naggedOn.get(occ.dueOn) ?? 0) : 0;
+    const laddered = nagging && budget < MAX_NAGGING_PER_DAY;
+    if (laddered) naggedOn.set(occ.dueOn, budget + 1);
+
     for (const atTime of times) {
+      const base = {
+        choreId: occ.choreId,
+        title: occ.choreTitle,
+        body: bodyFor(occ),
+      };
+      if (laddered) {
+        for (const step of nagSteps(wallDateFor(occ.dueOn, atTime, dayStartsAtHour), atTime)) {
+          planned.push({
+            ...base,
+            // Every step needs its own identifier: the transport schedules by
+            // id, so two sharing one are one notification.
+            id:
+              step.index === 0
+                ? times.length === 1
+                  ? occ.occurrenceKey
+                  : `${occ.occurrenceKey}@${atTime}`
+                : `${occ.occurrenceKey}@${atTime}#${String(step.index)}`,
+            body: nagBody(base.body, step.index),
+            onDate: step.onDate,
+            atTime: step.atTime,
+            insistent: true,
+          });
+        }
+        continue;
+      }
       planned.push({
         id: times.length === 1 ? occ.occurrenceKey : `${occ.occurrenceKey}@${atTime}`,
         choreId: occ.choreId,

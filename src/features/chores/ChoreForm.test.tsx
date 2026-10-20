@@ -72,6 +72,7 @@ const ROTATING_CHORE: Chore = {
   archivedAt: null,
   categoryId: null,
   priority: 'normal',
+  nagUntilDone: false,
   icon: null,
   privateTo: null,
   createdAt: '2026-08-15T09:02:51.485803+00:00',
@@ -1202,5 +1203,59 @@ describe('a long step', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
 
     expect(submitted(onSubmit).subtasks?.[0]?.title).toBe(long);
+  });
+});
+
+describe('keeping on at you until it is done', () => {
+  /*
+   * Jake: *"Can we make some kind of feature for a super notification? ... sends
+   * repeated notifications until it's done?"*
+   */
+  it('is off unless you ask for it', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    // A household woken up by every chore turns the app's notifications off,
+    // which costs them the ordinary reminders too.
+    expect(submitted(onSubmit).nagUntilDone).toBe(false);
+  });
+
+  it('is saved when you turn it on', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent(
+      screen.getByLabelText("Keep reminding me until it's done"),
+      'valueChange',
+      true,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).nagUntilDone).toBe(true);
+  });
+
+  it('says what it will actually do, not that it is an alarm', async () => {
+    /*
+     * The copy has to be honest: iOS gives third-party apps no way to buzz
+     * continuously, and a feature that over-promises is one people switch off
+     * the first morning it does less than they expected.
+     */
+    await renderForm();
+    await fireEvent(
+      screen.getByLabelText("Keep reminding me until it's done"),
+      'valueChange',
+      true,
+    );
+
+    expect(screen.getByText(/stops as soon as it is ticked off/)).toBeOnTheScreen();
+    expect(screen.getByText(/breaking through Focus/)).toBeOnTheScreen();
+    // And it admits the ration rather than letting somebody discover it.
+    expect(screen.getByText(/Three chores a day/)).toBeOnTheScreen();
+  });
+
+  it('keeps the setting when you reopen a chore that has it', async () => {
+    await renderForm({ chore: { ...ROTATING_CHORE, nagUntilDone: true } });
+
+    expect(screen.getByLabelText("Keep reminding me until it's done").props.value).toBe(true);
   });
 });

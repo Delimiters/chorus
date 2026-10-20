@@ -175,11 +175,20 @@ export function planAllReminders(input: {
    * sorts by its own day and is recorded against the household's.
    */
   readonly dayStartsAtHour: number;
+  /** Chores that keep asking until done; see `insist.ts`. */
+  readonly insistChoreIds?: ReadonlySet<string>;
 }): readonly PlannedReminder[] {
   const { chores, routines, today, userId, policy, dayStartsAtHour } = input;
   if (!policy.enabled) return [];
 
-  const chorePlan = planReminders({ occurrences: chores, today, userId, policy, dayStartsAtHour });
+  const chorePlan = planReminders({
+    occurrences: chores,
+    today,
+    userId,
+    policy,
+    dayStartsAtHour,
+    ...(input.insistChoreIds === undefined ? {} : { insistChoreIds: input.insistChoreIds }),
+  });
   const routinePlan = planRoutineReminders({ occurrences: routines, today, userId, policy });
 
   const nearestFirst = (a: PlannedReminder, b: PlannedReminder): number =>

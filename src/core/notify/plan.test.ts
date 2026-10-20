@@ -535,3 +535,117 @@ describe('a reminder in the small hours, under a day break', () => {
     expect(at('01:00', 3)?.atTime).toBe('01:00');
   });
 });
+
+describe('a chore that keeps asking', () => {
+  /*
+   * Jake asked for *"a super notification ... sends repeated notifications
+   * until it's done"*. iOS gives third-party apps no way to buzz continuously,
+   * so the asking is a widening ladder of ordinary notifications — and the
+   * stopping is free: `reconcile` cancels everything and re-plans from the
+   * current data, so a ticked chore's remaining steps simply are not planned
+   * again.
+   */
+  const ladder = (ids: string[], over: Partial<ProjectedOccurrence> = {}) =>
+    planReminders({
+      occurrences: [occ({ timesOfDay: ['09:00'] as CivilTime[], ...over })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
+      insistChoreIds: new Set(ids),
+    });
+
+  it('gets a ladder instead of one reminder', () => {
+    const plan = ladder(['dishes']);
+
+    expect(plan.map((r) => r.atTime)).toEqual([
+      '09:00',
+      '09:03',
+      '09:08',
+      '09:16',
+      '09:27',
+      '09:40',
+    ]);
+  });
+
+  it('gets one reminder when it did not ask', () => {
+    // Non-vacuity: the ladder is the setting's doing, not the default.
+    expect(ladder([]).map((r) => r.atTime)).toEqual(['09:00']);
+  });
+
+  it('marks every step insistent, so the transport makes it audible', () => {
+    expect(ladder(['dishes']).every((r) => r.insistent === true)).toBe(true);
+  });
+
+  it('leaves an ordinary reminder quiet', () => {
+    // The whole point of the flag: a chore app that pings all day is a chore
+    // app with notifications switched off.
+    expect(ladder([]).every((r) => r.insistent !== true)).toBe(true);
+  });
+
+  it('gives every step its own identifier', () => {
+    // The transport schedules by id; two steps sharing one are one
+    // notification, and the chore would ask once and go quiet.
+    const ids = ladder(['dishes']).map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('keeps the first step’s id, so a pending reminder is updated not duplicated', () => {
+    expect(ladder(['dishes'])[0]?.id).toBe(ladder([])[0]?.id);
+  });
+
+  it('says the repeats are repeats', () => {
+    const bodies = ladder(['dishes']).map((r) => r.body);
+    expect(bodies[0]).not.toMatch(/still not done/);
+    expect(bodies.slice(1).every((b) => b.includes('still not done'))).toBe(true);
+  });
+
+  it('rations itself, so one morning cannot eat the week', () => {
+    /*
+     * `MAX_PENDING` is sixty and the planner keeps the soonest, so an
+     * unbounded number of ladders in one morning would push the rest of the
+     * week off the end of the queue. The fourth nagging chore of a day falls
+     * back to a single reminder rather than being dropped.
+     */
+    const many = ['a', 'b', 'c', 'd', 'e'].map((id) =>
+      occ({ choreId: id, occurrenceKey: `v1:${id}`, timesOfDay: ['09:00'] as CivilTime[] }),
+    );
+    const plan = planReminders({
+      occurrences: many,
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
+      insistChoreIds: new Set(['a', 'b', 'c', 'd', 'e']),
+    });
+
+    const perChore = new Map<string, number>();
+    for (const r of plan) perChore.set(r.choreId, (perChore.get(r.choreId) ?? 0) + 1);
+    const laddered = [...perChore.values()].filter((n) => n > 1).length;
+
+    expect(laddered).toBe(3);
+    // And the two that missed out still get told once.
+    expect([...perChore.values()].filter((n) => n === 1)).toHaveLength(2);
+  });
+
+  it('still obeys the overall cap', () => {
+    const many = Array.from({ length: 40 }, (_, i) =>
+      occ({
+        choreId: `c${String(i)}`,
+        occurrenceKey: `v1:c${String(i)}`,
+        dueOn: addDays(TODAY, i % 20),
+        timesOfDay: ['09:00'] as CivilTime[],
+      }),
+    );
+    const plan = planReminders({
+      occurrences: many,
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
+      insistChoreIds: new Set(many.map((m) => m.choreId)),
+    });
+
+    expect(plan.length).toBeLessThanOrEqual(MAX_PENDING);
+  });
+});
