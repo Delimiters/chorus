@@ -128,7 +128,20 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
   useEffect(() => {
     if (!enabled) return;
 
-    const fingerprint = plan.map((r) => `${r.id}@${r.onDate}T${r.atTime}`).join('|');
+    /*
+     * `insistent` and `body` are in the fingerprint, not just the time.
+     *
+     * Without them, turning the switch on for a chore whose ladder is entirely
+     * truncated by the cap changes nothing but the surviving step's loudness —
+     * the fingerprints match, `reconcile` is skipped, and the reminder stays
+     * silent until some unrelated change forces a write.
+     */
+    const fingerprint = plan
+      .map(
+        (r) =>
+          `${r.id}@${r.onDate}T${r.atTime}:${r.insistent === true ? 'loud' : 'quiet'}:${r.body}`,
+      )
+      .join('|');
     if (fingerprint === written.current) return;
 
     if (timer.current !== null) clearTimeout(timer.current);

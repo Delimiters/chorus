@@ -48,7 +48,7 @@ export const ROUTINE_SHARE = 20;
  * system's sixty-four, but the headroom exists precisely so nothing has to
  * reason about how close to the edge it is.
  */
-const MERGE_BUDGET = 59;
+export const MERGE_BUDGET = 59;
 
 /** Distinct from occurrence keys, because the transport schedules by id. */
 const ITEM_PREFIX = 'routine:';

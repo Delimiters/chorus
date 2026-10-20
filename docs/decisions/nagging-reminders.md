@@ -62,6 +62,13 @@ silent, banner only. Marking everything Time Sensitive is the notification
 equivalent of writing in capitals, and iOS lets the user switch the whole
 category off in one tap.
 
+**The earliest reminder time only.** A chore may name four times; the ladder
+takes the first. The first version laddered every time, which a review measured
+at twenty-four notifications for one chore — forty per cent of the whole queue —
+and put two audible notifications in the same minute when two times were three
+minutes apart. "Keep reminding me until it's done" is one conversation that
+starts when the chore comes due, not six because the chore names four times.
+
 **Rationed: three nagging chores per firing date.** `MAX_PENDING` is sixty
 against the operating system's sixty-four, and the planner keeps the *soonest*
 sixty. Three ladders is eighteen of the earliest slots; a fourth would start
@@ -70,9 +77,31 @@ Past the ration a chore still gets its single ordinary reminder, so the feature
 degrades rather than failing. The settings copy states the limit instead of
 leaving somebody to discover it.
 
-**Stopping is free.** `reconcile()` cancels every pending notification and
-re-plans from current data on each change, so a ticked chore's remaining steps
-are simply never planned again. No cancellation code, and nothing to leak.
+Counted against the date each step *fires* on, and in whole ladders. Keyed on
+the due date it was wrong twice: under the 3 AM break a 01:00 reminder fires the
+next calendar day, so two rations landed on one wall-clock date — thirty-six
+insistent notifications where the cap says eighteen, measured. And a ladder
+starting at 23:50 spilled its later steps onto the next date without paying for
+them there. A first attempt charged a sixth of a ladder per step so a spilling
+ladder paid proportionally; six sixths is 0.999… in floating point, three ladders
+summed to just under three, and a fourth slipped through — the ration failing
+silently, which is exactly what it exists to prevent.
+
+**Stopping is not free, and the copy says so.** `reconcile()` cancels every
+pending notification and re-plans from current data — but it only runs when this
+app renders, and it cannot run while the phone is asleep in a pocket. A review
+found the honest failure: the bins reminder fires at 07:00, Emily takes them out
+and ticks it on *her* phone at 07:02, and Jake's phone — locked, its queue
+untouched — still nudges him at 07:03, 07:08, 07:16, 07:27 and 07:40 about a job
+finished thirty-eight minutes ago. With sound, through Focus. That is the
+"teaches you to swipe without reading" failure this file is written against, with
+sound attached.
+
+Nothing fixes it properly without a push to the other device. The exposure is
+bounded by the ladder's own length — forty minutes — and the form says plainly
+that ticking it off stops the rest *next time this phone opens the app*. A
+notification action that writes the completion from the lock screen would
+shorten it further and is the obvious next step if this proves annoying.
 
 ## The flag is on the chore
 
@@ -93,12 +122,21 @@ asserts.
   once and go quiet), the first step keeping the original id so a pending
   reminder is updated rather than duplicated, the fourth nagging chore of a day
   falling back to one reminder, and the overall cap still holding.
-- `ChoreForm.test.tsx` — off by default, saved when set, kept when reopened, and
-  the copy saying what it actually does. That last one matters: a feature that
+- `data/notifications.test.ts` — what actually reaches the operating system:
+  `sound` and `timeSensitive` on a nagging reminder, neither on an ordinary one.
+- `ChoreForm.test.tsx` — off by default, saved when set, kept when reopened, not
+  offered on a Someday chore (which can never remind), and the copy saying what
+  it actually does. That last one matters: a feature that
   promises an alarm and delivers a ladder is one people switch off the first
   morning it does less than they expected.
 
-Every guard mutation-verified.
+Every guard mutation-verified — including, after a review, the two that were
+not. The ration test used five occurrences sharing one due date, so it could not
+tell "three per date" from "three per plan": replacing the map with a single
+global counter left all sixty-six tests green. And the transport change — the one
+line that makes any of this audible — had no test at all; stripping both `sound`
+and `interruptionLevel` left 293 tests green. Both are now covered, and both
+mutations fail.
 
 ## What this is not
 

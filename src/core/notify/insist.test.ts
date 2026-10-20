@@ -2,6 +2,7 @@ import { civilDate } from '../civil/date';
 import type { CivilDate, CivilTime } from '../civil/types';
 
 import { MAX_NAGGING_PER_DAY, NAG_OFFSETS, nagBody, nagSteps } from './insist';
+import { MERGE_BUDGET, ROUTINE_SHARE } from './routines';
 
 const d = (s: string): CivilDate => civilDate(s);
 const t = (s: string): CivilTime => s as CivilTime;
@@ -90,10 +91,12 @@ describe('what the repeats say', () => {
 describe('the budget', () => {
   it('leaves room for the rest of the day', () => {
     /*
-     * `MAX_PENDING` is 60 and the planner keeps the soonest. Three nagging
-     * chores is 18 of the earliest slots; a fourth starts pushing real
-     * reminders off the end of the queue.
+     * Derived from the real budget rather than from a hardcoded twenty, which a
+     * review pointed out would have passed with `MAX_PENDING` set to five. The
+     * chore stream gets what is left after routines take their share, and three
+     * ladders have to fit inside that with room to spare.
      */
-    expect(MAX_NAGGING_PER_DAY * NAG_OFFSETS.length).toBeLessThanOrEqual(20);
+    const choreSlots = MERGE_BUDGET - ROUTINE_SHARE;
+    expect(MAX_NAGGING_PER_DAY * NAG_OFFSETS.length).toBeLessThan(choreSlots);
   });
 });

@@ -526,32 +526,37 @@ export function ChoreForm({
           says both halves, because a feature that over-promises is one people
           switch off after the first morning it does less than they expected.
         */}
-        <FieldGroup
-          label="Reminders"
-          hint={
-            nagUntilDone
-              ? 'Reminds again at 3, 8, 16, 27 and 40 minutes, with sound, breaking through Focus — and stops as soon as it is ticked off. Three chores a day can do this; iOS limits how many reminders an app can queue.'
-              : 'One reminder, quietly, at the time the chore asks for.'
-          }
-        >
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: space.md,
-            }}
+        {/* Nothing to remind about on a Someday chore, so nothing to keep
+            reminding about either — the same guard the time control above
+            uses, for the same reason. */}
+        {recurrence.rule.kind === 'unscheduled' ? null : (
+          <FieldGroup
+            label="Reminders"
+            hint={
+              nagUntilDone
+                ? 'Reminds again at 3, 8, 16, 27 and 40 minutes, with sound, breaking through Focus. Ticking it off stops the rest next time this phone opens the app — if it is in your pocket, the remaining nudges still arrive. Three chores a day can do this; iOS limits how many reminders an app may queue.'
+                : 'One reminder, quietly, at the time the chore asks for.'
+            }
           >
-            <Txt variant="small" tone="muted" style={{ flex: 1, minWidth: 0 }}>
-              Keep reminding me until it&apos;s done
-            </Txt>
-            <Switch
-              value={nagUntilDone}
-              onValueChange={setNagUntilDone}
-              accessibilityLabel="Keep reminding me until it's done"
-            />
-          </View>
-        </FieldGroup>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: space.md,
+              }}
+            >
+              <Txt variant="small" tone="muted" style={{ flex: 1, minWidth: 0 }}>
+                Keep reminding me until it&apos;s done
+              </Txt>
+              <Switch
+                value={nagUntilDone}
+                onValueChange={setNagUntilDone}
+                accessibilityLabel="Keep reminding me until it's done"
+              />
+            </View>
+          </FieldGroup>
+        )}
 
         {onPlanTodayChange === undefined ? null : (
           <FieldGroup label="When you save">

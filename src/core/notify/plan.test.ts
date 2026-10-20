@@ -14,6 +14,8 @@ import fc from 'fast-check';
 import { addDays, civilDate, compareCivil } from '../civil/date';
 import type { CivilDate, CivilTime } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
+
+import { MAX_NAGGING_PER_DAY } from './insist';
 import {
   DEFAULT_POLICY,
   MAX_PENDING,
@@ -600,32 +602,155 @@ describe('a chore that keeps asking', () => {
     expect(bodies.slice(1).every((b) => b.includes('still not done'))).toBe(true);
   });
 
-  it('rations itself, so one morning cannot eat the week', () => {
+  it('rations itself per day, not per plan', () => {
     /*
-     * `MAX_PENDING` is sixty and the planner keeps the soonest, so an
-     * unbounded number of ladders in one morning would push the rest of the
-     * week off the end of the queue. The fourth nagging chore of a day falls
-     * back to a single reminder rather than being dropped.
+     * Every occurrence here used to share one `dueOn`, so the test could not
+     * tell "three per date" from "three per plan" — a review replaced the map
+     * with a single global counter and all 66 tests stayed green. Under that
+     * mutation only the first three nagging chores in the whole five-week
+     * horizon would ladder and every one after would silently degrade.
+     *
+     * Two dates, three ladders expected on each.
      */
-    const many = ['a', 'b', 'c', 'd', 'e'].map((id) =>
-      occ({ choreId: id, occurrenceKey: `v1:${id}`, timesOfDay: ['09:00'] as CivilTime[] }),
+    const chores = ['a', 'b', 'c', 'd'].flatMap((id) =>
+      [0, 1].map((day) =>
+        occ({
+          choreId: `${id}${String(day)}`,
+          occurrenceKey: `v1:${id}${String(day)}`,
+          dueOn: addDays(TODAY, day),
+          timesOfDay: ['09:00'] as CivilTime[],
+        }),
+      ),
     );
     const plan = planReminders({
-      occurrences: many,
+      occurrences: chores,
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
       dayStartsAtHour: 0,
-      insistChoreIds: new Set(['a', 'b', 'c', 'd', 'e']),
+      insistChoreIds: new Set(chores.map((c) => c.choreId)),
     });
 
-    const perChore = new Map<string, number>();
-    for (const r of plan) perChore.set(r.choreId, (perChore.get(r.choreId) ?? 0) + 1);
-    const laddered = [...perChore.values()].filter((n) => n > 1).length;
+    const laddersOn = (date: string) =>
+      new Set(plan.filter((r) => r.onDate === date && r.insistent === true).map((r) => r.choreId))
+        .size;
 
-    expect(laddered).toBe(3);
-    // And the two that missed out still get told once.
-    expect([...perChore.values()].filter((n) => n === 1)).toHaveLength(2);
+    expect(laddersOn(TODAY)).toBe(3);
+    expect(laddersOn(addDays(TODAY, 1))).toBe(3);
+    // And the fourth of each day still gets told once.
+    expect(plan.filter((r) => r.insistent !== true)).toHaveLength(2);
+  });
+
+  it('ladders the earliest time only, however many the chore names', () => {
+    /*
+     * A review measured the first version: one nagging chore with four reminder
+     * times produced twenty-four notifications — forty per cent of the queue
+     * for one job — because the ration was spent per chore and the ladder
+     * emitted per time.
+     */
+    const plan = planReminders({
+      occurrences: [occ({ timesOfDay: ['09:00', '12:00', '17:00', '20:00'] as CivilTime[] })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
+      insistChoreIds: new Set(['dishes']),
+    });
+
+    // Six for the ladder, plus one each for the other three times.
+    expect(plan).toHaveLength(9);
+    expect(plan.filter((r) => r.insistent === true)).toHaveLength(6);
+    expect(plan.filter((r) => r.insistent === true).every((r) => r.atTime >= '09:00')).toBe(true);
+  });
+
+  it('never buzzes twice in the same minute for one chore', () => {
+    /*
+     * Two reminder times three minutes apart used to put two audible
+     * notifications at 09:03 — the same chore, twice, which reads as a bug.
+     */
+    const plan = planReminders({
+      occurrences: [occ({ timesOfDay: ['09:00', '09:03'] as CivilTime[] })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
+      insistChoreIds: new Set(['dishes']),
+    });
+
+    const stamps = plan.map((r) => `${r.onDate}T${r.atTime}`);
+    expect(new Set(stamps).size).toBe(stamps.length);
+  });
+
+  it('counts the ration against the date a reminder fires, not the date it is due', () => {
+    /*
+     * Under this household's 3 AM break a 01:00 reminder fires the *next*
+     * calendar day. Keyed on `dueOn`, three chores due Monday at 01:00 and
+     * three due Tuesday at 09:00 put two separate rations onto one wall-clock
+     * date — a review measured thirty-six insistent notifications where the cap
+     * says eighteen. The operating system's queue is indexed by firing instant,
+     * so that is what the ration has to count.
+     */
+    const late = [0, 1, 2].map((i) =>
+      occ({
+        choreId: `a${String(i)}`,
+        occurrenceKey: `v1:a${String(i)}`,
+        timesOfDay: ['01:00'] as CivilTime[],
+      }),
+    );
+    const next = [0, 1, 2].map((i) =>
+      occ({
+        choreId: `b${String(i)}`,
+        occurrenceKey: `v1:b${String(i)}`,
+        dueOn: addDays(TODAY, 1),
+        timesOfDay: ['09:00'] as CivilTime[],
+      }),
+    );
+    const plan = planReminders({
+      occurrences: [...late, ...next],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 3,
+      insistChoreIds: new Set([...late, ...next].map((c) => c.choreId)),
+    });
+
+    const onNextDay = plan.filter(
+      (r) => r.onDate === addDays(TODAY, 1) && r.insistent === true,
+    ).length;
+    expect(onNextDay).toBeLessThanOrEqual(MAX_NAGGING_PER_DAY * 6);
+  });
+
+  it('charges a ladder that runs past midnight to both days', () => {
+    // Otherwise three nags at 23:50 plus three the next morning put twenty-seven
+    // on one date against a nominal eighteen.
+    const nightly = [0, 1, 2].map((i) =>
+      occ({
+        choreId: `n${String(i)}`,
+        occurrenceKey: `v1:n${String(i)}`,
+        timesOfDay: ['23:50'] as CivilTime[],
+      }),
+    );
+    const morning = [0, 1, 2].map((i) =>
+      occ({
+        choreId: `m${String(i)}`,
+        occurrenceKey: `v1:m${String(i)}`,
+        dueOn: addDays(TODAY, 1),
+        timesOfDay: ['00:10'] as CivilTime[],
+      }),
+    );
+    const plan = planReminders({
+      occurrences: [...nightly, ...morning],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
+      insistChoreIds: new Set([...nightly, ...morning].map((c) => c.choreId)),
+    });
+
+    const laddersOn = (date: string) =>
+      new Set(plan.filter((r) => r.onDate === date && r.insistent === true).map((r) => r.choreId))
+        .size;
+    expect(laddersOn(addDays(TODAY, 1))).toBeLessThanOrEqual(MAX_NAGGING_PER_DAY);
   });
 
   it('still obeys the overall cap', () => {

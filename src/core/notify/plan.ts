@@ -247,9 +247,67 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
      * chores of a day win the ration rather than whichever was created first.
      */
     const nagging = insist.has(occ.choreId);
-    const budget = nagging ? (naggedOn.get(occ.dueOn) ?? 0) : 0;
-    const laddered = nagging && budget < MAX_NAGGING_PER_DAY;
-    if (laddered) naggedOn.set(occ.dueOn, budget + 1);
+    /*
+     * **The earliest time only**, however many the chore asks for.
+     *
+     * A review measured the first version: one nagging chore with four reminder
+     * times produced twenty-four notifications — forty per cent of the whole
+     * queue for one job — because the ration was spent per *chore* and the
+     * ladder emitted per *time*. Two times three minutes apart also stacked
+     * two audible notifications in the same minute, which reads as a bug.
+     *
+     * Laddering the earliest is also the honest reading of the request. "Keep
+     * reminding me until it's done" is one conversation that starts when the
+     * chore first comes due; it is not six conversations because the chore
+     * happens to name four times.
+     */
+    const ladderAt = nagging ? times[0] : undefined;
+    /*
+     * Charged against the date each step *fires* on.
+     *
+     * Keyed on `occ.dueOn`, the ration was wrong twice over. Under this
+     * household's 3 AM break a 01:00 reminder fires the *next* calendar day, so
+     * three chores due Monday at 01:00 and three due Tuesday at 09:00 put two
+     * separate rations of three onto one wall-clock date — thirty-six insistent
+     * notifications where the cap says eighteen, which a review measured. And a
+     * ladder starting at 23:50 spills its later steps onto the following date
+     * without being charged for them there.
+     *
+     * The operating system's queue is indexed by firing instant, so that is
+     * what the ration has to count.
+     */
+    const ladderStart =
+      ladderAt === undefined ? undefined : wallDateFor(occ.dueOn, ladderAt, dayStartsAtHour);
+    const ladder =
+      ladderAt === undefined || ladderStart === undefined ? [] : nagSteps(ladderStart, ladderAt);
+    /*
+     * One whole ladder per date it touches, counted in whole numbers.
+     *
+     * A first version charged a sixth of a ladder per step so that a spilling
+     * one paid proportionally into both dates. Six sixths is 0.999… in floating
+     * point, so three ladders summed to just under three and a fourth slipped
+     * through — the ration failing silently, which is precisely the failure it
+     * exists to prevent. A ladder that crosses midnight is now charged in full
+     * to both days: over-counting by a few slots is the safe direction, and it
+     * is a whole number.
+     */
+    const touched = [...new Set(ladder.map((step) => step.onDate))];
+    /*
+     * Where the ladder already buzzes, so another of this chore's own times
+     * does not land on top of it.
+     *
+     * A chore with times 09:00 and 09:03 put the ladder's second step and the
+     * 09:03 reminder in the same minute — the same chore twice, one saying
+     * "due today" and one saying "still not done". Keeping the ladder's step
+     * and dropping the duplicate is the honest reading of "keep reminding me":
+     * one conversation, not two overlapping ones.
+     */
+    const ladderStamps = new Set(ladder.map((step) => `${step.onDate}T${step.atTime}`));
+    const laddered =
+      ladder.length > 0 && touched.every((date) => (naggedOn.get(date) ?? 0) < MAX_NAGGING_PER_DAY);
+    if (laddered) {
+      for (const date of touched) naggedOn.set(date, (naggedOn.get(date) ?? 0) + 1);
+    }
 
     for (const atTime of times) {
       const base = {
@@ -257,8 +315,8 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
         title: occ.choreTitle,
         body: bodyFor(occ),
       };
-      if (laddered) {
-        for (const step of nagSteps(wallDateFor(occ.dueOn, atTime, dayStartsAtHour), atTime)) {
+      if (laddered && atTime === ladderAt) {
+        for (const step of ladder) {
           planned.push({
             ...base,
             // Every step needs its own identifier: the transport schedules by
@@ -277,6 +335,9 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
         }
         continue;
       }
+      const onDate = wallDateFor(occ.dueOn, atTime, dayStartsAtHour);
+      if (laddered && ladderStamps.has(`${onDate}T${atTime}`)) continue;
+
       planned.push({
         id: times.length === 1 ? occ.occurrenceKey : `${occ.occurrenceKey}@${atTime}`,
         choreId: occ.choreId,

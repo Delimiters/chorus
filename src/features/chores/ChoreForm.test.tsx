@@ -1207,6 +1207,18 @@ describe('a long step', () => {
 });
 
 describe('keeping on at you until it is done', () => {
+  it('is not offered on a Someday chore, which can never remind', async () => {
+    /*
+     * A Someday chore produces no occurrences, so the switch would promise
+     * sound at 3, 8, 16, 27 and 40 minutes and never fire once — the same
+     * reason the time control above it is hidden.
+     */
+    await renderForm();
+    await fireEvent.press(screen.getByRole('tab', { name: 'No date' }));
+
+    expect(screen.queryByLabelText("Keep reminding me until it's done")).toBeNull();
+  });
+
   /*
    * Jake: *"Can we make some kind of feature for a super notification? ... sends
    * repeated notifications until it's done?"*
@@ -1247,8 +1259,14 @@ describe('keeping on at you until it is done', () => {
       true,
     );
 
-    expect(screen.getByText(/stops as soon as it is ticked off/)).toBeOnTheScreen();
     expect(screen.getByText(/breaking through Focus/)).toBeOnTheScreen();
+    /*
+     * And it does not claim the nagging stops the moment the chore is ticked.
+     * It cannot: pending notifications can only be cancelled by this app
+     * running, so a chore your housemate ticks while your phone is in your
+     * pocket keeps nudging you. A review caught the copy promising otherwise.
+     */
+    expect(screen.getByText(/still arrive/)).toBeOnTheScreen();
     // And it admits the ration rather than letting somebody discover it.
     expect(screen.getByText(/Three chores a day/)).toBeOnTheScreen();
   });
