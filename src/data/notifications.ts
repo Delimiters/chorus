@@ -84,22 +84,35 @@ export const localTransport: NotificationTransport = {
           body: reminder.body,
           data: { choreId: reminder.choreId },
           /*
-           * A nagging chore's reminders make a noise and break through Focus.
+           * A nagging chore's reminders make a noise. Ordinary ones stay as
+           * they were — silent, banner only — which is deliberate: a chore app
+           * that pings all day is a chore app with notifications switched off.
            *
-           * Ordinary reminders stay as they were — silent, banner only — which
-           * is deliberate: a chore app that pings all day is a chore app with
-           * notifications switched off. `timeSensitive` is the strongest level
-           * available without Apple's approval; `critical`, which also
-           * overrides the silent switch, needs an entitlement granted for
-           * medical and safety apps and would not be given to this one.
+           * ── Why no `interruptionLevel: 'timeSensitive'` yet ──────────────
            *
-           * Neither level is an alarm. iOS plays one sound per notification and
-           * has no "keep buzzing" API for third-party apps — the asking is done
-           * by the ladder, not by any one of these.
+           * It would let these break through a Focus mode, and it is the right
+           * thing here. It needs the
+           * `com.apple.developer.usernotifications.time-sensitive` entitlement,
+           * which needs a provisioning profile that carries the capability —
+           * and minting one needs an Apple ID signed into Xcode. There is none
+           * on this machine right now ("No Accounts"), and Xcode's cached team
+           * record still says Personal Team, so build 63 failed outright:
+           * *"Provisioning profile ... doesn't support the Time Sensitive
+           * Notifications capability"*.
+           *
+           * Requesting the level without the entitlement is very probably
+           * harmless — iOS is documented to deliver at `active` instead — but
+           * "very probably" is not good enough for the line that decides
+           * whether every reminder in the app arrives. So the sound ships now
+           * and the level waits for the profile. Re-adding it is this spread
+           * plus the entitlement in `app.json`; see
+           * `docs/decisions/nagging-reminders.md`.
+           *
+           * Neither level is an alarm regardless. iOS plays one sound per
+           * notification and has no "keep buzzing" API for third-party apps —
+           * the asking is done by the ladder, not by any one of these.
            */
-          ...(reminder.insistent === true
-            ? { sound: 'default' as const, interruptionLevel: 'timeSensitive' as const }
-            : {}),
+          ...(reminder.insistent === true ? { sound: 'default' as const } : {}),
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,

@@ -51,11 +51,42 @@ just been asked, further apart once it is clear you are busy, and finished at
 forty — a nag still going an hour later has stopped being a reminder and become
 the reason somebody turns the app off.
 
-**Time Sensitive, not critical.** `timeSensitive` breaks through Focus modes and
-is the strongest level available without Apple's approval. `critical` also
-overrides the silent switch, and is granted to medical, safety and home-security
-apps; a chore app would not get it and should not ask. The entitlement
-`com.apple.developer.usernotifications.time-sensitive` is declared in `app.json`.
+**Audible now; Focus-breaking when the profile can carry it.** The ladder makes
+a sound. It does *not* yet ask for `interruptionLevel: 'timeSensitive'`, which
+would break through a Focus mode and is the right level here — `critical`, which
+also overrides the silent switch, is granted to medical and safety apps and a
+chore app should not ask.
+
+Build 63 is why. Adding
+`com.apple.developer.usernotifications.time-sensitive` to `app.json` reached the
+generated entitlements file correctly, and then the build failed:
+
+```
+error: No Accounts: Add a new account in Accounts settings.
+error: Provisioning profile "iOS Team Provisioning Profile: com.delimiters.chorus"
+       doesn't support the Time Sensitive Notifications capability.
+```
+
+Builds 49–62 signed fine because the cached profile was already valid; adding a
+capability forces a new one, and minting it needs an Apple ID signed into Xcode.
+There is none on this machine, and Xcode's cached team record still reads
+`isFreeProvisioningTeam = 1` / "Personal Team" despite the membership being paid
+since September — so automatic provisioning cannot qualify the capability.
+
+Requesting the level without the entitlement is very probably harmless; iOS is
+documented to deliver at `active` instead of dropping the notification. But "very
+probably" is not good enough for the one line that decides whether *every*
+reminder in the app arrives, so the sound ships and the level waits. A test
+asserts the level is absent, so putting it back is a deliberate act with a
+failing test to prompt it rather than something that quietly breaks the build
+again.
+
+**To finish it:** sign an Apple ID into Xcode (Settings → Accounts), which lets
+`-allowProvisioningUpdates` mint a profile with the capability — and note that
+doing so has previously minted a second development certificate that the old
+profile lacked, which breaks local signing until the Apple ID password is
+re-entered. Two certificates are already on this machine from the last time.
+Then re-add the entitlement and the spread in `notifications.ts`.
 
 **Audible only when asked.** Ordinary reminders stay exactly as they were —
 silent, banner only. Marking everything Time Sensitive is the notification
