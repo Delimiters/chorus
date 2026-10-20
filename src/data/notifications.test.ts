@@ -8,7 +8,9 @@
  * reminder by up to a day, in one direction for half the world.
  */
 
-import { fireAt } from './notifications';
+import * as Notifications from 'expo-notifications';
+
+import { fireAt, localTransport } from './notifications';
 
 describe('fireAt', () => {
   it('builds the instant in the device’s own zone', () => {
@@ -47,5 +49,73 @@ describe('fireAt', () => {
     const when = fireAt('2026-07-30', '09:00');
     expect(when.getSeconds()).toBe(0);
     expect(when.getMilliseconds()).toBe(0);
+  });
+});
+
+describe('what reaches the operating system', () => {
+  /*
+   * The line that makes a nagging chore audible had no test at all: a review
+   * stripped both `sound` and `interruptionLevel` from the content and all 293
+   * tests in `src/data` and `src/core/notify` stayed green. Every other test in
+   * that change stopped at `insistent: true` on the planner's output, which is
+   * the half that was already covered.
+   */
+  const scheduled: { id: string; content: Record<string, unknown> }[] = [];
+
+  beforeEach(() => {
+    scheduled.length = 0;
+    jest.spyOn(Notifications, 'cancelAllScheduledNotificationsAsync').mockResolvedValue();
+    jest.spyOn(Notifications, 'scheduleNotificationAsync').mockImplementation(async (request) => {
+      const r = request as unknown as { identifier: string; content: Record<string, unknown> };
+      scheduled.push({ id: r.identifier, content: r.content });
+      return r.identifier;
+    });
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  const reminder = (over: Record<string, unknown> = {}) => ({
+    id: 'r1',
+    choreId: 'dishes',
+    title: 'Dishes',
+    body: 'due today',
+    // Far enough ahead that the "already past" guard does not drop it.
+    onDate: '2099-01-01',
+    atTime: '09:00',
+    ...over,
+  });
+
+  it('asks for sound and Time Sensitive on a nagging reminder', async () => {
+    await localTransport.reconcile([reminder({ insistent: true })] as never);
+
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]?.content.sound).toBe('default');
+    expect(scheduled[0]?.content.interruptionLevel).toBe('timeSensitive');
+  });
+
+  it('leaves an ordinary reminder silent and ordinary', async () => {
+    /*
+     * The other half, and the one that matters more: a chore app that pings all
+     * day is a chore app with notifications switched off. `critical` is absent
+     * too — it overrides the silent switch and needs Apple's approval, granted
+     * to medical and safety apps.
+     */
+    await localTransport.reconcile([reminder()] as never);
+
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]?.content.sound).toBeUndefined();
+    expect(scheduled[0]?.content.interruptionLevel).toBeUndefined();
+  });
+
+  it('carries the chore id either way, so a tap can open the right thing', async () => {
+    await localTransport.reconcile([
+      reminder({ id: 'a' }),
+      reminder({ id: 'b', insistent: true }),
+    ] as never);
+
+    expect(scheduled.map((s) => (s.content.data as { choreId: string }).choreId)).toEqual([
+      'dishes',
+      'dishes',
+    ]);
   });
 });

@@ -83,6 +83,23 @@ export const localTransport: NotificationTransport = {
           title: reminder.title,
           body: reminder.body,
           data: { choreId: reminder.choreId },
+          /*
+           * A nagging chore's reminders make a noise and break through Focus.
+           *
+           * Ordinary reminders stay as they were — silent, banner only — which
+           * is deliberate: a chore app that pings all day is a chore app with
+           * notifications switched off. `timeSensitive` is the strongest level
+           * available without Apple's approval; `critical`, which also
+           * overrides the silent switch, needs an entitlement granted for
+           * medical and safety apps and would not be given to this one.
+           *
+           * Neither level is an alarm. iOS plays one sound per notification and
+           * has no "keep buzzing" API for third-party apps — the asking is done
+           * by the ladder, not by any one of these.
+           */
+          ...(reminder.insistent === true
+            ? { sound: 'default' as const, interruptionLevel: 'timeSensitive' as const }
+            : {}),
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,

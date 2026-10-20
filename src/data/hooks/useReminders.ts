@@ -60,7 +60,20 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
   // `items`, not `agenda`: the collapse rule hides superseded misses, which is
   // right for a screen and wrong here — every future occurrence is a real thing
   // to be reminded about.
-  const { items } = useOccurrences(window);
+  const { items, chores } = useOccurrences(window);
+
+  /*
+   * Which chores asked to keep asking.
+   *
+   * From the same query the window already pulled, so this costs no fetch.
+   * Passed as a set of ids rather than carried on each occurrence: the setting
+   * belongs to the chore, and the projector has no reason to know about
+   * notifications.
+   */
+  const insistChoreIds = useMemo(
+    () => new Set(chores.filter((chore) => chore.nagUntilDone).map((chore) => chore.id)),
+    [chores],
+  );
 
   /**
    * The same query the Routines screen uses, so this costs no extra fetch.
@@ -86,8 +99,16 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
      * entirely. The keep-alive is appended inside, from the merged list, so it
      * lands after whatever actually fires last.
      */
-    return planAllReminders({ chores: items, routines, today, userId, policy, dayStartsAtHour });
-  }, [enabled, items, routines, today, userId, policy, dayStartsAtHour]);
+    return planAllReminders({
+      chores: items,
+      routines,
+      today,
+      userId,
+      policy,
+      dayStartsAtHour,
+      insistChoreIds,
+    });
+  }, [enabled, items, routines, today, userId, policy, dayStartsAtHour, insistChoreIds]);
 
   /** The last plan actually written to the OS, so an identical one is skipped. */
   const written = useRef<string>('');
@@ -107,7 +128,20 @@ export function useReminderSync({ policy, enabled = notificationsAvailable }: Op
   useEffect(() => {
     if (!enabled) return;
 
-    const fingerprint = plan.map((r) => `${r.id}@${r.onDate}T${r.atTime}`).join('|');
+    /*
+     * `insistent` and `body` are in the fingerprint, not just the time.
+     *
+     * Without them, turning the switch on for a chore whose ladder is entirely
+     * truncated by the cap changes nothing but the surviving step's loudness —
+     * the fingerprints match, `reconcile` is skipped, and the reminder stays
+     * silent until some unrelated change forces a write.
+     */
+    const fingerprint = plan
+      .map(
+        (r) =>
+          `${r.id}@${r.onDate}T${r.atTime}:${r.insistent === true ? 'loud' : 'quiet'}:${r.body}`,
+      )
+      .join('|');
     if (fingerprint === written.current) return;
 
     if (timer.current !== null) clearTimeout(timer.current);

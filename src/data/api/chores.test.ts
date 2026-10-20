@@ -31,6 +31,7 @@ const ANYONE: Assignment = { kind: 'anyone' };
 const draft = (over: Partial<ChoreDraft> = {}): ChoreDraft => ({
   title: 'Dishes',
   privateTo: null,
+  nagUntilDone: false,
   notes: null,
   schedule: DAILY,
   assignment: ANYONE,
@@ -48,6 +49,7 @@ describe('building the row', () => {
       'assignment',
       'category_id',
       'icon',
+      'nag_until_done',
       'notes',
       'priority',
       'private_to',

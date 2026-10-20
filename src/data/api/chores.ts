@@ -39,6 +39,8 @@ export interface Chore extends ChoreInput {
    */
   readonly categoryId: string | null;
   readonly priority: Priority;
+  /** Keep reminding until it is ticked. See `core/notify/insist.ts`. */
+  readonly nagUntilDone: boolean;
   /** A glyph name from the allowlist, or null. See src/design/icons.ts. */
   readonly icon: string | null;
   /**
@@ -77,6 +79,7 @@ function toChore(row: {
   archived_at: string | null;
   category_id: string | null;
   priority: unknown;
+  nag_until_done: boolean;
   icon: string | null;
   private_to?: string | null;
   created_at?: string | null;
@@ -101,6 +104,7 @@ function toChore(row: {
       archivedAt: row.archived_at,
       categoryId: row.category_id,
       priority: toPriority(row.priority),
+      nagUntilDone: row.nag_until_done,
       icon: row.icon,
       privateTo: row.private_to ?? null,
       createdAt: row.created_at ?? null,
@@ -122,7 +126,7 @@ export async function listChores(
   let query = supabase
     .from('chores')
     .select(
-      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, private_to, created_at, created_by',
+      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, private_to, nag_until_done, created_at, created_by',
     )
     .eq('household_id', householdId)
     .order('title');
@@ -274,7 +278,7 @@ export async function listOneTimeChores(householdId: string): Promise<ChoreListR
   const { data, error } = await supabase
     .from('chores')
     .select(
-      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, private_to, created_at, created_by',
+      'id, title, notes, schedule, assignment, archived_at, category_id, priority, icon, private_to, nag_until_done, created_at, created_by',
     )
     .eq('household_id', householdId)
     .eq('schedule_kind', 'once')
@@ -339,6 +343,8 @@ export interface ChoreDraft {
   readonly icon: string | null;
   /** Your own id to keep it to yourself, or null to share it. */
   readonly privateTo: string | null;
+  /** Keep reminding until it is ticked. See `core/notify/insist.ts`. */
+  readonly nagUntilDone: boolean;
   /**
    * The steps, in order.
    *
@@ -378,6 +384,7 @@ export function choreRow(draft: ChoreDraft): {
   category_id: string | null;
   priority: Priority;
   icon: string | null;
+  nag_until_done: boolean;
 } {
   const title = draft.title.trim();
   if (title.length === 0) throw new Error('A chore needs a name.');
@@ -409,6 +416,7 @@ export function choreRow(draft: ChoreDraft): {
     // invalid value would be a 23514 at the database rather than a clear
     // message here, and this is the one function both writers share.
     priority: toPriority(draft.priority),
+    nag_until_done: draft.nagUntilDone,
   };
 }
 

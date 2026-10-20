@@ -10,7 +10,10 @@
     "ios": {
       "bundleIdentifier": "com.delimiters.chorus",
       "buildNumber": "49",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
+      }
     },
     "android": {
       "adaptiveIcon": {

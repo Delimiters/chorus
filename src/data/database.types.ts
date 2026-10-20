@@ -392,6 +392,7 @@ export type Database = {
           household_id: string
           icon: string | null
           id: string
+          nag_until_done: boolean
           notes: string | null
           priority: string
           private_to: string | null
@@ -412,6 +413,7 @@ export type Database = {
           household_id: string
           icon?: string | null
           id?: string
+          nag_until_done?: boolean
           notes?: string | null
           priority?: string
           private_to?: string | null
@@ -432,6 +434,7 @@ export type Database = {
           household_id?: string
           icon?: string | null
           id?: string
+          nag_until_done?: boolean
           notes?: string | null
           priority?: string
           private_to?: string | null
