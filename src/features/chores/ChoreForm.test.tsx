@@ -1259,7 +1259,7 @@ describe('keeping on at you until it is done', () => {
       true,
     );
 
-    expect(screen.getByText(/breaking through Focus/)).toBeOnTheScreen();
+    expect(screen.getByText(/with sound/)).toBeOnTheScreen();
     /*
      * And it does not claim the nagging stops the moment the chore is ticked.
      * It cannot: pending notifications can only be cancelled by this app
