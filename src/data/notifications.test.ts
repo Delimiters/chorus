@@ -85,25 +85,12 @@ describe('what reaches the operating system', () => {
     ...over,
   });
 
-  it('asks for sound on a nagging reminder', async () => {
+  it('asks for sound and Time Sensitive on a nagging reminder', async () => {
     await localTransport.reconcile([reminder({ insistent: true })] as never);
 
     expect(scheduled).toHaveLength(1);
     expect(scheduled[0]?.content.sound).toBe('default');
-  });
-
-  it('does not ask to break through Focus until the profile can carry it', async () => {
-    /*
-     * `interruptionLevel: 'timeSensitive'` needs an entitlement, which needs a
-     * provisioning profile carrying the capability, which needs an Apple ID
-     * signed into Xcode — there is none on this machine, and build 63 failed
-     * outright on exactly that. Asserted rather than left implicit so that
-     * re-adding it is a deliberate act with a failing test to prompt it, not
-     * something that silently reappears and breaks the build again.
-     */
-    await localTransport.reconcile([reminder({ insistent: true })] as never);
-
-    expect(scheduled[0]?.content.interruptionLevel).toBeUndefined();
+    expect(scheduled[0]?.content.interruptionLevel).toBe('timeSensitive');
   });
 
   it('leaves an ordinary reminder silent and ordinary', async () => {
@@ -120,15 +107,22 @@ describe('what reaches the operating system', () => {
     expect(scheduled[0]?.content.interruptionLevel).toBeUndefined();
   });
 
-  it('carries the chore id either way, so a tap can open the right thing', async () => {
+  it('carries each reminder its own chore id, so a tap opens the right thing', async () => {
+    /*
+     * The two chore ids differ on purpose. The first version of this test gave
+     * both reminders `dishes`, which made it pass against
+     * `choreId: plan[0].choreId` — it proved a chore id was carried, not that
+     * each reminder carried its own. One shared fixture value is the whole
+     * mechanism behind the vacuous tests listed in WHERE-THINGS-STAND.md.
+     */
     await localTransport.reconcile([
-      reminder({ id: 'a' }),
-      reminder({ id: 'b', insistent: true }),
+      reminder({ id: 'a', choreId: 'dishes' }),
+      reminder({ id: 'b', choreId: 'litter', insistent: true }),
     ] as never);
 
     expect(scheduled.map((s) => (s.content.data as { choreId: string }).choreId)).toEqual([
       'dishes',
-      'dishes',
+      'litter',
     ]);
   });
 });

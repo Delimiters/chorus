@@ -114,31 +114,60 @@ no Metro, no Expo Go, no laptop, because a Release build embeds
 `main.jsbundle`.
 
 ```bash
-npx expo prebuild --platform ios --clean
-cd ios && xcodebuild -workspace Chorus.xcworkspace -scheme Chorus \
-  -configuration Release -destination 'id=<hardware-udid>' \
+npx expo prebuild --platform ios --clean --no-install
+cd ios && pod install
+xcodebuild -workspace Chorus.xcworkspace -scheme Chorus \
+  -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath /tmp/ddev DEVELOPMENT_TEAM=SY59JGZ44Y \
-  CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build
+  CODE_SIGN_STYLE=Manual \
+  PROVISIONING_PROFILE_SPECIFIER="Chorus Dev" build
 
 xcrun devicectl device install app --device <coredevice-uuid> \
   /tmp/ddev/Build/Products/Release-iphoneos/Chorus.app
 ```
 
-Note the two different identifiers: `xcodebuild -destination` wants the
-**hardware UDID** (`00008110-…`), `devicectl` wants the **coredevice UUID**
-(`509DA714-…`). `xcrun devicectl list devices` prints the second; the first
-appears in xcodebuild's "Available destinations" list when you get it wrong.
+**Signing is manual as of build 64, and that is deliberate.** Automatic signing
+needs an Apple ID in Xcode to mint profiles, and signing one in has twice minted
+a second development certificate that the existing profile did not carry,
+breaking local signing until the Apple ID password was re-entered. Apple allows
+two certificates per account and both slots are used, so a third would mean
+revoking one. `docs/decisions/nagging-reminders.md` has the four portal steps
+that produce `Chorus Dev` and `Chorus Widget Dev` by hand; they expire
+**2027-10-22**.
+
+**`generic/platform=iOS` rather than a device id.** Building against a device id
+waits for the Developer Disk Image to mount, which needs the phone *unlocked* —
+a locked phone fails the build after a ten-minute timeout. The generic
+destination builds regardless; only `devicectl install` needs the phone awake,
+and that is the step worth retrying in a loop:
+`kAMDMobileImageMounterDeviceLocked` means exactly what it says. Device
+registration is no longer a concern — both phones are in the hand-made
+profiles.
+
+Only the install takes an identifier now, and it wants the **coredevice UUID**
+(`509DA714-…`), which `xcrun devicectl list devices` prints. The **hardware
+UDID** (`00008110-…`) was what `-destination` wanted back when the build
+targeted a device; it still appears in xcodebuild's "Available destinations"
+list if you ever go back to that and get it wrong.
 
 Four walls, in the order they appear. Each looks like a dead end and none is:
 
 1. **`Personal development teams do not support the Push Notifications
    capability.`** expo-notifications adds `aps-environment` during prebuild
    whether or not remote push is used. Apple will not issue a free-team
-   profile carrying it. `plugins/without-push-entitlement.js` strips it;
-   local notifications never touch APNs, so nothing in v1 is lost.
+   profile carrying it. `plugins/without-push-entitlement.js` stripped it,
+   and local notifications never touch APNs, so nothing in v1 was lost.
+   **Both halves are history**: the plugin was deleted in #129 once the paid
+   team made `aps-environment` grantable, and the hand-made `Chorus Dev`
+   profile carries it.
 2. **`Your team has no devices from which to generate a provisioning
-   profile.`** Building `generic/platform=iOS` never registers the device.
-   Build against the device's real UDID instead.
+   profile.`** ~~Building `generic/platform=iOS` never registers the device.
+   Build against the device's real UDID instead.~~ **Obsolete, and do not do
+   this.** It applied to automatic signing, which had to register a device to
+   mint a profile. Both phones are named in the hand-made profiles now, so
+   nothing needs registering — and a device destination waits on the Developer
+   Disk Image, which fails the whole build after a ten-minute timeout if the
+   phone is locked. Keep `generic/platform=iOS`.
 3. **`Device is busy (Waiting to reconnect)`** — misleading. The real state
    is `developerModeStatus: disabled`, from
    `xcrun devicectl device info details`. Developer Mode must be enabled on
@@ -156,8 +185,10 @@ builds need no debug disk image.
 
 **~~The install expires after 7 days.~~** True of the free team, and the one
 real cost of not paying. Jake enrolled on 2026-09-23 and it activated on the
-24th; the profile now runs to **2027-09-25**, so a build survives about a year
-and the weekly re-flash is gone.
+24th, which took the Xcode-managed profile out to 2027-09-25 — so a build
+survives about a year and the weekly re-flash is gone. **Those Xcode-managed
+profiles are dead**, invalidated by the capability change in build 64. The date
+that matters is the hand-made pair's: **2027-10-22**.
 
 The enrolment kept the **same team id**, `SY59JGZ44Y`, so nothing in the build
 command changed. What changed is that the team is no longer a "Personal Team",

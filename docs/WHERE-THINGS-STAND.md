@@ -166,20 +166,45 @@ go red, then commit.** A test written after the fix, against the fixture that
 exposed the bug, is the one most likely to be vacuous — because the fixture was
 chosen to be minimal, and minimal fixtures make assertions true by accident.
 
-### Build 63 and the Time Sensitive entitlement
+### Signing: what builds 63 and 64 cost, and the rule that came out of it
 
-The nag ladder ships audible but does *not* break through Focus. Adding
-`com.apple.developer.usernotifications.time-sensitive` worked at the
-`app.json` → entitlements-file level and then failed at signing: builds 49–62
-reused a cached profile, and adding a capability forces a new one, which needs
-an Apple ID signed into Xcode. There is none here, and Xcode's cached team
+The nag ladder **does** break through Focus, from build 64 on. Getting there
+took a day, and the lesson is one sentence: **changing an App ID's capabilities
+invalidates every provisioning profile that includes it, and this machine cannot
+mint a replacement.**
+
+Build 63 failed. `com.apple.developer.usernotifications.time-sensitive` reached
+the generated entitlements file correctly and then signing refused it, because
+builds 49–62 had been riding a cached Xcode-managed profile. Minting a new one
+needs an Apple ID signed into Xcode; there is none, and Xcode's cached team
 record still says `isFreeProvisioningTeam = 1` / "Personal Team" despite the
 membership being paid since September.
 
-`docs/decisions/nagging-reminders.md` has the exact text of both errors and
-what to click. Two warnings live there and are repeated here because both have
-cost a day before: signing into Xcode has previously minted a **second**
-development certificate the existing profile did not carry, which breaks local
-signing until the Apple ID password is re-entered; and the same portal work
-gates the widget App Group (`group.com.delimiters.chorus`), which is why
-`targets/plan/` is still on an unmerged branch.
+The fix was to stop asking Xcode for profiles. Two were made by hand in the
+developer portal — `Chorus Dev` and `Chorus Widget Dev`, each naming both
+development certificates and both phones — and the build switched to
+`CODE_SIGN_STYLE=Manual`. `docs/decisions/nagging-reminders.md` has the four
+portal steps; `docs/RELEASE.md` has the build command. **They expire
+2027-10-22**, and the same four steps apply then.
+
+**Signing into Xcode is the thing to avoid**, not the fallback. It has twice
+minted a second development certificate the existing profile did not carry,
+breaking local signing until the Apple ID password was re-entered. Apple allows
+two certificates per account and both slots are now used, so a third would mean
+revoking one. A hand-made profile names the certificates it trusts, which is why
+the manual route is now the documented one rather than the workaround.
+
+**The widget App Group is no longer a blocker.** The surprise, found by decoding
+the profiles rather than trusting the portal's UI: both App IDs already had the
+App Groups capability enabled, with an **empty** array — the group identifier
+itself had never been registered. So `group.com.delimiters.chorus` existed in
+`app.json` and in the Swift, and
+`containerURL(forSecurityApplicationGroupIdentifier:)` would have returned nil
+forever with no error anywhere. It is registered and attached now, and
+`targets/plan/` is unblocked — still unmerged, but on code grounds rather than
+signing.
+
+The habit worth keeping from this: **decode the artifact, do not read the
+dashboard.** `security cms -D -i <profile>` and `codesign -d --entitlements :-
+<app>` answer "what does this build actually claim" in two seconds, and both
+times they contradicted what the UI implied.
