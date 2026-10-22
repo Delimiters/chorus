@@ -930,13 +930,31 @@ only ever projects one window.
   independent. `src/core/occurrence/anchor.ts` documents the three separate bugs
   that came out of getting this wrong.
 - ~~**The free Apple team's signing profile expires every 7 days**~~ — true
-  until 2026-09-24, when the paid membership activated. Profiles now run a year
-  (currently to 2027-09-25). Kept here because the symptom, "app is no longer
-  available" on both phones at once, is distinctive and somebody hitting it
-  again should know it used to have this cause and no longer does.
+  until 2026-09-24, when the paid membership activated. Profiles now run a year;
+  the pair in use expires **2027-10-22**. Kept here because the symptom, "app is
+  no longer available" on both phones at once, is distinctive and somebody
+  hitting it again should know it used to have this cause and no longer does.
 - **Signing in to Xcode mints a second development certificate**, and the
   existing provisioning profile does not contain it. Builds then fail three
   different ways — "No Accounts", "doesn't include signing certificate", and a
   refusal to use an Xcode-managed profile manually — none of which name the
   cause. Re-entering the Apple ID password in Xcode → Settings → Accounts is
-  the fix; nothing on the command line is.
+  the fix. ~~Nothing on the command line is.~~ **Superseded by build 64**: the
+  real fix is not to involve Xcode's accounts at all. Profiles made by hand in
+  the developer portal name the certificates they trust, so both of the ones on
+  this machine are included and whichever signs will match;
+  `CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER="Chorus Dev"` then
+  builds with no account signed in. Note Apple allows **two** certificates per
+  account and both slots are used, so a third would mean revoking one.
+- ~~**The nag ladder ships without breaking through Focus**~~ (#152) —
+  overturned by #154, two days later. The cost was one failed build and a day:
+  #151 declared the Time Sensitive entitlement, build 63 failed signing, #152
+  removed it and shipped the ladder audible-only, then the portal work above
+  made it possible and #154 put it back. What the detour bought was the manual
+  signing route and the discovery that the widget App Group capability had been
+  enabled all along with an **empty** group array, which is what had actually
+  been blocking `targets/plan/`. What it cost was shipping a weaker feature to
+  both phones for two days. The lesson is the first line of
+  `docs/decisions/nagging-reminders.md`'s detour section: **a capability change
+  invalidates every profile that includes the App ID**, so check how profiles
+  get minted here *before* adding one, not after.

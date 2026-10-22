@@ -107,15 +107,22 @@ describe('what reaches the operating system', () => {
     expect(scheduled[0]?.content.interruptionLevel).toBeUndefined();
   });
 
-  it('carries the chore id either way, so a tap can open the right thing', async () => {
+  it('carries each reminder its own chore id, so a tap opens the right thing', async () => {
+    /*
+     * The two chore ids differ on purpose. The first version of this test gave
+     * both reminders `dishes`, which made it pass against
+     * `choreId: plan[0].choreId` — it proved a chore id was carried, not that
+     * each reminder carried its own. One shared fixture value is the whole
+     * mechanism behind the vacuous tests listed in WHERE-THINGS-STAND.md.
+     */
     await localTransport.reconcile([
-      reminder({ id: 'a' }),
-      reminder({ id: 'b', insistent: true }),
+      reminder({ id: 'a', choreId: 'dishes' }),
+      reminder({ id: 'b', choreId: 'litter', insistent: true }),
     ] as never);
 
     expect(scheduled.map((s) => (s.content.data as { choreId: string }).choreId)).toEqual([
       'dishes',
-      'dishes',
+      'litter',
     ]);
   });
 });
