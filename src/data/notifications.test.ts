@@ -85,25 +85,12 @@ describe('what reaches the operating system', () => {
     ...over,
   });
 
-  it('asks for sound on a nagging reminder', async () => {
+  it('asks for sound and Time Sensitive on a nagging reminder', async () => {
     await localTransport.reconcile([reminder({ insistent: true })] as never);
 
     expect(scheduled).toHaveLength(1);
     expect(scheduled[0]?.content.sound).toBe('default');
-  });
-
-  it('does not ask to break through Focus until the profile can carry it', async () => {
-    /*
-     * `interruptionLevel: 'timeSensitive'` needs an entitlement, which needs a
-     * provisioning profile carrying the capability, which needs an Apple ID
-     * signed into Xcode — there is none on this machine, and build 63 failed
-     * outright on exactly that. Asserted rather than left implicit so that
-     * re-adding it is a deliberate act with a failing test to prompt it, not
-     * something that silently reappears and breaks the build again.
-     */
-    await localTransport.reconcile([reminder({ insistent: true })] as never);
-
-    expect(scheduled[0]?.content.interruptionLevel).toBeUndefined();
+    expect(scheduled[0]?.content.interruptionLevel).toBe('timeSensitive');
   });
 
   it('leaves an ordinary reminder silent and ordinary', async () => {

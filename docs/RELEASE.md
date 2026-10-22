@@ -114,15 +114,35 @@ no Metro, no Expo Go, no laptop, because a Release build embeds
 `main.jsbundle`.
 
 ```bash
-npx expo prebuild --platform ios --clean
-cd ios && xcodebuild -workspace Chorus.xcworkspace -scheme Chorus \
-  -configuration Release -destination 'id=<hardware-udid>' \
+npx expo prebuild --platform ios --clean --no-install
+cd ios && pod install
+xcodebuild -workspace Chorus.xcworkspace -scheme Chorus \
+  -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath /tmp/ddev DEVELOPMENT_TEAM=SY59JGZ44Y \
-  CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build
+  CODE_SIGN_STYLE=Manual \
+  PROVISIONING_PROFILE_SPECIFIER="Chorus Dev" build
 
 xcrun devicectl device install app --device <coredevice-uuid> \
   /tmp/ddev/Build/Products/Release-iphoneos/Chorus.app
 ```
+
+**Signing is manual as of build 64, and that is deliberate.** Automatic signing
+needs an Apple ID in Xcode to mint profiles, and signing one in has twice minted
+a second development certificate that the existing profile did not carry,
+breaking local signing until the Apple ID password was re-entered. Apple allows
+two certificates per account and both slots are used, so a third would mean
+revoking one. `docs/decisions/nagging-reminders.md` has the four portal steps
+that produce `Chorus Dev` and `Chorus Widget Dev` by hand; they expire
+**2027-10-22**.
+
+**`generic/platform=iOS` rather than a device id.** Building against a device id
+waits for the Developer Disk Image to mount, which needs the phone *unlocked* —
+a locked phone fails the build after a ten-minute timeout. The generic
+destination builds regardless; only `devicectl install` needs the phone awake,
+and that is the step worth retrying in a loop:
+`kAMDMobileImageMounterDeviceLocked` means exactly what it says. Device
+registration is no longer a concern — both phones are in the hand-made
+profiles.
 
 Note the two different identifiers: `xcodebuild -destination` wants the
 **hardware UDID** (`00008110-…`), `devicectl` wants the **coredevice UUID**
