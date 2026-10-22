@@ -12,6 +12,7 @@
  * rule ended up inert in the running app while its unit tests passed.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
@@ -103,7 +104,10 @@ export function useRoutineDay(on: CivilDate, options: { showOthers: boolean }): 
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as 0 | 1 | 2 | 3 | 4 | 5 | 6;
   // The household's today, from its own time zone — the same one the chore
   // screens use, so a routine and a chore never disagree about what day it is.
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
 
   const window: DateWindow = useMemo(
     () => quantiseWindow(on, weekStartsOn, 0, 1),

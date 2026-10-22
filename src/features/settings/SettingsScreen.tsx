@@ -21,6 +21,12 @@ import { useMemo, useState } from 'react';
 import { Platform, ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  DAY_START_MAX,
+  DAY_START_MIN,
+  describeDayStart,
+  safeDayStart,
+} from '@/core/civil/daybreak';
 import type { CivilTime, Weekday } from '@/core/civil/types';
 import { MAX_PENDING } from '@/core/notify/plan';
 import {
@@ -34,7 +40,7 @@ import {
 import { notificationsAvailable } from '@/data/notifications';
 import { SectionHeader } from '@/design/ChoreRow';
 import { BackBar, Button, ErrorState, LoadingState, Stack, Txt } from '@/design/components';
-import { FieldGroup, SegmentedControl } from '@/design/controls';
+import { FieldGroup, SegmentedControl, Stepper } from '@/design/controls';
 import { useTheme } from '@/design/theme';
 import { radius, space } from '@/design/tokens';
 import { useReminderStore } from '@/stores/reminderStore';
@@ -115,6 +121,9 @@ export function SettingsScreen() {
   // switch does not flash the wrong way and correct itself a frame later. It
   // was left at `false` when the default flipped, which is exactly that flash.
   const autoPlan = household.data?.autoPlan ?? true;
+  // Clamped through the same helper the data layer uses, so a loading household
+  // shows the default rather than hour zero and then corrects itself.
+  const dayStartsAtHour = safeDayStart(household.data?.dayStartsAtHour);
 
   /*
    * Defaults to on while the members query is in flight, matching the column,
@@ -200,6 +209,27 @@ export function SettingsScreen() {
               accessibilityLabel="Add overdue chores"
             />,
           )}
+
+          {/*
+            Phrased as when the day *ends*, which is how Jake asked for it —
+            *"make it so the day ends at like 3am"* — and how anybody thinks
+            about it at one in the morning. The stored value is the hour the next
+            day begins, which is the same fact said the other way round and the
+            form the engine needs.
+          */}
+          <FieldGroup
+            label="Day ends at"
+            hint={`Anything finished before ${describeDayStart(dayStartsAtHour)} counts towards the day before, so a late night does not land on tomorrow. Shared, because you share a plan. Nothing already recorded is rewritten — but moving this line now can put something you ticked tonight on the other side of it.`}
+          >
+            <Stepper
+              value={dayStartsAtHour}
+              onChange={(hour) => updateHousehold.mutate({ dayStartsAtHour: hour })}
+              min={DAY_START_MIN}
+              max={DAY_START_MAX}
+              label="day ends at"
+              unit={describeDayStart}
+            />
+          </FieldGroup>
 
           {row(
             'Time zone',

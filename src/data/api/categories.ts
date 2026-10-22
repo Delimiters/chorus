@@ -8,6 +8,7 @@
  * nothing to create, rename or delete. See the categories migration for why.
  */
 
+import { CATEGORY_NAME_MAX } from '@/core/text/limits';
 import type { CategoryMeta } from '@/core/occurrence/grouping';
 import { describeError, supabase } from '../supabase';
 
@@ -44,11 +45,22 @@ export async function listCategories(householdId: string): Promise<readonly Cate
   return data ?? [];
 }
 
-/** Trims and rejects an unusable name before the database has to. */
-function cleanName(name: string): string {
+/**
+ * Trims and rejects an unusable name before the database has to.
+ *
+ * Exported for its test, as `choreRow` and `routineRow` are: the cap it enforces
+ * is one of five places the same number lives, and the only ones that ever went
+ * stale were the ones nothing asserted.
+ */
+export function cleanName(name: string): string {
   const trimmed = name.trim();
   if (trimmed.length === 0) throw new Error('A category needs a name.');
-  if (trimmed.length > 40) throw new Error('That name is too long — 40 characters at most.');
+  // The constant, not 40. A literal here is exactly the shape that outranked the
+  // chore title's cap in three places while the change was called shipped, and
+  // the drift test cannot see a number that only exists in TypeScript.
+  if (trimmed.length > CATEGORY_NAME_MAX) {
+    throw new Error(`That name is too long — ${String(CATEGORY_NAME_MAX)} characters at most.`);
+  }
   return trimmed;
 }
 

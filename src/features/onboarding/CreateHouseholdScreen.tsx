@@ -1,3 +1,4 @@
+import { HOUSEHOLD_NAME_MAX } from '@/core/text/limits';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -50,7 +51,7 @@ export function CreateHouseholdScreen() {
               placeholder="The House"
               returnKeyType="go"
               onSubmitEditing={submit}
-              maxLength={60}
+              maxLength={HOUSEHOLD_NAME_MAX}
             />
 
             <Stack gap={space.xs}>

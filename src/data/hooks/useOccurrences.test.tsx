@@ -359,3 +359,77 @@ describe('turn overrides reaching the projector', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
   });
 });
+
+describe('an “everyone” chore when the roster read comes back empty', () => {
+  const ME = 'user-me';
+
+  afterEach(() => {
+    // This block repoints both module fixtures; leaving them set is a trap for
+    // whatever describe is appended next.
+    mockRoster = [];
+    mockListChores.mockReset();
+    mockListChores.mockResolvedValue({ chores: [], unreadable: [] } as never);
+  });
+
+  beforeEach(() => {
+    mockTurns = [];
+    mockListChores.mockResolvedValue({
+      chores: [
+        {
+          id: 'meds',
+          title: 'Meds',
+          schedule: {
+            rule: { kind: 'daily', everyNDays: 1 },
+            startsOn: '2026-07-01' as CivilDate,
+            endsOn: null,
+            timesOfDay: [],
+          },
+          assignment: { kind: 'everyone' },
+          archived: false,
+        },
+      ],
+      unreadable: [],
+    } as never);
+  });
+
+  /*
+   * A fan-out produces one occurrence **per member**, so an empty roster
+   * produces none — and the plan drops an entry whose occurrence is missing
+   * rather than render a row that cannot be ticked. Together those turned "the
+   * roster is not loaded" into "your shared work is not on your day", with the
+   * screen otherwise looking perfectly ready, and the row vanished and came
+   * back as the query settled and refetched.
+   *
+   * Empty is not only a first render: the query can error (`data` undefined
+   * while `isLoading` is already false), the household id can change, and — the
+   * one that cost a day — the read can be refused by RLS, which PostgREST
+   * reports as success with no rows. None of those are distinguishable from a
+   * household of nobody at this layer.
+   */
+  it('still puts your own copy on your day', async () => {
+    mockRoster = [];
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useToday_View(), { wrapper });
+
+    await waitFor(() => expect(result.current?.isLoading).toBe(false));
+    const mine = result.current.view.mine.map((i) => i.occurrenceKey);
+    expect(mine).toContain(`v1:meds:2026-07-30:0:${ME}`);
+  });
+
+  it('leaves a roster that already has you alone', async () => {
+    mockRoster = [
+      { userId: ME, displayName: 'Jake' },
+      { userId: 'user-them', displayName: 'Sam' },
+    ];
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useToday_View(), { wrapper });
+
+    await waitFor(() => expect(result.current?.isLoading).toBe(false));
+    const keys = [...result.current.view.mine, ...result.current.view.theirs]
+      .map((i) => i.occurrenceKey)
+      .filter((k) => k.startsWith('v1:meds:2026-07-30'));
+    expect(keys).toHaveLength(2);
+  });
+});

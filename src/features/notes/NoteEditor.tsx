@@ -15,6 +15,8 @@
  * appears to promise.
  */
 
+import { toggleListPrefix, type ListKind } from '@/core/text/notes';
+import { NOTE_BODY_MAX, NOTE_TITLE_MAX } from '@/core/text/limits';
 import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -60,6 +62,38 @@ export function NoteEditor({
   const [title, setTitle] = useState(initialTitle ?? '');
   const [body, setBody] = useState(initialBody);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /*
+   * Where the caret is, so the list buttons know which line they are about.
+   * `TextInput` reports it and nothing else does — there is no way to ask.
+   */
+  const [caret, setCaret] = useState(0);
+  /*
+   * The caret position to force after a list button, and `null` the rest of the
+   * time.
+   *
+   * Controlling `selection` permanently fights typing on Android: every render
+   * puts the caret back where the prop says, which drops characters. So it is
+   * set for exactly the render after a button press and cleared again on the
+   * next selection change the field reports.
+   */
+  const [forceCaret, setForceCaret] = useState<number | null>(null);
+
+  /*
+   * Only once the field has told us where the caret is.
+   *
+   * `caret` starts at 0, so before this the buttons acted on line 1 of a note
+   * nobody had touched — one stray tap on somebody else's pasted checklist. A
+   * review found it against Emily's note, where line 1 is a checklist item.
+   */
+  const [located, setLocated] = useState(false);
+
+  const applyList = (kind: ListKind) => {
+    if (!located) return;
+    const next = toggleListPrefix(body, caret, kind);
+    setBody(next.text);
+    setCaret(next.cursor);
+    setForceCaret(next.cursor);
+  };
 
   const since = editedAt === null ? null : formatSince(editedAt);
   // Nothing to save is not an error, it is just nothing — the button says so
@@ -78,17 +112,52 @@ export function NoteEditor({
           value={title}
           onChangeText={setTitle}
           placeholder="Optional"
-          maxLength={120}
+          maxLength={NOTE_TITLE_MAX}
         />
 
         <Field
           label="Note"
           value={body}
-          onChangeText={setBody}
+          onChangeText={(next) => {
+            /*
+             * Clearing `forceCaret` here as well as on a selection change.
+             *
+             * The forced `selection` prop is meant to last one render. If the
+             * field ever applies it without reporting a selection change back,
+             * nothing else would clear it — and then every keystroke would
+             * re-render with the caret pinned to the old offset, which drops
+             * characters. Typing is the other signal that the moment has
+             * passed, so it clears here too.
+             */
+            setForceCaret(null);
+            setBody(next);
+          }}
           placeholder="Anything worth coming back to"
           multiline
-          maxLength={20000}
+          maxLength={NOTE_BODY_MAX}
+          onSelectionChange={(event) => {
+            setCaret(event.nativeEvent.selection.start);
+            setForceCaret(null);
+            setLocated(true);
+          }}
+          {...(forceCaret === null ? {} : { selection: { start: forceCaret, end: forceCaret } })}
         />
+
+        {/*
+          Two buttons, because typing "- " works but nobody discovers it.
+          Jake asked for bullet points and numbered lists; the markup is the
+          convention people already type, and these are how you find out it is
+          there. Both toggle, and pressing one on the other's line swaps the
+          marker rather than stacking it.
+        */}
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <View style={{ flex: 1 }}>
+            <Button label="• Bullet" variant="secondary" onPress={() => applyList('bullets')} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button label="1. Numbered" variant="secondary" onPress={() => applyList('numbers')} />
+          </View>
+        </View>
 
         {error === null ? null : (
           <Txt variant="small" tone="danger">

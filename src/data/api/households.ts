@@ -5,6 +5,7 @@
  * readable messages happens once, here, rather than in every component.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import {
   listMembersWith,
   setPlanGroupOrderWith,
@@ -27,6 +28,11 @@ export interface Household {
    * one phone and "the app put this here" on the other.
    */
   readonly autoPlan: boolean;
+  /**
+   * The hour the household's day begins; anything earlier counts as the day
+   * before. See `core/civil/daybreak.ts`.
+   */
+  readonly dayStartsAtHour: number;
 }
 
 function fail(error: { code?: string | undefined; message: string }): never {
@@ -54,7 +60,7 @@ function rethrow(error: unknown): never {
 export async function listMyHouseholds(): Promise<Household[]> {
   const { data, error } = await supabase
     .from('households')
-    .select('id, name, time_zone, week_starts_on, auto_plan')
+    .select('id, name, time_zone, week_starts_on, auto_plan, day_starts_at_hour')
     .order('created_at');
   if (error) fail(error);
 
@@ -64,13 +70,14 @@ export async function listMyHouseholds(): Promise<Household[]> {
     timeZone: row.time_zone,
     weekStartsOn: row.week_starts_on,
     autoPlan: row.auto_plan,
+    dayStartsAtHour: safeDayStart(row.day_starts_at_hour),
   }));
 }
 
 export async function getHousehold(householdId: string): Promise<Household | null> {
   const { data, error } = await supabase
     .from('households')
-    .select('id, name, time_zone, week_starts_on, auto_plan')
+    .select('id, name, time_zone, week_starts_on, auto_plan, day_starts_at_hour')
     .eq('id', householdId)
     .maybeSingle();
   if (error) fail(error);
@@ -82,6 +89,15 @@ export async function getHousehold(householdId: string): Promise<Household | nul
     timeZone: data.time_zone,
     weekStartsOn: data.week_starts_on,
     autoPlan: data.auto_plan,
+    /*
+     * Clamped on the way in, not at every reader.
+     *
+     * This number decides what "today" means for the whole app, so a row that
+     * predates the CHECK — or any value the column somehow holds — must not be
+     * able to shift every date. One guard here beats fourteen call sites each
+     * remembering to be careful.
+     */
+    dayStartsAtHour: safeDayStart(data.day_starts_at_hour),
   };
 }
 
@@ -140,7 +156,13 @@ export async function setPlanGroupOrder(order: PlanGroupOrder, userId: string): 
  */
 export async function updateHousehold(
   householdId: string,
-  patch: Partial<{ name: string; timeZone: string; weekStartsOn: number; autoPlan: boolean }>,
+  patch: Partial<{
+    name: string;
+    timeZone: string;
+    weekStartsOn: number;
+    autoPlan: boolean;
+    dayStartsAtHour: number;
+  }>,
 ): Promise<void> {
   const { data, error } = await supabase
     .from('households')
@@ -149,6 +171,12 @@ export async function updateHousehold(
       ...(patch.timeZone !== undefined ? { time_zone: patch.timeZone } : {}),
       ...(patch.weekStartsOn !== undefined ? { week_starts_on: patch.weekStartsOn } : {}),
       ...(patch.autoPlan !== undefined ? { auto_plan: patch.autoPlan } : {}),
+      // Clamped on the way out as well as in: the CHECK would reject a bad value
+      // with a Postgres error code, and a settings control should not be able to
+      // produce one.
+      ...(patch.dayStartsAtHour !== undefined
+        ? { day_starts_at_hour: safeDayStart(patch.dayStartsAtHour) }
+        : {}),
     })
     .eq('id', householdId)
     .select('id');

@@ -12,6 +12,7 @@
  * occurrences, that figure would depend on whether a backfill had run.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useMemo } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -36,7 +37,10 @@ export function StatsScreen() {
   const router = useRouter();
   const household = useHousehold();
   const members = useMembers();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
 
   const window = useMemo(() => ({ start: addDays(today, -WINDOW_DAYS), end: today }), [today]);
   const { items, isLoading, error } = useOccurrences(window);

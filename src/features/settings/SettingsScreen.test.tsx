@@ -16,7 +16,12 @@ import { useViewStore } from '@/stores/viewStore';
 import { SettingsScreen } from './SettingsScreen';
 
 const mockUpdate = jest.fn();
-let mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
+let mockHousehold: Record<string, unknown> = {
+  weekStartsOn: 0,
+  timeZone: 'America/New_York',
+  autoPlan: true,
+  dayStartsAtHour: 3,
+};
 
 let mockMyGroupOrder: 'chores' | 'oneOff' = 'chores';
 const mockSetPushEnabled = jest.fn();
@@ -113,7 +118,12 @@ async function renderScreen() {
 
 beforeEach(() => {
   mockUpdate.mockClear();
-  mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
+  mockHousehold = {
+    weekStartsOn: 0,
+    timeZone: 'America/New_York',
+    autoPlan: true,
+    dayStartsAtHour: 3,
+  };
   useReminderStore.setState({ policy: DEFAULT_POLICY });
   mockAvailable = true;
   mockMyGroupOrder = 'chores';
@@ -514,5 +524,88 @@ describe('the words on the screen', () => {
 
       expect(screen.getByText(/still late from earlier days/)).toBeOnTheScreen();
     });
+  });
+});
+
+describe('when the day ends', () => {
+  /*
+   * Jake: *"Can we make it so the day ends at like 3am? ... just so if I'm doing
+   * something late at night it doesn't count as the next day"*.
+   */
+  it('reads as the hour it ends, in words', async () => {
+    await renderScreen();
+
+    // "3 AM", not "3" — the number alone is ambiguous between morning and
+    // afternoon at exactly the hour somebody is squinting at this.
+    expect(screen.getByLabelText('day ends at: 3 AM')).toBeOnTheScreen();
+  });
+
+  it('explains which side of the line a late night falls on', async () => {
+    await renderScreen();
+
+    expect(screen.getByText(/counts towards the day before/)).toBeOnTheScreen();
+  });
+
+  it('says it is shared, and that it does not rewrite the past', async () => {
+    /*
+     * Both are things you would otherwise find out by being surprised: Emily's
+     * phone changes too, and last week's chart does not move — stored dates are
+     * what each client decided at the time, and the original instant is gone.
+     */
+    await renderScreen();
+
+    expect(screen.getByText(/Shared, because you share a plan/)).toBeOnTheScreen();
+    /*
+     * "Nothing is rewritten" is true of the database and misleading on its own:
+     * change the setting at 01:00 and `today` moves under you, so the chore you
+     * ticked a minute ago can land on the other side of the new line without a
+     * single row changing. A review found the copy claiming the absolute.
+     */
+    expect(screen.getByText(/Nothing already recorded is rewritten/)).toBeOnTheScreen();
+    expect(screen.getByText(/on the other side of it/)).toBeOnTheScreen();
+  });
+
+  it('moves the hour by one when you press it', async () => {
+    await renderScreen();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Increase day ends at' }));
+    expect(mockUpdate).toHaveBeenCalledWith({ dayStartsAtHour: 4 });
+  });
+
+  it('cannot be pushed past noon', async () => {
+    // The bounds are the control's, so a bad value never reaches the CHECK.
+    mockHousehold = { ...mockHousehold, dayStartsAtHour: 12 };
+    await renderScreen();
+
+    expect(
+      screen.getByRole('button', { name: 'Increase day ends at' }).props.accessibilityState
+        ?.disabled,
+    ).toBe(true);
+  });
+
+  it('cannot be pushed below midnight', async () => {
+    // The other end, which the test above was named for and did not check.
+    mockHousehold = { ...mockHousehold, dayStartsAtHour: 0 };
+    await renderScreen();
+
+    expect(
+      screen.getByRole('button', { name: 'Decrease day ends at' }).props.accessibilityState
+        ?.disabled,
+    ).toBe(true);
+  });
+
+  it('shows the default while the household is still loading', async () => {
+    // Not hour zero, which would read as "midnight" and then correct itself.
+    mockHousehold = { weekStartsOn: 0, timeZone: 'America/New_York', autoPlan: true };
+    await renderScreen();
+
+    expect(screen.getByLabelText('day ends at: 3 AM')).toBeOnTheScreen();
+  });
+
+  it('says midnight rather than "0 AM" at the bottom of the range', async () => {
+    mockHousehold = { ...mockHousehold, dayStartsAtHour: 0 };
+    await renderScreen();
+
+    expect(screen.getByLabelText('day ends at: midnight')).toBeOnTheScreen();
   });
 });

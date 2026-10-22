@@ -1614,6 +1614,13 @@ describe('whose job a row is', () => {
      */
     mockMyFlags = new Set(['mail']);
     mockEntries = [entry('mail', 1)];
+    /*
+     * The row needs something worth expanding, or there is no control to press:
+     * a plan row whose only extra is its assignee name — which shows in both
+     * states — no longer draws a chevron at all. The invariant under test is
+     * the meta column, not the chevron's existence.
+     */
+    mockChoreNotes = new Map([['mail', 'bring the small bin']]);
     renderScreen([item('mail', 'Post', 'due', { kind: 'member', memberId: THEM, turn: 0 })]);
 
     expect(screen.getAllByText('Sam')).toHaveLength(1);
@@ -1742,19 +1749,36 @@ describe('today’s work against the backlog', () => {
 
 describe('whose flagged section a flagged chore leads', () => {
   /*
-   * Jake, once he noticed the plan has a Flagged group per person: *"If
-   * something is assigned specifically to one person and is flagged it should
-   * only show up in their flagged section. I can still see it if I want to
-   * scroll down to the other person's flagged section for stuff that isn't
-   * assigned to me."*
+   * A flag hoists the row on whatever day it sits on.
    *
-   * Flags stay shared. This changes where a flagged row is *hoisted*, not who
-   * can see or lift it: "Flagged" means "before everything else on this list",
-   * and somebody else's turn is not before everything else on yours.
+   * This describe used to assert the opposite for one case — a row whose turn
+   * was the other person's stayed in its ordinary group — from Jake's earlier
+   * instruction: *"If something is assigned specifically to one person and is
+   * flagged it should only show up in their flagged section."*
+   *
+   * He then hit it on a rotating chore that was Emily's turn and four days
+   * late: *"it was sitting at the BOTTOM of past due even though it was
+   * flagged. I unflagged and reflagged, and all it did was put it to the top of
+   * past due. Anything flagged needs to show up in the flagged section at the
+   * top regardless of when it is/was due."*
+   *
+   * The two instructions come apart exactly there: the first is about a chore
+   * *assigned to one person*, and a rotation is not that. The first still holds
+   * where it was aimed — a chore of Emily's does not reach Jake's day unless
+   * somebody puts it there, and the auto-fill will not. Once a row is on your
+   * day, a flag on it means "this one first" about your day.
+   *
+   * Flags stay shared either way: this decides where a row is *hoisted*, never
+   * who can see or lift it.
    */
   const headings = () => screen.getAllByRole('header').map((h) => String(h.props.children));
 
-  it('does not lead your day with a chore that is their turn', () => {
+  it('leads your day even when the turn is theirs', () => {
+    /*
+     * The pet fountain: a rotating chore on Emily's turn, on Jake's plan,
+     * flagged. It belongs at the top of his day because he flagged it and it is
+     * on his day — the turn decides who the app nags, not where the row sits.
+     */
     mockRecurring = new Set(['mail', 'dishes']);
     mockMyFlags = new Set(['mail']);
     mockEntries = [entry('mail', 1), entry('dishes', 2)];
@@ -1763,10 +1787,27 @@ describe('whose flagged section a flagged chore leads', () => {
       item('dishes', 'Dishes'),
     ]);
 
-    // Still on the list — it is on your plan and you can still act on it —
-    // just not hoisted above everything you are actually doing.
-    expect(screen.getByText('Post')).toBeOnTheScreen();
-    expect(headings()).not.toContain('Flagged');
+    expect(headings()).toContain('Flagged');
+  });
+
+  it('leads your day even when it is late', () => {
+    /*
+     * The half of it Jake actually complained about. A flagged row that is also
+     * overdue used to land in "Past due", where the flag's hoist moved it to the
+     * top of *that* group — visible movement, no visible effect, which reads as
+     * a broken feature.
+     */
+    mockRecurring = new Set(['mail', 'dishes']);
+    mockMyFlags = new Set(['mail']);
+    mockEntries = [entry('mail', 1), entry('dishes', 2)];
+    renderScreen([
+      item('mail', 'Post', 'overdue', { kind: 'member', memberId: THEM, turn: 0 }),
+      item('dishes', 'Dishes'),
+    ]);
+
+    expect(headings()).toContain('Flagged');
+    // And not left behind in the group it used to be filed under.
+    expect(headings()).not.toContain('Past due');
   });
 
   it('still leads with a flagged chore that is your turn', () => {
@@ -1841,5 +1882,41 @@ describe('the plan’s row sheet as a mini chore view', () => {
 
     expect(screen.getByText('Take off today')).toBeOnTheScreen();
     expect(screen.queryByTestId('chore-detail')).toBeNull();
+  });
+});
+
+describe('the expander on the plan', () => {
+  /*
+   * Jake: *"chores that will not show any additional information once expanded
+   * do not need to have a button to expand them on the plan page. If all it
+   * does is change the size of the cell there is no reason to have it."*
+   *
+   * On the plan the schedule label is deliberately blank and the assignee shows
+   * in both states, so for a plain chore there is genuinely nothing behind the
+   * chevron.
+   */
+  it('is absent for a chore with nothing behind it', () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.queryByLabelText(/Dishes\. Show details\./)).toBeNull();
+  });
+
+  it('is there when the chore has steps', () => {
+    mockEntries = [entry('dishes', 1)];
+    mockSubtasks = new Map([['dishes', [{ id: 's1', title: 'Rinse first' }]]]);
+    renderScreen([item('dishes', 'Dishes')]);
+
+    // Open by default, so the control is the way to *fold* them.
+    expect(screen.getByLabelText(/Dishes\. Hide details\./)).toBeOnTheScreen();
+    expect(screen.getByText('Rinse first')).toBeOnTheScreen();
+  });
+
+  it('is there when the chore has a note', () => {
+    mockEntries = [entry('dishes', 1)];
+    mockChoreNotes = new Map([['dishes', 'Use the good soap under the sink']]);
+    renderScreen([item('dishes', 'Dishes')]);
+
+    expect(screen.getByLabelText(/Dishes\. Show details\./)).toBeOnTheScreen();
   });
 });

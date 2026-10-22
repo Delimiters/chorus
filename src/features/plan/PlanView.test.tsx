@@ -33,8 +33,15 @@ let mockView: {
   upcoming: AgendaItem[];
   floating: never[];
 };
-let mockChores: { id: string; title: string; schedule: unknown }[];
-let mockEntries: { occurrenceKey: string; choreId: string; plannedFor: string; position: number }[];
+let mockChores: { id: string; title: string; schedule: unknown; assignment: unknown }[];
+let mockEntries: {
+  occurrenceKey: string;
+  choreId: string;
+  plannedFor: string;
+  position: number;
+  /** Whose plan the row is on. Only the household-wide query exposes it. */
+  userId?: string;
+}[];
 let mockIsLoading = false;
 let mockError: Error | null = null;
 let mockPlanUnknown = false;
@@ -265,9 +272,10 @@ const item = (id: string, over: Partial<AgendaItem> = {}): AgendaItem =>
     ...over,
   }) as unknown as AgendaItem;
 
-const recurring = (id: string) => ({
+const recurring = (id: string, assignment: unknown = { kind: 'anyone' }) => ({
   id,
   title: id,
+  assignment,
   schedule: {
     rule: { kind: 'daily', everyNDays: 1 },
     startsOn: mockToday,
@@ -275,9 +283,10 @@ const recurring = (id: string) => ({
     timesOfDay: [],
   },
 });
-const oneOff = (id: string) => ({
+const oneOff = (id: string, assignment: unknown = { kind: 'anyone' }) => ({
   id,
   title: id,
+  assignment,
   schedule: {
     rule: { kind: 'once', dueOn: mockToday, granularity: 'day' },
     startsOn: mockToday,
@@ -299,7 +308,16 @@ const addedKeys = () =>
   );
 
 beforeEach(() => {
-  mockAdd.mockClear();
+  /*
+   * `mockReset`, not `mockClear`: one describe below gives `mockAdd` an
+   * implementation that writes its rows into `mockEntries` to imitate the real
+   * hook's optimistic update, and `mockClear` keeps implementations. So every
+   * test declared after it inherited a `mutate` that silently plants plan
+   * entries — which made a later test pass in the full file and fail when run
+   * alone, with the fix reverted in both. Reset restores the plain spy the rest
+   * of the file assumes.
+   */
+  mockAdd.mockReset();
   mockDismissals = [];
   mockDismissalsLoading = false;
   mockDismissalsAnswered = true;
@@ -468,6 +486,87 @@ describe('a chore created with "put it on today"', () => {
     expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['newchore']);
   });
 
+  it('adds nothing when the auto-fill already put today on the plan', async () => {
+    /*
+     * Jake: *"I made one called get 2k rewards or something like that, said to
+     * put on plan when i created, and it was on there twice."* Two rows a tenth
+     * of a second apart, keyed `…:2026-10-08:0:-` and `…:2026-10-09:0:-`, both
+     * planned for the 8th — today's occurrence and *tomorrow's*, on one day.
+     *
+     * The auto-fill adds today's for any chore due today, a fraction of a second
+     * before this effect runs. The already-planned filter used to be applied to
+     * the candidates, so today's was removed from consideration and the soonest
+     * of what was left was tomorrow's.
+     *
+     * The fixture is his: a daily chore starting today, already on the plan, and
+     * tomorrow's occurrence visible in `view.upcoming` exactly as the horizon
+     * query returns it.
+     */
+    mockPlanOnCreate = [{ choreId: 'rewards', queuedOn: mockToday }];
+    mockView.mine = [item('rewards')];
+    mockView.upcoming = [
+      item('rewards', {
+        occurrenceKey: 'v1:rewards:tomorrow',
+        dueOn: civilDate('2026-09-02'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('rewards')];
+    mockEntries = [
+      { occurrenceKey: 'v1:rewards', choreId: 'rewards', plannedFor: mockToday, position: 1 },
+    ];
+    renderView();
+
+    /*
+     * Waited on a signal from the same effect pass, not on a sleep.
+     *
+     * This asserted a negative after 20ms, which passes whenever the effect has
+     * simply not run yet — the shape that makes a test look like evidence while
+     * proving nothing. Clearing the queue happens in the same pass as the write
+     * would, so once it has happened the decision is made.
+     */
+    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['rewards']));
+    // Not tomorrow's, and not today's again — the intent is already satisfied.
+    expect(addedKeys()).not.toContain('v1:rewards:tomorrow');
+    expect(mockAdd).not.toHaveBeenCalled();
+  });
+
+  it('still settles the intent, so it cannot fire again later', async () => {
+    /*
+     * Non-vacuity for the pair above: "add nothing" must not mean "leave the
+     * queue armed". A queue entry that survives re-runs on every render, and
+     * would plant tomorrow's row the moment today's came off the plan.
+     */
+    mockPlanOnCreate = [{ choreId: 'rewards', queuedOn: mockToday }];
+    mockView.mine = [item('rewards')];
+    mockChores = [recurring('rewards')];
+    mockEntries = [
+      { occurrenceKey: 'v1:rewards', choreId: 'rewards', plannedFor: mockToday, position: 1 },
+    ];
+    renderView();
+
+    await waitFor(() => expect(mockClearPlanOnCreate).toHaveBeenCalledWith(['rewards']));
+  });
+
+  it('still takes the soonest when nothing is on the plan yet', async () => {
+    // The behaviour the ordering must not cost: "put it on today" means today's
+    // occurrence, never next week's.
+    mockPlanOnCreate = [{ choreId: 'rewards', queuedOn: mockToday }];
+    mockView.mine = [item('rewards')];
+    mockView.upcoming = [
+      item('rewards', {
+        occurrenceKey: 'v1:rewards:tomorrow',
+        dueOn: civilDate('2026-09-02'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('rewards')];
+    renderView();
+
+    await waitFor(() => expect(addedKeys()).toContain('v1:rewards'));
+    expect(addedKeys()).not.toContain('v1:rewards:tomorrow');
+  });
+
   it('waits for the occurrence instead of throwing the intent away', async () => {
     /*
      * The defect this replaces, and the test that used to enshrine it.
@@ -526,9 +625,10 @@ describe('a chore created with "put it on today"', () => {
   });
 });
 
-const undated = (id: string) => ({
+const undated = (id: string, assignment: unknown = { kind: 'anyone' }) => ({
   id,
   title: id,
+  assignment,
   schedule: {
     rule: { kind: 'unscheduled' },
     startsOn: mockToday,
@@ -1858,5 +1958,496 @@ describe('opening the plan', () => {
 
     expect(screen.queryByLabelText('Loading your day')).toBeNull();
     expect(screen.getByText(/Doing today|Start the day|Nothing planned yet/)).toBeTruthy();
+  });
+});
+
+/*
+ * Jake: *"this one time task is disappearing and reappearing in a loop, making
+ * everything below it jump up and down repeatedly."* Measured on his own data
+ * it was about four renders and three round trips a second, forever, writing
+ * nothing the database kept.
+ *
+ * The fills write, and writing invalidates the queries they read, which runs
+ * them again. That is fine as long as the second pass sees its own write — and
+ * when it does not, the two steps are a cycle with no exit. There are several
+ * ways to miss your own write, so rather than guess at which, the fill is
+ * idempotent per mount: a row it has already offered is never offered twice.
+ */
+describe('the fill cannot loop on its own writes', () => {
+  it('offers a row once, even if the plan never shows it as planned', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    // The loop condition: the write never comes back as a plan entry, so every
+    // pass sees the row as still unplanned.
+    mockEntries = [];
+    const view = renderView();
+
+    await waitFor(() => expect(mockAdd).toHaveBeenCalledTimes(1));
+
+    // Whatever re-runs the effect next — a refetch, a realtime invalidation,
+    // the write's own settle — must not produce a second identical write.
+    for (let i = 0; i < 3; i += 1) {
+      view.rerender(
+        <ThemeProvider>
+          <PlanView />
+        </ThemeProvider>,
+      );
+    }
+
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it('still fills the housemate’s day for the same shared row', async () => {
+    mockAutoPlan = false;
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    mockEntries = [];
+    renderView();
+
+    /*
+     * Shared work has one occurrence key for both people, so a ledger keyed on
+     * the key alone claimed it for you and skipped it for her — which is the
+     * "plans shared work onto both days" guarantee, undone. The mock records
+     * the owner each call was made for, which is what separates the two.
+     */
+    await waitFor(() => {
+      const owners = mockAdd.mock.calls.map((call) => call[2]);
+      expect(owners).toContain(undefined);
+      expect(owners).toContain(mockThem);
+    });
+  });
+});
+
+describe('an “everyone” chore', () => {
+  /*
+   * A fan-out is one occurrence per member, each independently completable, so
+   * both copies carry the same title and nothing on the row tells them apart.
+   * Jake saw the result and reported it as a duplicate: *"sometimes when
+   * searching something to add to the plan I see two copies"*.
+   */
+  const everyone = { kind: 'everyone' } as const;
+  const openPicker = () =>
+    fireEvent.press(
+      screen.getByRole('button', { name: /Choose what to do today|Pick my own|^Add something$/ }),
+    );
+
+  it('is offered once — your copy, not both', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [
+      item('meds', {
+        occurrenceKey: `v1:meds:${mockToday}:0:${mockMe}`,
+        assignee: { kind: 'member', memberId: mockMe, turn: 0 },
+      }),
+    ];
+    mockView.theirs = [
+      item('meds', {
+        occurrenceKey: `v1:meds:${mockToday}:0:${mockThem}`,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+    ];
+    mockChores = [oneOff('meds', everyone)];
+    renderView();
+    /*
+     * Counted as a delta, because the row is also on the screen behind the
+     * sheet — asserting a bare total would pass for the wrong reason the first
+     * time the plan stopped rendering it.
+     */
+    const behind = screen.queryAllByText('meds').length;
+    openPicker();
+    await waitFor(() => expect(screen.queryAllByText('meds').length).toBe(behind + 1));
+  });
+
+  it('does not offer their copy when yours is already settled', async () => {
+    /*
+     * The other half of the same rule, and the one that says *which* copy
+     * survived: with only their fan-out copy outstanding there is nothing here
+     * for you to pick, because their share is not work you can do. Adding it
+     * would have finished their copy while your own still stood.
+     *
+     * Asserted as a delta against the screen behind the sheet, which renders
+     * the same title — a bare total would pass for the wrong reason.
+     */
+    mockAutoPlan = false;
+    mockView.mine = [];
+    mockView.theirs = [
+      item('meds', {
+        occurrenceKey: `v1:meds:${mockToday}:0:${mockThem}`,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+    ];
+    mockChores = [oneOff('meds', everyone)];
+    renderView();
+    const behind = screen.queryAllByText('meds').length;
+    openPicker();
+
+    // The sheet opens with no search box at all, which is what an empty picker
+    // looks like — the field is only rendered when there is something to filter.
+    await waitFor(() => expect(screen.getByText('Add to today')).toBeOnTheScreen());
+    expect(screen.queryByLabelText('Search chores to add')).toBeNull();
+    expect(screen.queryAllByText('meds')).toHaveLength(behind);
+  });
+
+  it('due later is still offered to you, whichever id sorts first', async () => {
+    /*
+     * The horizon kept one row per *chore*, and both fan-out copies share a due
+     * date, so the survivor was whichever subject sorted first — then this
+     * screen dropped it when it was the housemate's. The result was a chore
+     * nobody could get ahead of from one of the two phones, which is the whole
+     * point of the "Later" group.
+     *
+     * Their id sorts first here on purpose: with the dedup keyed per chore this
+     * test cannot pass.
+     */
+    mockAutoPlan = false;
+    const ahead = { dueOn: civilDate('2026-10-20'), status: 'upcoming' } as const;
+    mockHorizon = [
+      item('weeding', {
+        ...ahead,
+        occurrenceKey: `v1:weeding:ahead:0:${mockThem}`,
+        subject: mockThem,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+      item('weeding', {
+        ...ahead,
+        occurrenceKey: `v1:weeding:ahead:0:${mockMe}`,
+        subject: mockMe,
+        assignee: { kind: 'member', memberId: mockMe, turn: 0 },
+      }),
+    ];
+    mockChores = [recurring('weeding', everyone)];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('weeding')).toBeOnTheScreen());
+    // Exactly one: yours. Not both, and not theirs.
+    expect(screen.getAllByText('weeding')).toHaveLength(1);
+  });
+
+  it('already on your day stays listed even holding their copy', async () => {
+    /*
+     * Two such rows are in the database — the old picker offered them — and the
+     * plan screen still draws them. "Already on today" exists so that *not in
+     * the list* means one thing; filtering it would recreate the ambiguity it
+     * was added to answer.
+     */
+    mockAutoPlan = false;
+    const theirs = `v1:meds:${mockToday}:0:${mockThem}`;
+    mockView.theirs = [
+      item('meds', {
+        occurrenceKey: theirs,
+        subject: mockThem,
+        assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+      }),
+    ];
+    mockEntries = [{ occurrenceKey: theirs, choreId: 'meds', plannedFor: mockToday, position: 1 }];
+    mockChores = [oneOff('meds', everyone)];
+    renderView();
+    const behind = screen.queryAllByText('meds').length;
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
+    expect(screen.queryAllByText('meds').length).toBe(behind + 1);
+  });
+
+  it('is never proposed from your housemate’s floating slot', async () => {
+    /*
+     * `floatingSlots` is not ownership-filtered — `buildTodayView` returns every
+     * floating group and groups are keyed per subject — so their copy of a
+     * "three times a week" chore reached the proposal, and accepting it wrote
+     * their work to your day with nothing on screen saying so.
+     */
+    mockAutoPlan = false;
+    mockView.floating = [
+      {
+        choreId: 'laundry',
+        choreTitle: 'laundry',
+        subject: mockThem,
+        slots: [],
+        nextSlot: item('laundry', {
+          occurrenceKey: `v1:laundry:${mockToday}:0:${mockThem}`,
+          subject: mockThem,
+          assignee: { kind: 'member', memberId: mockThem, turn: 0 },
+        }),
+      },
+    ] as never;
+    mockChores = [recurring('laundry', everyone)];
+    renderView();
+
+    await waitFor(() =>
+      expect(screen.getByText(/Choose what to do today|Add something/)).toBeOnTheScreen(),
+    );
+    expect(screen.queryByText('laundry')).toBeNull();
+  });
+
+  it('still offers a housemate’s chore that is theirs by assignment', async () => {
+    /*
+     * The narrowing is for fan-outs only. Taking a chore of theirs off their
+     * hands is a real thing to want, and there the occurrence *is* the work —
+     * there is no second copy of it standing in your name.
+     */
+    mockAutoPlan = false;
+    mockView.theirs = [
+      item('gutters', { assignee: { kind: 'member', memberId: mockThem, turn: 0 } }),
+    ];
+    mockChores = [oneOff('gutters', { kind: 'fixed', memberId: mockThem })];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('gutters')).toBeOnTheScreen());
+  });
+});
+
+describe('filling your housemate’s day', () => {
+  const openTheirPicker = () =>
+    fireEvent.press(screen.getByRole('button', { name: /Add to .*’s day|Add to .*'s day/ }));
+
+  beforeEach(() => {
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+    mockAutoPlan = false;
+  });
+
+  it('reads her plan, not yours, for what is already there', async () => {
+    /*
+     * The picker's `planned` set was always your own entries, so filling her day
+     * offered work that was already on it, "Left from before" showed what *you*
+     * had not got to, and "Already on today" answered about the wrong person —
+     * the exact ambiguity that group exists to remove.
+     */
+    mockEntries = [];
+    mockAllEntries = [
+      {
+        occurrenceKey: 'v1:litter',
+        choreId: 'litter',
+        plannedFor: mockToday,
+        position: 1,
+        userId: mockThem,
+      },
+    ];
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+    openTheirPicker();
+
+    // Locked and counted, rather than offered to be added to her day twice.
+    await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
+    expect(screen.queryByText('DUE TODAY · 1')).toBeNull();
+  });
+
+  it('shows what SHE left from before, not what you did', async () => {
+    /*
+     * The other half of the same scoping, and it had no test at all — a review
+     * reverted just this argument and all 943 passed. "Left from before" comes
+     * from `unfinishedBefore(dayEntries, …)`, which walks entries dated earlier
+     * than today, so reading your plan there put *your* unfinished work at the
+     * top of her picker, under a heading claiming she had chosen it once.
+     *
+     * Each row is on a different person's plan yesterday, so whichever source
+     * is wrong names the wrong chore rather than merely counting wrong.
+     */
+    mockEntries = [
+      { occurrenceKey: 'v1:yours', choreId: 'yours', plannedFor: '2026-08-08', position: 1 },
+    ];
+    mockAllEntries = [
+      {
+        occurrenceKey: 'v1:yours',
+        choreId: 'yours',
+        plannedFor: '2026-08-08',
+        position: 1,
+        userId: mockMe,
+      },
+      {
+        occurrenceKey: 'v1:hers',
+        choreId: 'hers',
+        plannedFor: '2026-08-08',
+        position: 1,
+        userId: mockThem,
+      },
+    ];
+    mockView.mine = [item('yours'), item('hers')];
+    mockChores = [recurring('yours'), recurring('hers')];
+    renderView();
+    openTheirPicker();
+
+    await waitFor(() => expect(screen.getByText('LEFT FROM BEFORE · 1')).toBeOnTheScreen());
+    // The group holds one row, and it has to be the right one.
+    expect(screen.getByRole('checkbox', { name: 'hers' })).toBeOnTheScreen();
+  });
+
+  it('still reads your own plan when the day is yours', async () => {
+    /*
+     * The other direction, so the fix cannot just move the bug to the other
+     * person.
+     *
+     * Deliberately noted as a *guard* rather than a regression test: reverting
+     * the scoping to `dayEntries = entries` leaves this green, because that is
+     * the branch the own-day path takes anyway. It fails on a swapped ternary,
+     * which is the mutation it exists for.
+     */
+    mockEntries = [
+      { occurrenceKey: 'v1:litter', choreId: 'litter', plannedFor: mockToday, position: 1 },
+    ];
+    mockAllEntries = [
+      {
+        occurrenceKey: 'v1:litter',
+        choreId: 'litter',
+        plannedFor: mockToday,
+        position: 1,
+        userId: mockMe,
+      },
+    ];
+    mockView.mine = [item('litter')];
+    mockChores = [recurring('litter')];
+    renderView();
+    fireEvent.press(
+      screen.getByRole('button', {
+        name: /Choose what to do today|Pick my own|Add to my day|^Add something$/,
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
+  });
+});
+
+describe('the picker offers a chore once', () => {
+  /*
+   * Jake: *"the add to plan picker is still showing multiple entries, seemingly
+   * because it's showing a past due entry and one that's due in the future. When
+   * I'm adding a chore to the plan it should only show up once and it should be
+   * the currently due or past due occurrence of it. There is no reason to add a
+   * future occurrence if it's past due, that makes no sense."*
+   *
+   * His was the pet fountain: a fortnightly rotation late since the 7th, so the
+   * late occurrence and the next one are genuinely different keys — which is why
+   * deduplicating by key never caught it.
+   */
+  const openPicker = () =>
+    fireEvent.press(
+      screen.getByRole('button', {
+        name: /Choose what to do today|Pick my own|Add to my day|^Add something$/,
+      }),
+    );
+
+  it('offers the late occurrence, not the future one as well', async () => {
+    mockAutoPlan = false;
+    mockView.mine = [
+      item('fountain', { dueOn: civilDate('2026-08-28'), status: 'overdue', daysOverdue: 4 }),
+    ];
+    mockHorizon = [
+      item('fountain', {
+        occurrenceKey: 'v1:fountain:later',
+        dueOn: civilDate('2026-09-11'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('fountain')];
+    renderView();
+    const behind = screen.queryAllByText('fountain').length;
+    openPicker();
+
+    await waitFor(() => expect(screen.queryAllByText('fountain').length).toBe(behind + 1));
+    // The one offered is the late one, which is the whole point.
+    expect(screen.getByText('LATE · 1')).toBeOnTheScreen();
+    expect(screen.queryByText('LATER · 1')).toBeNull();
+  });
+
+  it('still offers a chore whose only occurrence is in the future', async () => {
+    // Non-vacuity: getting ahead of something is why "Later" exists at all.
+    mockAutoPlan = false;
+    mockHorizon = [
+      item('weeding', {
+        occurrenceKey: 'v1:weeding:later',
+        dueOn: civilDate('2026-09-11'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('weeding')];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('LATER · 1')).toBeOnTheScreen());
+  });
+
+  it('says only that it is already on today, with nothing to add underneath', async () => {
+    /*
+     * Already planned *and* recurring: the locked group claims the chore, so a
+     * future occurrence is not offered beneath it. Offering one is the same
+     * nonsense one step along — you cannot usefully add next fortnight's copy of
+     * something sitting on today.
+     */
+    mockAutoPlan = false;
+    mockView.mine = [item('fountain')];
+    mockHorizon = [
+      item('fountain', {
+        occurrenceKey: 'v1:fountain:later',
+        dueOn: civilDate('2026-09-11'),
+        status: 'upcoming',
+      }),
+    ];
+    mockChores = [recurring('fountain')];
+    mockEntries = [
+      { occurrenceKey: 'v1:fountain', choreId: 'fountain', plannedFor: mockToday, position: 1 },
+    ];
+    renderView();
+    openPicker();
+
+    await waitFor(() => expect(screen.getByText('ALREADY ON TODAY · 1')).toBeOnTheScreen());
+    expect(screen.queryByText('LATER · 1')).toBeNull();
+  });
+});
+
+describe('shared work that is on both plans', () => {
+  /*
+   * Jake: *"I'm trying to add 'scoop litter box pan' to my day and it's not
+   * working ... It gets added then disappears. i can see it on emily's plan but
+   * not mine."*
+   *
+   * His data: an `anyone` daily chore, and two plan rows for 2026-10-10 with the
+   * **same** occurrence key — `anyone` work carries no subject, so both people's
+   * rows name the same occurrence. Hers was written by the morning fill at
+   * 05:07, his by hand at 14:53. The row is in the database; his phone does not
+   * draw it.
+   */
+  it('appears on your day as well as theirs', async () => {
+    mockAutoPlan = false;
+    mockMembers = [
+      { userId: mockMe, displayName: 'Jake', accent: 'blue' },
+      { userId: mockThem, displayName: 'Emily', accent: 'pink' },
+    ];
+    const shared = item('litter', { assignee: { kind: 'anyone' } });
+    mockView.mine = [shared];
+    mockChores = [recurring('litter')];
+    mockEntries = [
+      { occurrenceKey: 'v1:litter', choreId: 'litter', plannedFor: mockToday, position: 1 },
+    ];
+    mockAllEntries = [
+      {
+        occurrenceKey: 'v1:litter',
+        choreId: 'litter',
+        plannedFor: mockToday,
+        position: 1,
+        userId: mockMe,
+      },
+      {
+        occurrenceKey: 'v1:litter',
+        choreId: 'litter',
+        plannedFor: mockToday,
+        position: 1,
+        userId: mockThem,
+      },
+    ];
+    renderView();
+
+    // Once under his heading and once under hers: the same occurrence, claimed
+    // by both, which is what `anyone` means.
+    // His day draws it; the housemate column is a separate assertion elsewhere.
+    await waitFor(() => expect(screen.getAllByText('litter')).toHaveLength(1));
   });
 });

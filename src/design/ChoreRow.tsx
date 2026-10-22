@@ -312,10 +312,25 @@ export function ChoreRow({
    * at all there, and asked for them to be prominent, "maybe you don't even
    * need to expand the chore to see it".
    */
-  const [stepsOpen, setStepsOpen] = useState(
-    !compact || (stepsOpenByDefault && subtasks.length > 0),
-  );
-  const slim = compact && !stepsOpen;
+  /*
+   * Derived, with the tap as an override — not seeded once at mount.
+   *
+   * `useState(…)` computes its argument on the **first render only**, and the
+   * steps arrive from a query. So a row that mounted before `useSubtasks`
+   * resolved saw `subtasks.length === 0`, seeded itself closed, and stayed
+   * closed after the data landed: Jake, on build 61, *"I'm still noticing
+   * chores with steps not always being expanded to show the steps on the plan
+   * page."* "Not always" is exactly the shape of it — with a warm cache the
+   * query is already settled and the row opens, so it worked right up until it
+   * did not.
+   *
+   * `null` means "nobody has expressed an opinion", so the default is free to
+   * change when the data arrives, and the moment somebody taps the chevron
+   * their choice wins for the life of the row.
+   */
+  const [override, setOverride] = useState<boolean | null>(null);
+  const setStepsOpen = setOverride;
+
   const ticked = tickedSubtasks ?? EMPTY_TICKS;
   const stepsDone = subtasks.filter((s) => ticked.has(s.id)).length;
   const done = item.status === 'completed';
@@ -328,10 +343,64 @@ export function ChoreRow({
    * `toAgendaItem`, where the count now runs from the last time it was done.
    */
   const overdue = item.status === 'overdue' || item.daysOverdue > 0;
+
+  /*
+   * Whether expanding this row would actually show anything.
+   *
+   * Jake: *"chores that will not show any additional information once expanded
+   * do not need to have a button to expand them on the plan page. If all it
+   * does is change the size of the cell there is no reason to have it."*
+   *
+   * The chevron used to render for every compact row — `subtasks.length > 0 ||
+   * compact` — so a one-off with no steps, no note, no turn and no schedule
+   * text had a control whose only effect was to make the cell taller. Each
+   * clause below mirrors exactly one thing the expanded branch renders, and
+   * they have to stay in step: a new piece of detail that is not named here
+   * would be unreachable on the plan.
+   *
+   * **Compact only.** A full-height row is never slim, so it already shows all
+   * of this and its chevron is about the steps alone. A first version carried a
+   * `!compact && (overdue || category || …)` clause for symmetry; it was dead
+   * code — the only reader guards on `compact` — and a review showed deleting
+   * it changed no test. Saying "compact only" here is more use than a clause
+   * that cannot run.
+   */
+  const revealsDetail =
+    subtasks.length > 0 ||
+    note.length > 0 ||
+    priority === 'crucial' ||
+    turnLabel !== null ||
+    // The schedule line, which the expanded branch shows unless the row is
+    // done and already says who did it.
+    (!(done && item.completedBy !== null) && scheduleLabel.length > 0);
+
+  /*
+   * Nothing to reveal means nothing to open, whatever was tapped before.
+   *
+   * `override` outlives the chevron, and the chevron is gone when there is no
+   * detail — so a row tapped open whose note was then cleared stayed expanded
+   * around nothing, with no control left to fold it. A review found it: pinned
+   * at `minHeight: 44` with one line of text in it, which is exactly the empty
+   * band the slim row exists to remove.
+   */
+  /*
+   * Open unless somebody has said otherwise — and never when there is nothing
+   * to open.
+   *
+   * Written as three named steps rather than one expression: the first version
+   * mixed `??` with `||` and precedence turned it into
+   * `(override ?? !compact) || …`, which ignored a deliberate fold.
+   */
+  const openByDefault = !compact || (stepsOpenByDefault && subtasks.length > 0);
+  const stepsOpen = compact && !revealsDetail ? false : (override ?? openByDefault);
+  const slim = compact && !stepsOpen;
   const skipped = item.status === 'skipped';
 
   return (
     <View
+      // Named so a test can assert the row is slim, which is a property of its
+      // own padding and not of anything inside it.
+      testID="row-body"
       style={[
         {
           paddingHorizontal: space.md,
@@ -632,10 +701,10 @@ export function ChoreRow({
           the title, which is what was clipping the long ones. `hitSlop` buys
           the target back without the geometry.
         */}
-        {subtasks.length > 0 || compact ? (
+        {(compact ? revealsDetail : subtasks.length > 0) ? (
           <Pressable
             testID="steps-toggle"
-            onPress={() => setStepsOpen((wasOpen: boolean) => !wasOpen)}
+            onPress={() => setStepsOpen(!stepsOpen)}
             accessibilityRole="button"
             accessibilityState={{ expanded: stepsOpen }}
             accessibilityLabel={
@@ -676,6 +745,24 @@ export function ChoreRow({
               color={colors.textFaint}
             />
           </Pressable>
+        ) : compact ? (
+          /*
+            A hole the same size, not nothing.
+            
+            The chevron is a laid-out sibling with a `gap` beside it, so simply
+            not rendering it hands 32pt back to the title — and a review caught
+            two consequences. Down a list where some rows have detail and some
+            do not, the titles and the right-hand meta column end at different
+            places. Worse, `revealsDetail` depends on props that arrive from
+            queries, so a row that mounts without steps and gets them a beat
+            later would gain a chevron *while you are reading it* and re-wrap
+            the title under your thumb — the exact reflow the comment above
+            forbids, and the class of bug that took four reports to find once.
+            
+            So the control goes and its footprint stays. Jake asked not to have
+            a button that does nothing, and there is now no button.
+          */
+          <View testID="steps-spacer" style={{ width: 20, height: 20 }} />
         ) : null}
       </View>
 

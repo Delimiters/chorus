@@ -38,6 +38,7 @@ import type { Assignment } from '@/core/rotation/types';
 import type { Chore, ChoreDraft } from '@/data/api/chores';
 import { BackBar, Button, ErrorState, Field, Stack, Txt } from '@/design/components';
 import { FieldGroup, SegmentedControl } from '@/design/controls';
+import { CHORE_NOTES_MAX, CHORE_TITLE_MAX } from '@/core/text/limits';
 import { DEFAULT_PRIORITY, type Priority } from '@/core/chore/priority';
 import { useReminderPolicy } from '@/stores/reminderStore';
 import { describeSilence, whyNoReminder } from '@/core/notify/silence';
@@ -143,6 +144,7 @@ export function ChoreForm({
    * be trustworthy, which it is not.
    */
   const [steps, setSteps] = useState<readonly SubtaskDraft[]>(subtasks);
+  const [nagUntilDone, setNagUntilDone] = useState<boolean>(chore?.nagUntilDone ?? false);
   const [isPrivate, setIsPrivate] = useState<boolean>(
     chore?.privateTo !== null && chore?.privateTo !== undefined,
   );
@@ -261,8 +263,20 @@ export function ChoreForm({
   );
 
   const trimmed = title.trim();
+  /*
+   * `CHORE_TITLE_MAX`, not a literal.
+   *
+   * This read 120 while the input allowed 200, so a 150-character name typed
+   * fine and then `Add chore` did nothing — a dead control with no explanation,
+   * which is the exact defect the field countdown exists to prevent. It only
+   * became reachable when the cap went up: at `maxLength={120}` the gate could
+   * never be crossed.
+   */
   const canSave =
-    trimmed.length > 0 && trimmed.length <= 120 && !isSaving && !createCategory.isPending;
+    trimmed.length > 0 &&
+    trimmed.length <= CHORE_TITLE_MAX &&
+    !isSaving &&
+    !createCategory.isPending;
 
   const submit = () => {
     if (!canSave) return;
@@ -313,6 +327,7 @@ export function ChoreForm({
       priority,
       icon,
       privateTo: isPrivate ? userId : null,
+      nagUntilDone,
       // Blank rows are how a half-typed step looks; they are not steps.
       subtasks: steps
         .filter((step) => step.title.trim().length > 0)
@@ -357,8 +372,7 @@ export function ChoreForm({
           onChangeText={setTitle}
           placeholder="Take out the bins"
           autoFocus={!editing}
-          maxLength={120}
-          {...(trimmed.length > 120 ? { error: 'That name is too long.' } : {})}
+          maxLength={CHORE_TITLE_MAX}
         />
 
         <Field
@@ -367,7 +381,7 @@ export function ChoreForm({
           onChangeText={setNotes}
           placeholder="Optional"
           multiline
-          maxLength={2000}
+          maxLength={CHORE_NOTES_MAX}
         />
 
         {/* Category first: it picks the icon for you, and the icon picker is
@@ -501,6 +515,49 @@ export function ChoreForm({
           occurrence today — one scheduled for next month — the plan simply
           finds nothing to claim and the switch costs nothing.
         */}
+        {/*
+          The nag switch.
+          
+          Jake asked for *"some kind of feature for a super notification ...
+          sends repeated notifications until it's done"*. The copy says what it
+          actually does rather than promising an alarm: iOS gives no
+          "keep buzzing" API to third-party apps, so this is a widening ladder
+          of reminders that stops the moment the chore is ticked — and the hint
+          says both halves, because a feature that over-promises is one people
+          switch off after the first morning it does less than they expected.
+        */}
+        {/* Nothing to remind about on a Someday chore, so nothing to keep
+            reminding about either — the same guard the time control above
+            uses, for the same reason. */}
+        {recurrence.rule.kind === 'unscheduled' ? null : (
+          <FieldGroup
+            label="Reminders"
+            hint={
+              nagUntilDone
+                ? 'Reminds again at 3, 8, 16, 27 and 40 minutes, with sound, breaking through Focus. Ticking it off stops the rest next time this phone opens the app — if it is in your pocket, the remaining nudges still arrive. Three chores a day can do this; iOS limits how many reminders an app may queue.'
+                : 'One reminder, quietly, at the time the chore asks for.'
+            }
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: space.md,
+              }}
+            >
+              <Txt variant="small" tone="muted" style={{ flex: 1, minWidth: 0 }}>
+                Keep reminding me until it&apos;s done
+              </Txt>
+              <Switch
+                value={nagUntilDone}
+                onValueChange={setNagUntilDone}
+                accessibilityLabel="Keep reminding me until it's done"
+              />
+            </View>
+          </FieldGroup>
+        )}
+
         {onPlanTodayChange === undefined ? null : (
           <FieldGroup label="When you save">
             <View

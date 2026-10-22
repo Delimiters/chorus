@@ -9,13 +9,12 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.delimiters.chorus",
-      "buildNumber": "49",
+      "buildNumber": "65",
       "supportsTablet": false,
       "appleTeamId": "SY59JGZ44Y",
       "entitlements": {
-        "com.apple.security.application-groups": [
-          "group.com.delimiters.chorus"
-        ]
+        "com.apple.developer.usernotifications.time-sensitive": true,
+        "com.apple.security.application-groups": ["group.com.delimiters.chorus"]
       }
     },
     "android": {

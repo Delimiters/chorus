@@ -30,6 +30,7 @@
  * category, you should be able to pick the category first."*
  */
 
+import { CATEGORY_NAME_MAX } from '@/core/text/limits';
 import { Pressable, View } from 'react-native';
 
 import { describePriority, PRIORITIES, type Priority } from '@/core/chore/priority';
@@ -153,7 +154,7 @@ export function CategoryPicker({
             value={draft.name}
             onChangeText={(name) => onChangeDraft({ ...draft, name })}
             placeholder="Kitchen"
-            maxLength={40}
+            maxLength={CATEGORY_NAME_MAX}
             autoFocus
             {...(createError === null ? {} : { error: createError })}
           />

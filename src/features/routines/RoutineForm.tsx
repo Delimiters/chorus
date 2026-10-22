@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 import { ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ROUTINE_NOTES_MAX, ROUTINE_TITLE_MAX } from '@/core/text/limits';
 import { formatCivilTime } from '@/core/civil/time';
 import type { CalendarConfig, CivilDate, CivilTime } from '@/core/civil/types';
 import type { Schedule } from '@/core/recurrence/types';
@@ -107,7 +108,10 @@ export function RoutineForm({
   );
 
   const trimmed = title.trim();
-  const canSave = trimmed.length > 0 && trimmed.length <= 120 && !isSaving;
+  // `ROUTINE_TITLE_MAX`, not a literal. The chore form had this same gate
+  // hard-coded at 120 while its input allowed 200, so a long name typed fine
+  // and then the button silently did nothing.
+  const canSave = trimmed.length > 0 && trimmed.length <= ROUTINE_TITLE_MAX && !isSaving;
 
   /** What a reminder would actually say, so the toggle is not a guess. */
   const remindAt = timeOfDay ?? bucketStart(bucket);
@@ -163,8 +167,7 @@ export function RoutineForm({
           onChangeText={setTitle}
           placeholder="Stretch"
           autoFocus={!editing}
-          maxLength={120}
-          {...(trimmed.length > 120 ? { error: 'That name is too long.' } : {})}
+          maxLength={ROUTINE_TITLE_MAX}
         />
 
         <Field
@@ -173,7 +176,7 @@ export function RoutineForm({
           onChangeText={setNotes}
           placeholder="Optional"
           multiline
-          maxLength={2000}
+          maxLength={ROUTINE_NOTES_MAX}
         />
 
         <IconPicker value={icon} onChange={setIcon} />

@@ -134,6 +134,34 @@ describe('planRoutineReminders', () => {
     expect(reminders[0]?.atTime).toBe('10:45');
   });
 
+  it('fires a bucket reminder set before dawn on the following morning', () => {
+    /*
+     * Bucket reminder times are configurable, so Night's can be set to 02:00 —
+     * and 02:00 belongs to the routine day that began the previous morning.
+     * Scheduled against the day itself it was almost twenty-four hours early,
+     * and for today's bucket that instant is already past, so the transport
+     * dropped it and the reminder never arrived. The per-item path has had this
+     * guard since it shipped; the grouped path never got it.
+     */
+    const reminders = plan([routine({ timeOfDay: null, bucket: 'night' })], {
+      ...DEFAULT_POLICY,
+      bucketTimes: { ...DEFAULT_POLICY.bucketTimes, night: '02:00' as CivilTime },
+    });
+
+    expect(reminders[0]?.atTime).toBe('02:00');
+    expect(reminders[0]?.onDate).toBe(addDays(TODAY, 1));
+  });
+
+  it('leaves a bucket reminder after dawn on its own day', () => {
+    // Non-vacuity for the pair above.
+    const reminders = plan([routine({ timeOfDay: null, bucket: 'night' })], {
+      ...DEFAULT_POLICY,
+      bucketTimes: { ...DEFAULT_POLICY.bucketTimes, night: '20:00' as CivilTime },
+    });
+
+    expect(reminders[0]?.onDate).toBe(TODAY);
+  });
+
   it('leaves the bucket boundaries alone when the reminder time moves', () => {
     // Non-vacuity for the pair above: an item at 06:00 is still Morning, even
     // with the morning reminder set to the middle of the day.
@@ -194,12 +222,14 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     const choresOnly = planReminders({
       occurrences: chores,
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
 
     expect(merged.filter((r) => r.id !== KEEP_ALIVE_ID)).toEqual(choresOnly);
@@ -212,6 +242,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     expect(merged.some(isRoutineReminder)).toBe(true);
     expect(merged.some((r) => !isRoutineReminder(r) && r.id !== KEEP_ALIVE_ID)).toBe(true);
@@ -237,6 +268,7 @@ describe('planAllReminders', () => {
             today: TODAY,
             userId: ME,
             policy: DEFAULT_POLICY,
+            dayStartsAtHour: 0,
           });
           expect(merged.length).toBeLessThanOrEqual(MAX_PENDING);
         },
@@ -259,6 +291,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
 
     const chores = merged.filter((r) => !isRoutineReminder(r) && r.id !== KEEP_ALIVE_ID);
@@ -285,6 +318,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
 
     expect(merged.filter(isRoutineReminder)).toHaveLength(10);
@@ -311,6 +345,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     const withoutKeepAlive = merged.filter((r) => r.id !== KEEP_ALIVE_ID);
     expect(withoutKeepAlive[0]?.onDate).toBe(TODAY);
@@ -323,6 +358,7 @@ describe('planAllReminders', () => {
       today: TODAY,
       userId: ME,
       policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
     });
     expect(merged.filter((r) => r.id === KEEP_ALIVE_ID)).toHaveLength(1);
   });
@@ -335,7 +371,79 @@ describe('planAllReminders', () => {
         today: TODAY,
         userId: ME,
         policy: { ...DEFAULT_POLICY, enabled: false },
+        dayStartsAtHour: 0,
       }),
     ).toEqual([]);
+  });
+});
+
+describe('the two planners, merged under a day break', () => {
+  /*
+   * `planAllReminders` sorts both streams on `onDate`, and that field means
+   * "wall-clock date" for both — chores via `wallDateFor` since the household
+   * break shipped, routines via `fallsOnNextCalendarDay` since routines did.
+   * Every existing test here pins the break at 0, so nothing exercised the
+   * composition; a review pointed that out.
+   */
+  it('orders a 01:00 chore and a 04:00 routine by when they actually fire', () => {
+    const merged = planAllReminders({
+      chores: [chore({ occurrenceKey: 'c1', dueOn: TODAY, timesOfDay: ['01:00'] as CivilTime[] })],
+      routines: [
+        routine({
+          itemId: 'r1',
+          occurrenceKey: 'r1',
+          dueOn: TODAY,
+          timeOfDay: '04:00' as CivilTime,
+        }),
+      ],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 3,
+    });
+
+    const byId = new Map(merged.map((r) => [r.id.replace('routine:', '').split('@')[0], r]));
+    /*
+     * Both move, and for different reasons — which is the thing worth pinning.
+     * The chore is before the *household* break at 3, so it fires tomorrow
+     * morning. The routine is before the *routine day's* own 05:00 origin, so it
+     * fires tomorrow morning too, by a rule that predates the household break
+     * and does not consult it.
+     */
+    expect(byId.get('c1')?.onDate).toBe(addDays(TODAY, 1));
+    expect(byId.get('r1')?.onDate).toBe(addDays(TODAY, 1));
+
+    // And the merged order is chronological across the two sources, which is
+    // what the quota then slices.
+    const order = merged
+      .filter((r) => r.id.startsWith('c1') || r.id.startsWith('routine:r1'))
+      .map((r) => `${r.onDate}T${r.atTime}`);
+    expect([...order].sort()).toEqual(order);
+  });
+
+  it('leaves both where they were when the day starts at midnight', () => {
+    const merged = planAllReminders({
+      chores: [chore({ occurrenceKey: 'c1', dueOn: TODAY, timesOfDay: ['01:00'] as CivilTime[] })],
+      routines: [
+        routine({
+          itemId: 'r1',
+          occurrenceKey: 'r1',
+          dueOn: TODAY,
+          timeOfDay: '04:00' as CivilTime,
+        }),
+      ],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 0,
+    });
+
+    const byId = new Map(merged.map((r) => [r.id.replace('routine:', '').split('@')[0], r]));
+    // The chore stays put: at midnight nothing is before the break.
+    expect(byId.get('c1')?.onDate).toBe(TODAY);
+    // The routine still moves — 04:00 is before its own 05:00 origin, which is
+    // a separate boundary and not the household's. The two are independent, and
+    // this is what that looks like.
+    expect(byId.get('r1')?.onDate).toBe(addDays(TODAY, 1));
   });
 });

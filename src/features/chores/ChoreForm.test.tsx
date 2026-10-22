@@ -9,9 +9,10 @@
  * whose turn every future occurrence is.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, userEvent, waitFor } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 
+import { CHORE_TITLE_MAX, SUBTASK_TITLE_MAX } from '@/core/text/limits';
 import { civilDate } from '@/core/civil/date';
 import type { CalendarConfig, CivilTime } from '@/core/civil/types';
 import { safeParseSchedule } from '@/core/recurrence/schema';
@@ -71,6 +72,7 @@ const ROTATING_CHORE: Chore = {
   archivedAt: null,
   categoryId: null,
   priority: 'normal',
+  nagUntilDone: false,
   icon: null,
   privateTo: null,
   createdAt: '2026-08-15T09:02:51.485803+00:00',
@@ -1104,5 +1106,174 @@ describe('the form scrolling itself while you are using it', () => {
     await fireEvent.press(screen.getAllByRole('radio', { name: 'car' })[0]!);
 
     expect(scrollSpy).toHaveBeenCalled();
+  });
+});
+
+describe('a long name', () => {
+  /*
+   * The whole point of raising the cap, and it was unreachable.
+   *
+   * `maxLength` went to 200 while `canSave` still read `<= 120` and the API
+   * layer still threw past 120 — so a 150-character name typed fine and then
+   * `Add chore` did nothing at all, with the explanatory error deleted in the
+   * same change. A review found it; nothing in the suite did, because every
+   * existing test names a short chore.
+   *
+   * These assert through the button, which is the only thing that proves the
+   * three layers agree.
+   */
+  const long = 'a'.repeat(150);
+
+  it('past the old limit can be saved', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), long);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).title).toBe(long);
+  });
+
+  it('right at the new limit can be saved', async () => {
+    const { onSubmit } = await renderForm();
+    const atCap = 'b'.repeat(CHORE_TITLE_MAX);
+    await fireEvent.changeText(screen.getByLabelText('Name'), atCap);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).title).toBe(atCap);
+  });
+
+  it('is still refused when it is nothing but spaces', async () => {
+    // The lower bound the widening must not drop.
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), '    ');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe('a long step', () => {
+  /*
+   * The steps editor caps its own input and has no save gate of its own, so the
+   * only thing that could hold the old 120 was `maxLength` — and a `maxLength`
+   * below the CHECK is invisible: nothing errors, you simply cannot type the
+   * name you wanted, which is the complaint that started all of this.
+   *
+   * Typed through the field and read back off the submitted draft, because
+   * asserting the prop would pass against a component that ignores it.
+   */
+  it('stops accepting characters at the cap, and not before', async () => {
+    /*
+     * Typed, not asserted as a prop.
+     *
+     * `fireEvent.changeText` sets the value directly and so bypasses
+     * `maxLength` entirely — which is why the first version of this test
+     * checked the prop and said that was the only option. A review showed
+     * `userEvent.type` maintains text state and *does* enforce it, so the real
+     * behaviour is observable after all: a prop assertion would have passed
+     * against a component that ignored it.
+     *
+     * A `maxLength` below the CHECK is the invisible failure — nothing errors,
+     * you simply cannot type the name you wanted, which is the complaint that
+     * started all of this.
+     */
+    await renderForm();
+    await userEvent.press(screen.getByRole('button', { name: 'Add a step' }));
+    const step = screen.getByLabelText('Step 1');
+
+    await userEvent.type(step, 'e'.repeat(SUBTASK_TITLE_MAX + 10));
+
+    expect((step.props.value as string).length).toBe(SUBTASK_TITLE_MAX);
+    /*
+     * An explicit timeout because `userEvent.type` costs one event per
+     * character: this runs ~2.7s against a 200-character cap, and the default
+     * 5000ms would make the *next* widening fail here by timeout rather than by
+     * assertion — on the very change this test exists to guard.
+     */
+  }, 20000);
+
+  it('past the old limit survives into the draft', async () => {
+    // Through the field and back off the draft, which guards the trim-and-filter
+    // path the steps go through on the way out.
+    const { onSubmit } = await renderForm();
+    const long = 'd'.repeat(150);
+
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Deep clean');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add a step' }));
+    await fireEvent.changeText(screen.getByLabelText('Step 1'), long);
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).subtasks?.[0]?.title).toBe(long);
+  });
+});
+
+describe('keeping on at you until it is done', () => {
+  it('is not offered on a Someday chore, which can never remind', async () => {
+    /*
+     * A Someday chore produces no occurrences, so the switch would promise
+     * sound at 3, 8, 16, 27 and 40 minutes and never fire once — the same
+     * reason the time control above it is hidden.
+     */
+    await renderForm();
+    await fireEvent.press(screen.getByRole('tab', { name: 'No date' }));
+
+    expect(screen.queryByLabelText("Keep reminding me until it's done")).toBeNull();
+  });
+
+  /*
+   * Jake: *"Can we make some kind of feature for a super notification? ... sends
+   * repeated notifications until it's done?"*
+   */
+  it('is off unless you ask for it', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    // A household woken up by every chore turns the app's notifications off,
+    // which costs them the ordinary reminders too.
+    expect(submitted(onSubmit).nagUntilDone).toBe(false);
+  });
+
+  it('is saved when you turn it on', async () => {
+    const { onSubmit } = await renderForm();
+    await fireEvent.changeText(screen.getByLabelText('Name'), 'Bins');
+    await fireEvent(
+      screen.getByLabelText("Keep reminding me until it's done"),
+      'valueChange',
+      true,
+    );
+    await fireEvent.press(screen.getByRole('button', { name: 'Add chore' }));
+
+    expect(submitted(onSubmit).nagUntilDone).toBe(true);
+  });
+
+  it('says what it will actually do, not that it is an alarm', async () => {
+    /*
+     * The copy has to be honest: iOS gives third-party apps no way to buzz
+     * continuously, and a feature that over-promises is one people switch off
+     * the first morning it does less than they expected.
+     */
+    await renderForm();
+    await fireEvent(
+      screen.getByLabelText("Keep reminding me until it's done"),
+      'valueChange',
+      true,
+    );
+
+    expect(screen.getByText(/breaking through Focus/)).toBeOnTheScreen();
+    /*
+     * And it does not claim the nagging stops the moment the chore is ticked.
+     * It cannot: pending notifications can only be cancelled by this app
+     * running, so a chore your housemate ticks while your phone is in your
+     * pocket keeps nudging you. A review caught the copy promising otherwise.
+     */
+    expect(screen.getByText(/still arrive/)).toBeOnTheScreen();
+    // And it admits the ration rather than letting somebody discover it.
+    expect(screen.getByText(/Three chores a day/)).toBeOnTheScreen();
+  });
+
+  it('keeps the setting when you reopen a chore that has it', async () => {
+    await renderForm({ chore: { ...ROTATING_CHORE, nagUntilDone: true } });
+
+    expect(screen.getByLabelText("Keep reminding me until it's done").props.value).toBe(true);
   });
 });

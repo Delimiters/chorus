@@ -11,6 +11,8 @@
  * decides how. See docs/decisions/ADR-0005-local-notifications-first.md.
  */
 
+import { wallDateFor } from '../civil/daybreak';
+import { MAX_NAGGING_PER_DAY, nagBody, nagSteps } from './insist';
 import { addDays, compareCivil, toEpochDay } from '../civil/date';
 import type { CivilDate, CivilTime } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
@@ -120,6 +122,14 @@ export interface PlannedReminder {
   readonly body: string;
   readonly onDate: CivilDate;
   readonly atTime: CivilTime;
+  /**
+   * Whether this one should break through a Focus mode and make a sound.
+   *
+   * Only a nagging chore's reminders ask for it. Marking everything Time
+   * Sensitive would be the notification equivalent of writing in capitals: iOS
+   * lets the user turn the whole category off, and they would.
+   */
+  readonly insistent?: boolean;
 }
 
 export interface PlanInput {
@@ -128,6 +138,20 @@ export interface PlanInput {
   /** Whose device this is. Only their chores are planned — see below. */
   readonly userId: string;
   readonly policy: ReminderPolicy;
+  /**
+   * The household's day break, so a reminder lands on the right *wall-clock*
+   * date. See `core/civil/daybreak.ts`.
+   */
+  readonly dayStartsAtHour: number;
+  /**
+   * Chores that should keep asking until they are done.
+   *
+   * A set of chore ids rather than a flag on the occurrence, because the
+   * setting belongs to the chore and the projector has no reason to carry it
+   * through. Optional so every existing caller keeps compiling and means "no
+   * chore nags".
+   */
+  readonly insistChoreIds?: ReadonlySet<string>;
 }
 
 /**
@@ -139,8 +163,12 @@ export interface PlanInput {
  * the main thing remote push buys, and it waits.
  */
 export function planReminders(input: PlanInput): readonly PlannedReminder[] {
-  const { policy, today, userId } = input;
+  const { policy, today, userId, dayStartsAtHour } = input;
   if (!policy.enabled) return [];
+
+  const insist = input.insistChoreIds ?? new Set<string>();
+  /** How many chores have already claimed a ladder on each firing date. */
+  const naggedOn = new Map<CivilDate, number>();
 
   const horizonEnd = addDays(today, Math.max(0, policy.horizonDays));
 
@@ -204,13 +232,127 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
      * existing pending notifications are still matched rather than duplicated.
      */
     const times = occ.timesOfDay.length === 0 ? [policy.defaultTime] : occ.timesOfDay;
+    /*
+     * A nagging chore gets a ladder instead of one reminder.
+     *
+     * Rationed per day rather than per chore: `MAX_PENDING` is sixty and the
+     * planner keeps the *soonest*, so an unbounded number of nags in one
+     * morning would push the rest of the week's reminders off the end of the
+     * queue. Past the ration a chore still gets its single ordinary reminder,
+     * so the feature degrades to the old behaviour instead of failing.
+     *
+     * Counted on the date the reminder *fires*, which is what the operating
+     * system's queue is full of, and in the order the occurrences come — which
+     * `sortForDisplay` has already put in due-date order, so the earliest
+     * chores of a day win the ration rather than whichever was created first.
+     */
+    const nagging = insist.has(occ.choreId);
+    /*
+     * **The earliest time only**, however many the chore asks for.
+     *
+     * A review measured the first version: one nagging chore with four reminder
+     * times produced twenty-four notifications — forty per cent of the whole
+     * queue for one job — because the ration was spent per *chore* and the
+     * ladder emitted per *time*. Two times three minutes apart also stacked
+     * two audible notifications in the same minute, which reads as a bug.
+     *
+     * Laddering the earliest is also the honest reading of the request. "Keep
+     * reminding me until it's done" is one conversation that starts when the
+     * chore first comes due; it is not six conversations because the chore
+     * happens to name four times.
+     */
+    const ladderAt = nagging ? times[0] : undefined;
+    /*
+     * Charged against the date each step *fires* on.
+     *
+     * Keyed on `occ.dueOn`, the ration was wrong twice over. Under this
+     * household's 3 AM break a 01:00 reminder fires the *next* calendar day, so
+     * three chores due Monday at 01:00 and three due Tuesday at 09:00 put two
+     * separate rations of three onto one wall-clock date — thirty-six insistent
+     * notifications where the cap says eighteen, which a review measured. And a
+     * ladder starting at 23:50 spills its later steps onto the following date
+     * without being charged for them there.
+     *
+     * The operating system's queue is indexed by firing instant, so that is
+     * what the ration has to count.
+     */
+    const ladderStart =
+      ladderAt === undefined ? undefined : wallDateFor(occ.dueOn, ladderAt, dayStartsAtHour);
+    const ladder =
+      ladderAt === undefined || ladderStart === undefined ? [] : nagSteps(ladderStart, ladderAt);
+    /*
+     * One whole ladder per date it touches, counted in whole numbers.
+     *
+     * A first version charged a sixth of a ladder per step so that a spilling
+     * one paid proportionally into both dates. Six sixths is 0.999… in floating
+     * point, so three ladders summed to just under three and a fourth slipped
+     * through — the ration failing silently, which is precisely the failure it
+     * exists to prevent. A ladder that crosses midnight is now charged in full
+     * to both days: over-counting by a few slots is the safe direction, and it
+     * is a whole number.
+     */
+    const touched = [...new Set(ladder.map((step) => step.onDate))];
+    /*
+     * Where the ladder already buzzes, so another of this chore's own times
+     * does not land on top of it.
+     *
+     * A chore with times 09:00 and 09:03 put the ladder's second step and the
+     * 09:03 reminder in the same minute — the same chore twice, one saying
+     * "due today" and one saying "still not done". Keeping the ladder's step
+     * and dropping the duplicate is the honest reading of "keep reminding me":
+     * one conversation, not two overlapping ones.
+     */
+    const ladderStamps = new Set(ladder.map((step) => `${step.onDate}T${step.atTime}`));
+    const laddered =
+      ladder.length > 0 && touched.every((date) => (naggedOn.get(date) ?? 0) < MAX_NAGGING_PER_DAY);
+    if (laddered) {
+      for (const date of touched) naggedOn.set(date, (naggedOn.get(date) ?? 0) + 1);
+    }
+
     for (const atTime of times) {
+      const base = {
+        choreId: occ.choreId,
+        title: occ.choreTitle,
+        body: bodyFor(occ),
+      };
+      if (laddered && atTime === ladderAt) {
+        for (const step of ladder) {
+          planned.push({
+            ...base,
+            // Every step needs its own identifier: the transport schedules by
+            // id, so two sharing one are one notification.
+            id:
+              step.index === 0
+                ? times.length === 1
+                  ? occ.occurrenceKey
+                  : `${occ.occurrenceKey}@${atTime}`
+                : `${occ.occurrenceKey}@${atTime}#${String(step.index)}`,
+            body: nagBody(base.body, step.index),
+            onDate: step.onDate,
+            atTime: step.atTime,
+            insistent: true,
+          });
+        }
+        continue;
+      }
+      const onDate = wallDateFor(occ.dueOn, atTime, dayStartsAtHour);
+      if (laddered && ladderStamps.has(`${onDate}T${atTime}`)) continue;
+
       planned.push({
         id: times.length === 1 ? occ.occurrenceKey : `${occ.occurrenceKey}@${atTime}`,
         choreId: occ.choreId,
         title: occ.choreTitle,
         body: bodyFor(occ),
-        onDate: occ.dueOn,
+        /*
+         * The wall-clock date, which is not always the due date.
+         *
+         * With a 3 AM break, a chore due Monday with a 01:00 reminder fires on
+         * Tuesday *by the calendar* — 01:00 Tuesday is Monday night. Scheduled
+         * against Monday it was 23 hours early, and therefore already past when
+         * the plan was made, so it was dropped silently and never fired at all.
+         * The routines planner has had the equivalent of this since it shipped.
+         */
+        onDate: wallDateFor(occ.dueOn, atTime, dayStartsAtHour),
         atTime,
       });
     }

@@ -11,6 +11,7 @@
  * the projector. See docs/ARCHITECTURE.md.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useQuery, useQueryClient, useMutation, skipToken } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
@@ -87,6 +88,38 @@ interface OccurrencesResult {
 }
 
 /**
+ * The roster the `everyone` fan-out is given, which always contains you.
+ *
+ * `(members.data ?? []).map(...)` was the bug behind a row that vanished and
+ * came back in a loop. An `everyone` chore produces **one occurrence per
+ * member**, so an empty roster produces none at all — and the plan drops an
+ * entry whose occurrence is missing rather than rendering a row that cannot be
+ * ticked. The two together turn "the roster is not loaded" into "your shared
+ * work is not on your day", silently, with the screen otherwise looking ready.
+ *
+ * The roster goes missing for more reasons than a first load: the query errors
+ * and `data` is `undefined` while `isLoading` is already false, the household
+ * id changes and the key with it, or — the one that cost a day — the read is
+ * refused by RLS, which PostgREST reports as *success with no rows*. A refusal
+ * is indistinguishable from "this household has no members" at this layer.
+ *
+ * So the one member we can assert from a source that cannot come back empty —
+ * the signed-in user — is added back. You are necessarily a member of the
+ * household you are looking at, which makes this a no-op on every healthy
+ * read and the difference between a visible row and a vanished one otherwise.
+ * Your housemate's copy can still be briefly absent; yours cannot, and yours
+ * is the one your plan is built from.
+ */
+function rosterWithSelf(
+  members: readonly { readonly userId: string }[] | undefined,
+  userId: string | null,
+): readonly string[] {
+  const roster = (members ?? []).map((m) => m.userId);
+  if (userId === null || roster.includes(userId)) return roster;
+  return [...roster, userId];
+}
+
+/**
  * Projected occurrences over a window.
  *
  * The window must already be quantised — pass one from {@link quantiseWindow}.
@@ -95,7 +128,8 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
   const householdId = useActiveHouseholdId();
   const household = useHousehold();
   const timeZone = household.data?.timeZone ?? 'UTC';
-  const today = useToday(timeZone);
+  const dayStartsAtHour = safeDayStart(household.data?.dayStartsAtHour);
+  const today = useToday(timeZone, dayStartsAtHour);
 
   const calendar = useMemo<CalendarConfig>(
     () => ({ weekStartsOn: (household.data?.weekStartsOn ?? 0) as CalendarConfig['weekStartsOn'] }),
@@ -133,6 +167,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
   });
 
   const members = useMembers();
+  const userId = useUserId();
 
   /**
    * Interval chores need **every** completion they have, not this window's.
@@ -190,7 +225,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
         chores,
         completions,
         exceptions: (exceptionsQuery.data ?? []) as ExceptionInput[],
-        memberIds: (members.data ?? []).map((m) => m.userId),
+        memberIds: rosterWithSelf(members.data, userId),
         turns: turnsQuery.data ?? [],
         today,
       },
@@ -204,6 +239,7 @@ export function useOccurrences(window: DateWindow): OccurrencesResult {
     exceptionsQuery.data,
     turnsQuery.data,
     members.data,
+    userId,
     today,
     calendar,
     window,
@@ -305,6 +341,7 @@ function useLingeringOneTimeChores(
 ): { items: readonly AgendaItem[]; error: Error | null } {
   const householdId = useActiveHouseholdId();
   const members = useMembers();
+  const userId = useUserId();
 
   const choresQuery = useQuery({
     queryKey: qk.oneTimeChores(householdId ?? '__none__'),
@@ -350,7 +387,7 @@ function useLingeringOneTimeChores(
       chores,
       completions: (completionsQuery.data ?? []) as CompletionInput[],
       exceptions: (exceptionsQuery.data ?? []) as ExceptionInput[],
-      memberIds: (members.data ?? []).map((m) => m.userId),
+      memberIds: rosterWithSelf(members.data, userId),
       today,
     };
 
@@ -397,6 +434,7 @@ function useLingeringOneTimeChores(
     completionsQuery.data,
     exceptionsQuery.data,
     members.data,
+    userId,
     today,
     calendar,
     window,
@@ -436,7 +474,8 @@ export function useToday_View() {
   const household = useHousehold();
   const weekStartsOn = (household.data?.weekStartsOn ?? 0) as CalendarConfig['weekStartsOn'];
   const timeZone = household.data?.timeZone ?? 'UTC';
-  const today = useToday(timeZone);
+  const dayStartsAtHour = safeDayStart(household.data?.dayStartsAtHour);
+  const today = useToday(timeZone, dayStartsAtHour);
   const userId = useUserId();
 
   /*
@@ -516,7 +555,10 @@ export function useToggleCompletion() {
   const userId = useUserId();
   const queryClient = useQueryClient();
   const household = useHousehold();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
 
   return useMutation({
     mutationFn: async ({ item, complete, completedOn }: ToggleInput) => {

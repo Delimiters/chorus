@@ -28,6 +28,7 @@
 
 import { Pressable, View } from 'react-native';
 
+import { notePreview } from '@/core/text/notes';
 import { Txt } from '@/design/components';
 import { radius, space, MIN_TARGET } from '@/design/tokens';
 import { useColors } from '@/design/theme';
@@ -51,7 +52,12 @@ export function NoteCard({
   onPress,
 }: NoteCardProps) {
   const colors = useColors();
-  const trimmed = body.trim();
+  /*
+   * Flattened first: list markers off and blank lines collapsed. A card reading
+   * "- milk" would be showing its own syntax, and two blank lines would waste a
+   * third of a two-line preview.
+   */
+  const trimmed = notePreview(body).trim();
 
   /*
    * People paste a sentence and leave. With no title the first line of the

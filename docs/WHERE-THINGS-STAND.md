@@ -116,3 +116,95 @@ mounted after you leave it — so a note arriving over realtime cleared a badge
 that had never appeared. The wiring test passed with the focus effect deleted
 outright, which is what gave it away. Deleting the thing under test and watching
 the suite stay green is now the last step before every commit here.
+
+## Addendum, 20 October 2026 — the identity-key bug class
+
+Eleven changes landed between #141 and #152. Four of them were the *same bug*,
+and that is the thing worth remembering from this stretch.
+
+**Every one was an identity question answered with the wrong key.**
+
+| Where | The key it used | The key it needed |
+|---|---|---|
+| `horizonUpcoming` dedupe | `choreId` | `choreId::subject` |
+| the owed badge | the calendar date | the household day |
+| the nag ration | the chore's due date | the date the alarm fires |
+| the claim effect | whichever occurrence matched first | the one currently due |
+
+Each read plausibly. Each type-checked. Each produced a symptom that looked
+like a sync problem — a chore appearing twice in the picker, a badge counting
+something 23 hours early, 36 notifications on one day, a phantom completion for
+tomorrow — which is why Jake's read of it ("our system for automatically
+updating the plan is causing sync issues") was reasonable and wrong.
+
+`docs/decisions/plan-audit-2026-10-11.md` is the audit that settled it: nothing
+is lost between the database and the screen, and the architecture did not need
+reevaluating. Four predicates needed fixing.
+
+**The shape to watch for:** any time a line reduces a set — a `dedupe`, a
+`find`, a `Set` of ids, a per-day counter — ask out loud what *one thing* it is
+claiming each key stands for, and whether that is the same thing the feature
+means. An `everyone` chore is one row and N occurrences; a 3am day break means
+the wall-clock date and the household day disagree for three hours a night; a
+nag ladder fires on a date that is not necessarily the date the chore is due.
+The mistake is never in the arithmetic, it is in the noun.
+
+### The tests kept passing, again
+
+Seven tests this stretch could not have failed: a roster test asserting
+`view.theirs === []` (true with the fix *and* with the bug), a "loses no words"
+list that passed with the words reversed and duplicated, a transport test that
+stayed green with sound and interruption level stripped out entirely, a ration
+test whose fixture shared one due date, a footprint test asserting a spacer
+existed rather than that it was 20pt, a "folds back" test asserting a chevron
+was absent rather than that the row collapsed, and clamp tests on a branch
+nothing could reach.
+
+The habit from the September addendum held up every time it was applied, so it
+is now the rule rather than the suggestion: **revert the guard, watch the suite
+go red, then commit.** A test written after the fix, against the fixture that
+exposed the bug, is the one most likely to be vacuous — because the fixture was
+chosen to be minimal, and minimal fixtures make assertions true by accident.
+
+### Signing: what builds 63 and 64 cost, and the rule that came out of it
+
+The nag ladder **does** break through Focus, from build 64 on. Getting there
+took a day, and the lesson is one sentence: **changing an App ID's capabilities
+invalidates every provisioning profile that includes it, and this machine cannot
+mint a replacement.**
+
+Build 63 failed. `com.apple.developer.usernotifications.time-sensitive` reached
+the generated entitlements file correctly and then signing refused it, because
+builds 49–62 had been riding a cached Xcode-managed profile. Minting a new one
+needs an Apple ID signed into Xcode; there is none, and Xcode's cached team
+record still says `isFreeProvisioningTeam = 1` / "Personal Team" despite the
+membership being paid since September.
+
+The fix was to stop asking Xcode for profiles. Two were made by hand in the
+developer portal — `Chorus Dev` and `Chorus Widget Dev`, each naming both
+development certificates and both phones — and the build switched to
+`CODE_SIGN_STYLE=Manual`. `docs/decisions/nagging-reminders.md` has the four
+portal steps; `docs/RELEASE.md` has the build command. **They expire
+2027-10-22**, and the same four steps apply then.
+
+**Signing into Xcode is the thing to avoid**, not the fallback. It has twice
+minted a second development certificate the existing profile did not carry,
+breaking local signing until the Apple ID password was re-entered. Apple allows
+two certificates per account and both slots are now used, so a third would mean
+revoking one. A hand-made profile names the certificates it trusts, which is why
+the manual route is now the documented one rather than the workaround.
+
+**The widget App Group is no longer a blocker.** The surprise, found by decoding
+the profiles rather than trusting the portal's UI: both App IDs already had the
+App Groups capability enabled, with an **empty** array — the group identifier
+itself had never been registered. So `group.com.delimiters.chorus` existed in
+`app.json` and in the Swift, and
+`containerURL(forSecurityApplicationGroupIdentifier:)` would have returned nil
+forever with no error anywhere. It is registered and attached now, and
+`targets/plan/` is unblocked — still unmerged, but on code grounds rather than
+signing.
+
+The habit worth keeping from this: **decode the artifact, do not read the
+dashboard.** `security cms -D -i <profile>` and `codesign -d --entitlements :-
+<app>` answer "what does this build actually claim" in two seconds, and both
+times they contradicted what the UI implied.

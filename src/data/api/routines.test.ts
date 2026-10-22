@@ -1,3 +1,4 @@
+import { ROUTINE_TITLE_MAX } from '@/core/text/limits';
 import type { Schedule } from '@/core/recurrence/types';
 import type { CivilDate, CivilTime } from '@/core/civil/types';
 import { routineRow, type RoutineDraft } from './routines';
@@ -40,6 +41,21 @@ describe('building the row', () => {
   it('trims the title and rejects an empty one', () => {
     expect(routineRow(draft({ title: '  Stretch  ' })).title).toBe('Stretch');
     expect(() => routineRow(draft({ title: '   ' }))).toThrow(/needs a name/);
+  });
+
+  it('rejects a name past the database limit, and nothing short of it', () => {
+    /*
+     * Written against the constant, not a literal. The chore equivalent of this
+     * test asserted 121 characters throw, stayed green, and in doing so pinned
+     * the old bound while the cap was described as raised — the API layer was
+     * one of four places still holding 120.
+     */
+    expect(() => routineRow(draft({ title: 'x'.repeat(ROUTINE_TITLE_MAX + 1) }))).toThrow(
+      /too long/,
+    );
+    expect(() => routineRow(draft({ title: 'x'.repeat(ROUTINE_TITLE_MAX) }))).not.toThrow();
+    // The bound that moved, named explicitly: this is what the change was for.
+    expect(() => routineRow(draft({ title: 'x'.repeat(121) }))).not.toThrow();
   });
 
   it('turns empty notes into null, so "has notes" is one check', () => {

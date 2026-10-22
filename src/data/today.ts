@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { civilDate } from '@/core/civil/date';
+import { dayOfWallClock, safeDayStart } from '@/core/civil/daybreak';
 import type { CivilDate, CivilTime } from '@/core/civil/types';
 
 /** True if the runtime recognises this IANA zone. */
@@ -45,7 +46,7 @@ export function isValidTimeZone(timeZone: string): boolean {
  *
  * @param now the instant to convert; injected so this is testable
  */
-export function todayIn(timeZone: string, now: Date): CivilDate {
+export function todayIn(timeZone: string, now: Date, dayStartsAtHour: number): CivilDate {
   const zone = isValidTimeZone(timeZone) ? timeZone : 'UTC';
   const formatted = new Intl.DateTimeFormat('en-CA', {
     timeZone: zone,
@@ -53,7 +54,15 @@ export function todayIn(timeZone: string, now: Date): CivilDate {
     month: '2-digit',
     day: '2-digit',
   }).format(now);
-  return civilDate(formatted);
+  /*
+   * The household's day break, applied here and nowhere else.
+   *
+   * `dayStartsAtHour` is required rather than defaulted on purpose: this
+   * function's answer *is* "today" for the whole app, and a default would let a
+   * call site keep midnight silently. The same number lived in five places the
+   * last time a cap moved, and the ones that went stale were the optional ones.
+   */
+  return dayOfWallClock(civilDate(formatted), timeIn(zone, now), dayStartsAtHour);
 }
 
 /**
@@ -120,13 +129,24 @@ export function useNowTime(timeZone: string): CivilTime {
 }
 
 /**
- * Milliseconds until the next midnight in `timeZone`.
+ * Milliseconds until the next day break in `timeZone`.
  *
- * Computed by asking for the local wall-clock time rather than by assuming a
- * fixed offset, so a DST transition on the boundary night does not skew it. The
- * result is clamped to at least a second so a rounding error can't spin a timer.
+ * Computed from local wall-clock parts rather than from a fixed offset, so the
+ * zone's *offset* cannot skew it.
+ *
+ * It is a **wall-clock** delta, and `setTimeout` counts real milliseconds, so on
+ * a DST transition night the two differ by an hour: the comment here used to
+ * claim a transition "does not skew it", which was false. Reading local parts
+ * removes the offset error, not the transition error. Spring forward and the
+ * timer fires an hour after the break; fall back and it fires an hour before —
+ * landing on a wall clock that has not reached the break yet.
+ *
+ * That is survivable only because the caller re-arms unconditionally; see
+ * `useToday`. Correcting the duration itself would mean searching for the
+ * instant whose local time is the break, which is a different and much larger
+ * piece of machinery for a once-a-year hour.
  */
-export function msUntilNextMidnight(timeZone: string, now: Date): number {
+export function msUntilNextDaybreak(timeZone: string, now: Date, dayStartsAtHour: number): number {
   const zone = isValidTimeZone(timeZone) ? timeZone : 'UTC';
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: zone,
@@ -141,19 +161,94 @@ export function msUntilNextMidnight(timeZone: string, now: Date): number {
   // `en-GB` renders midnight as 24 rather than 00 in some runtimes.
   const hour = get('hour') % 24;
   const elapsed = (hour * 3600 + get('minute') * 60 + get('second')) * 1000;
-  const remaining = 24 * 3600 * 1000 - elapsed;
+  /*
+   * Until the *break*, not until midnight.
+   *
+   * With a 3 AM day the agenda has to turn over at 3 AM. A midnight timer would
+   * refresh three hours early and compute the same date it already had — so a
+   * phone left open overnight sat on the old day until something else happened
+   * to re-render, which is the bug `useToday`'s timer exists to prevent.
+   */
+  const breakMs = safeDayStart(dayStartsAtHour) * 3600 * 1000;
+  const dayMs = 24 * 3600 * 1000;
+  const remaining = elapsed < breakMs ? breakMs - elapsed : dayMs + breakMs - elapsed;
+  /*
+   * A belt, and deliberately not a tested one.
+   *
+   * `remaining` is provably at least a second for every input the types allow,
+   * so neither branch below can fire — a review proved it by deleting the clamp
+   * and watching the whole suite stay green. Three tests used to point at this
+   * line and assert arithmetic that cannot be violated; they were removed rather
+   * than left reading like evidence.
+   *
+   * It stays because `Intl` is an external dependency: if a part ever came back
+   * unparseable, `elapsed` would be `NaN`, and `Math.max(1000, NaN)` is `NaN` —
+   * which `setTimeout` coerces to zero and spins the phone. So the guard is on
+   * finiteness rather than on magnitude alone, which is what the comment here
+   * used to claim it did.
+   */
+  if (!Number.isFinite(remaining)) return 24 * 3600 * 1000;
   return Math.max(1000, remaining);
+}
+
+/**
+ * The civil day *and* the wall-clock time, from one instant.
+ *
+ * `useToday` and `useNowTime` hold separate clocks on deliberately different
+ * cadences — a date changes once a day and a time changes constantly — and
+ * anything comparing the two across that gap reads them out of step. The
+ * routines badge did: `useToday`'s timer turns the day over exactly at the
+ * break while the minute poll can still report 02:59 for up to a minute
+ * afterwards, which is the *largest* possible "minutes into the day" value. So
+ * every item of the brand-new day counted as already owed and the badge showed
+ * the whole day's total for up to sixty seconds before snapping to zero.
+ *
+ * One `Date`, both answers, so they cannot disagree. Polled at a minute like
+ * `useNowTime`, and with the same warning: **only call this from a leaf.**
+ */
+export function useNowCivil(
+  timeZone: string,
+  dayStartsAtHour: number,
+): { readonly day: CivilDate; readonly time: CivilTime } {
+  const [now, setNow] = useState(() => new Date());
+
+  const value = useMemo(
+    () => ({
+      day: todayIn(timeZone, now, dayStartsAtHour),
+      time: timeIn(timeZone, now),
+    }),
+    [timeZone, now, dayStartsAtHour],
+  );
+
+  useEffect(() => {
+    const refresh = (): void => setNow(new Date());
+    const onAppState = (state: AppStateStatus): void => {
+      if (state === 'active') refresh();
+    };
+    const subscription = AppState.addEventListener('change', onAppState);
+    const timer = setInterval(refresh, 60_000);
+
+    return () => {
+      subscription.remove();
+      clearInterval(timer);
+    };
+  }, []);
+
+  return value;
 }
 
 /**
  * The current civil date in the household's timezone, kept fresh.
  *
- * Re-derives on foreground and at local midnight. Returns a `CivilDate` suitable
- * for passing straight into the engine.
+ * Re-derives on foreground and at the household's day break. Returns a
+ * `CivilDate` suitable for passing straight into the engine.
  */
-export function useToday(timeZone: string): CivilDate {
+export function useToday(timeZone: string, dayStartsAtHour: number): CivilDate {
   const [now, setNow] = useState(() => new Date());
-  const today = useMemo(() => todayIn(timeZone, now), [timeZone, now]);
+  const today = useMemo(
+    () => todayIn(timeZone, now, dayStartsAtHour),
+    [timeZone, now, dayStartsAtHour],
+  );
 
   useEffect(() => {
     const refresh = (): void => setNow(new Date());
@@ -164,15 +259,29 @@ export function useToday(timeZone: string): CivilDate {
     };
     const subscription = AppState.addEventListener('change', onAppState);
 
-    // One timer per day rather than a poll. Re-armed by this effect re-running
-    // when `today` changes.
-    const timer = setTimeout(refresh, msUntilNextMidnight(timeZone, new Date()));
+    /*
+     * One timer per day rather than a poll, re-armed on **every** refresh.
+     *
+     * The dependency is `now`, not `today`, and that is the whole point: a
+     * timer that fires without the date having changed must still arm the next
+     * one. Keyed on `today` it did not, because `refresh()` would set a new
+     * `now`, `today` would recompute to the same value, and the effect would not
+     * re-run — leaving nothing scheduled.
+     *
+     * Unreachable in ordinary time, and reachable twice a year: this is a
+     * wall-clock duration handed to a real-time timer, so on a fall-back night
+     * it fires an hour before the break, on a wall clock that has not got there
+     * yet. On 7 November a phone left on Today would have sat on the 6th until
+     * somebody backgrounded the app. Re-arming always costs one extra timer on
+     * two nights a year and removes the stall entirely.
+     */
+    const timer = setTimeout(refresh, msUntilNextDaybreak(timeZone, now, dayStartsAtHour));
 
     return () => {
       subscription.remove();
       clearTimeout(timer);
     };
-  }, [timeZone, today]);
+  }, [timeZone, now, dayStartsAtHour]);
 
   return today;
 }

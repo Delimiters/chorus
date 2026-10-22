@@ -48,7 +48,7 @@ export const ROUTINE_SHARE = 20;
  * system's sixty-four, but the headroom exists precisely so nothing has to
  * reason about how close to the edge it is.
  */
-const MERGE_BUDGET = 59;
+export const MERGE_BUDGET = 59;
 
 /** Distinct from occurrence keys, because the transport schedules by id. */
 const ITEM_PREFIX = 'routine:';
@@ -123,7 +123,19 @@ export function planRoutineReminders(input: {
       choreId: group.bucket,
       title: `${describeBucket(group.bucket)} routine`,
       body: group.count === 1 ? '1 thing to do' : `${group.count} things to do`,
-      onDate: group.date,
+      /*
+       * Through the same next-calendar-day rule the timed path above uses.
+       *
+       * A bucket's reminder time is configurable, so Night's can be set to
+       * 02:00 — and 02:00 belongs to the routine day that began the previous
+       * morning. Without this it was scheduled against the day itself, almost
+       * twenty-four hours early, and for today's bucket that instant is already
+       * past, so the transport dropped it and the reminder never arrived. The
+       * timed path has had the guard since it shipped; this one never got it.
+       */
+      onDate: fallsOnNextCalendarDay(policy.bucketTimes[group.bucket])
+        ? addDays(group.date, 1)
+        : group.date,
       // The chosen reminder time, not the bucket boundary. Morning begins at
       // 05:00 because the day does; that is not when anyone wants telling.
       atTime: policy.bucketTimes[group.bucket],
@@ -150,11 +162,33 @@ export function planAllReminders(input: {
   readonly today: CivilDate;
   readonly userId: string;
   readonly policy: ReminderPolicy;
+  /**
+   * The household's day break, passed through to the chore planner so a
+   * reminder before it lands on the right wall-clock date.
+   *
+   * Routine reminders do **not** use it: their own day runs 05:00 to 05:00 so
+   * that Night is a single span, and `fallsOnNextCalendarDay` has done the
+   * equivalent job since routines shipped. The two boundaries answer different
+   * questions — which date a record belongs to, and which part of the day a
+   * time is called — and are left separate on purpose. Where they disagree, in
+   * the window between a break earlier than 05:00 and 05:00 itself, a routine
+   * sorts by its own day and is recorded against the household's.
+   */
+  readonly dayStartsAtHour: number;
+  /** Chores that keep asking until done; see `insist.ts`. */
+  readonly insistChoreIds?: ReadonlySet<string>;
 }): readonly PlannedReminder[] {
-  const { chores, routines, today, userId, policy } = input;
+  const { chores, routines, today, userId, policy, dayStartsAtHour } = input;
   if (!policy.enabled) return [];
 
-  const chorePlan = planReminders({ occurrences: chores, today, userId, policy });
+  const chorePlan = planReminders({
+    occurrences: chores,
+    today,
+    userId,
+    policy,
+    dayStartsAtHour,
+    ...(input.insistChoreIds === undefined ? {} : { insistChoreIds: input.insistChoreIds }),
+  });
   const routinePlan = planRoutineReminders({ occurrences: routines, today, userId, policy });
 
   const nearestFirst = (a: PlannedReminder, b: PlannedReminder): number =>

@@ -11,6 +11,7 @@
  * server were the only thing standing between the two.
  */
 
+import { ROUTINE_TITLE_MAX } from '@/core/text/limits';
 import { isTimeBucket, type TimeBucket } from '@/core/routines/buckets';
 import type { RoutineCompletionInput, RoutineItemInput } from '@/core/routines/project';
 import { safeParseSchedule } from '@/core/recurrence/schema';
@@ -200,7 +201,10 @@ export function routineRow(draft: RoutineDraft): {
 } {
   const title = draft.title.trim();
   if (title.length === 0) throw new Error('A routine item needs a name.');
-  if (title.length > 120) throw new Error('That name is too long — 120 characters at most.');
+  // The same constant the form and the CHECK use. Hard-coded, it outranked both.
+  if (title.length > ROUTINE_TITLE_MAX) {
+    throw new Error(`That name is too long — ${String(ROUTINE_TITLE_MAX)} characters at most.`);
+  }
 
   const schedule = safeParseSchedule(draft.schedule);
   if (!schedule.success) throw new Error('That schedule is not one the app can store.');

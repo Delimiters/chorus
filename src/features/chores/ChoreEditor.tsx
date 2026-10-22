@@ -7,6 +7,7 @@
  * here. A lint rule enforces it.
  */
 
+import { safeDayStart } from '@/core/civil/daybreak';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import type { CalendarConfig } from '@/core/civil/types';
@@ -26,7 +27,10 @@ export function ChoreEditor({ choreId }: { choreId: string | null }) {
   const userId = useUserId();
   const household = useHousehold();
   const members = useMembers();
-  const today = useToday(household.data?.timeZone ?? 'UTC');
+  const today = useToday(
+    household.data?.timeZone ?? 'UTC',
+    safeDayStart(household.data?.dayStartsAtHour),
+  );
 
   const calendar: CalendarConfig = {
     weekStartsOn: (household.data?.weekStartsOn ?? 0) as CalendarConfig['weekStartsOn'],
