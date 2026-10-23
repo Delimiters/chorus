@@ -15,6 +15,7 @@
  * field. `contract.test.ts` fails if the two stop agreeing.
  */
 
+import { flaggedFirst } from '../chore/flag';
 import type { CivilDate } from '../civil/types';
 import type { PlannedItem } from '../plan/plan';
 import type { AgendaItem } from '../occurrence/agenda';
@@ -128,10 +129,18 @@ export interface ActivityState {
  * reminder ladder uses. One checkbox, one meaning: insist on this until it is
  * done.
  *
- * Within those, it is the **first unfinished one in the plan's own order** —
- * the next such thing you said you would do, not the most overdue. The plan is
- * an ordering built deliberately and second-guessing it on the lock screen
- * would make it meaningless.
+ * **Flagged ones first.** A flag is the "this matters now" signal, raised by
+ * hand today, against a switch that is a standing property of the chore — so
+ * when both apply, the flag decides. Jake: *"the persistent notification
+ * should prioritize flagged chores"*. Anybody's flag counts, which is the rule
+ * everywhere else in the app: flagged means flagged, not flagged-by-me.
+ *
+ * It reuses `flaggedFirst` rather than sorting here, because that function is
+ * a **stable partition** and this list is already in the user's own plan order.
+ * A second ordering with its own idea of precedence is how two views of one
+ * list end up disagreeing — and re-sorting would throw away the order they
+ * built deliberately. Within the flagged group, and within the unflagged one,
+ * plan order survives.
  *
  * Derived from `planned` rather than from a `WidgetSnapshot`, deliberately.
  * Both views come from the projector's output and neither from the other: that
@@ -149,19 +158,22 @@ export function activityState(
   planned: readonly PlannedItem<AgendaItem>[],
   inkByMember: InkByMember,
   insistChoreIds: ReadonlySet<string>,
+  flaggedChoreIds: ReadonlySet<string>,
 ): ActivityState | null {
-  const next = planned.find(
-    ({ item }) => !isFinished(item.status) && insistChoreIds.has(item.choreId),
-  );
+  const outstanding = planned
+    .filter(({ item }) => !isFinished(item.status) && insistChoreIds.has(item.choreId))
+    .map(({ item }) => item);
+
+  const next = flaggedFirst(outstanding, flaggedChoreIds)[0];
   if (next === undefined) return null;
 
   const done = planned.filter(({ item }) => isFinished(item.status)).length;
-  const assignee = next.item.assignee;
+  const assignee = next.assignee;
   const ink = assignee.kind === 'member' ? (inkByMember[assignee.memberId] ?? null) : null;
 
   return {
-    title: next.item.choreTitle,
-    occurrenceKey: next.item.occurrenceKey,
+    title: next.choreTitle,
+    occurrenceKey: next.occurrenceKey,
     remaining: planned.length - done,
     total: planned.length,
     ink: ink?.light ?? null,

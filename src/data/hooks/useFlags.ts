@@ -27,6 +27,28 @@ export function useFlags(): readonly ChoreFlagRow[] {
   return query.data ?? EMPTY;
 }
 
+/**
+ * Whether the flags are unknown rather than absent.
+ *
+ * `useFlags` returns `EMPTY` while loading, for a failed fetch and for a
+ * household with nothing flagged alike — fine for rendering a row, and wrong
+ * for anything that makes a *decision*. The lock-screen card chooses which
+ * chore to name partly by flag, so an unresolved query would make it name the
+ * wrong one and then correct itself a tick later.
+ *
+ * A second `useQuery` on the same key rather than a new fetch: TanStack shares
+ * the cache entry, so this is the same subscription read a different way. Same
+ * shape as `usePlanLoading`.
+ */
+export function useFlagsLoading(): boolean {
+  const householdId = useActiveHouseholdId();
+  const query = useQuery({
+    queryKey: qk.flags(householdId ?? '__none__'),
+    queryFn: householdId === null ? skipToken : () => listFlags(householdId),
+  });
+  return query.isLoading;
+}
+
 /** Everyone's flags, by chore — so a row can show that *somebody* cares. */
 export function useFlagsByChore(): ReadonlyMap<string, readonly string[]> {
   const flags = useFlags();

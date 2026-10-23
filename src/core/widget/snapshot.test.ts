@@ -13,6 +13,8 @@ const WRITTEN = '2026-10-22T18:00:00.000Z';
 
 const ALICE = 'alice-id';
 const BOB = 'bob-id';
+const NO_FLAGS: ReadonlySet<string> = new Set();
+
 const INKS = {
   [ALICE]: { light: '#1E3A9E', dark: '#7C93FF' },
   [BOB]: { light: '#C2185B', dark: '#FF8FC2' },
@@ -145,6 +147,7 @@ describe('the widget snapshot', () => {
 
 describe('what the Live Activity says', () => {
   const NAGS = new Set(['nag']);
+  const NONE = NO_FLAGS;
 
   it('is about the first unfinished chore that asked to insist', () => {
     const state = activityState(
@@ -156,6 +159,7 @@ describe('what the Live Activity says', () => {
       ],
       INKS,
       NAGS,
+      NONE,
     );
 
     /*
@@ -173,13 +177,85 @@ describe('what the Live Activity says', () => {
     });
   });
 
+  /*
+   * These use one chore per row — `a:1`, `b:1`, `c:1` — because `row()` derives
+   * `choreId` from the key's prefix. The first version of these tests used
+   * `nag:1/nag:2/nag:3`, so every row shared the chore id `nag`, flagging one
+   * flagged all three, and the assertions passed while proving nothing about
+   * priority. Exactly the fixture-shares-one-value shape this file's own
+   * comments warn about.
+   */
+  const THREE = new Set(['a', 'b', 'c']);
+
+  it('prefers a flagged chore over the one that is merely next', () => {
+    /*
+     * A flag is raised by hand, today; the switch is a standing property of
+     * the chore. When both apply the flag decides. Jake: "the persistent
+     * notification should prioritize flagged chores".
+     *
+     * The flagged chore is deliberately *last* in plan order, so plan order
+     * alone could not produce this answer.
+     */
+    const plan = [
+      row('a:1', 'Next in the plan'),
+      row('b:1', 'After that'),
+      row('c:1', 'Flagged', { member: BOB }),
+    ];
+
+    expect(activityState(plan, INKS, THREE, new Set(['c']))?.title).toBe('Flagged');
+    // And with nothing flagged, it is plan order again.
+    expect(activityState(plan, INKS, THREE, NO_FLAGS)?.title).toBe('Next in the plan');
+  });
+
+  it('keeps plan order within the flagged ones', () => {
+    /*
+     * A stable partition, not a sort.
+     *
+     * The flagged pair is in plan order `c` then `b`, which *contradicts*
+     * their chore-id order. A version of this test with them the other way
+     * round stayed green when the partition was replaced by a sort on chore
+     * id, because plan order and id order agreed — proving the partition held
+     * the flagged ones at the front, and nothing about their order within it.
+     */
+    const plan = [
+      row('a:1', 'Unflagged but first'),
+      row('c:1', 'Flagged earlier in the plan'),
+      row('b:1', 'Flagged later in the plan'),
+    ];
+
+    const state = activityState(plan, INKS, THREE, new Set(['b', 'c']));
+    expect(state?.title).toBe('Flagged earlier in the plan');
+  });
+
+  it('ignores a flag on a chore that did not ask to insist', () => {
+    /*
+     * Flagging does not by itself put a card on the lock screen — the switch
+     * still decides whether there is one at all. Prioritising is an ordering
+     * among candidates, not a second way in.
+     */
+    const plan = [row('a:1', 'Flagged but quiet'), row('b:1', 'Insistent')];
+
+    const state = activityState(plan, INKS, new Set(['b']), new Set(['a']));
+    expect(state?.title).toBe('Insistent');
+  });
+
+  it('skips a flagged chore that is already done', () => {
+    const plan = [
+      row('a:1', 'Flagged and done', { status: 'completed' }),
+      row('b:1', 'Still outstanding'),
+    ];
+
+    const state = activityState(plan, INKS, THREE, new Set(['a']));
+    expect(state?.title).toBe('Still outstanding');
+  });
+
   it('is nothing at all when nothing outstanding asked to insist', () => {
     /*
      * The whole point of the switch. An ordinary day has outstanding chores and
      * should put no permanent box on the lock screen.
      */
     expect(
-      activityState([row('quiet:1', 'Dishes'), row('quiet:2', 'Litter')], INKS, NAGS),
+      activityState([row('quiet:1', 'Dishes'), row('quiet:2', 'Litter')], INKS, NAGS, NONE),
     ).toBeNull();
   });
 
@@ -193,6 +269,7 @@ describe('what the Live Activity says', () => {
       ],
       INKS,
       NAGS,
+      NONE,
     );
 
     // Two done of four, two left — the card agrees with the app's own count.
@@ -207,12 +284,13 @@ describe('what the Live Activity says', () => {
         [row('nag:1', 'One', { status: 'completed' }), row('quiet:1', 'Two')],
         INKS,
         NAGS,
+        NONE,
       ),
     ).toBeNull();
   });
 
   it('is nothing at all when there is no plan', () => {
-    expect(activityState([], INKS, NAGS)).toBeNull();
+    expect(activityState([], INKS, NAGS, NONE)).toBeNull();
   });
 });
 
@@ -234,15 +312,21 @@ describe('the two derived views', () => {
 
   it('agree about how much is left', () => {
     const snap = widgetSnapshot(plan, DAY, INKS, WRITTEN);
-    const state = activityState(plan, INKS, new Set(['nag']));
+    const state = activityState(plan, INKS, new Set(['nag']), NO_FLAGS);
 
     expect(state?.total).toBe(snap.totalCount);
     expect(state?.remaining).toBe(snap.totalCount - snap.doneCount);
   });
 
-  it('agree about the row the card names', () => {
+  it('agree about the row the card names, flagged or not', () => {
+    /*
+     * With a flag in play, so the agreement is checked on the path the card
+     * actually takes rather than only on the unflagged one. `flaggedFirst` is
+     * length-preserving, so the counts cannot move — but that is a property
+     * worth pinning rather than assuming.
+     */
     const snap = widgetSnapshot(plan, DAY, INKS, WRITTEN);
-    const state = activityState(plan, INKS, new Set(['nag']));
+    const state = activityState(plan, INKS, new Set(['nag']), new Set(['nag']));
     const sameRow = snap.rows.find((r) => r.id === state?.occurrenceKey);
 
     expect(sameRow).toBeDefined();
