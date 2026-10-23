@@ -15,7 +15,7 @@ import Foundation
 /// compiles `targets/plan/`, the app compiles the module's pod, and a pod may
 /// not reach outside its own directory for sources.
 ///
-/// `src/core/widget/attributes.drift.test.ts` fails if the two copies differ,
+/// `src/core/widget/contract.test.ts` fails if the two copies differ,
 /// because the failure mode otherwise is a Live Activity that starts, shows the
 /// system's blank placeholder, and reports nothing anywhere.
 @available(iOS 16.2, *)

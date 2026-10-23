@@ -31,8 +31,17 @@ export interface WidgetTransport {
   showActivity(day: string, state: ActivityState): Promise<boolean>;
   /** Removes the persistent card. */
   endActivity(): Promise<boolean>;
-  /** Ticks made from the home screen since last asked. Clears them. */
-  takePendingTicks(): readonly string[];
+  /**
+   * Ticks made from the home screen or the lock screen. **Not** cleared.
+   *
+   * Read-then-acknowledge in two calls, because one destructive read lost
+   * ticks: on a cold start every key looked up nothing and was dropped as
+   * archived, and offline the completion mutation rejected with nothing left
+   * to retry. Nothing is forgotten until the database has it.
+   */
+  pendingTicks(): readonly string[];
+  /** Forgets the keys now safely written down. */
+  acknowledgeTicks(keys: readonly string[]): void;
 }
 
 /** False on web, in jest, and on a build without the native module. */
@@ -69,8 +78,13 @@ export const nativeWidget: WidgetTransport = {
     return bridge.endActivities();
   },
 
-  takePendingTicks() {
+  pendingTicks() {
     if (bridge === null) return [];
-    return bridge.takePendingTicks();
+    return bridge.pendingTicks();
+  },
+
+  acknowledgeTicks(keys) {
+    if (bridge === null || keys.length === 0) return;
+    bridge.acknowledgeTicks(keys);
   },
 };

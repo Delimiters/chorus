@@ -22,6 +22,20 @@ import { widgetSnapshot, type WidgetSnapshot } from './snapshot';
 const repo = join(__dirname, '..', '..', '..');
 const read = (...parts: readonly string[]) => readFileSync(join(repo, ...parts), 'utf8');
 
+/**
+ * Swift with its comments removed.
+ *
+ * Needed because the comments *describe* the mistakes being guarded against,
+ * by name. A test looking for `dateDecodingStrategy` in the source found it in
+ * the paragraph explaining why it is not there any more — the same trap as
+ * `limits.test.ts`, where an English sentence mentioning another table made a
+ * DDL search read the wrong one.
+ */
+const code = (...parts: readonly string[]) =>
+  read(...parts)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
 const WIDGET_SNAPSHOT = 'targets/plan/Snapshot.swift';
 const WIDGET_TICK = 'targets/plan/TickIntent.swift';
 const WIDGET_ATTRIBUTES = 'targets/plan/PlanActivityAttributes.swift';
@@ -62,6 +76,44 @@ const propertiesOf = (source: string, structName: string): readonly string[] => 
   return [...withoutNested.matchAll(/^\s*(?:let|var) (\w+):/gm)].map((m) => m[1] as string);
 };
 
+/**
+ * Swift property names *and their declared types*, in source order.
+ *
+ * Names alone were not enough, and the gap was not hypothetical: `writtenAt`
+ * was declared `Date` with `dateDecodingStrategy = .iso8601`, while JavaScript
+ * sends `new Date().toISOString()` — which always carries three fractional
+ * digits. Foundation's `.iso8601` has no `.withFractionalSeconds`, so it
+ * rejected *every* snapshot, `load()` returned nil forever, and the widget
+ * showed "Open Chorus" permanently with nothing logged on either side. The
+ * field names matched perfectly throughout.
+ */
+const typesOf = (source: string, structName: string): Readonly<Record<string, string>> => {
+  const start = source.indexOf(`struct ${structName}`);
+  if (start < 0) throw new Error(`no struct ${structName} in that file`);
+
+  const open = source.indexOf('{', start);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    if (source[i] === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  const body = source.slice(open, end);
+  const withoutNested = body.replace(/(public )?struct \w+[^{]*\{[\s\S]*?\n {4}\}/g, '');
+
+  const types: Record<string, string> = {};
+  for (const match of withoutNested.matchAll(/^\s*(?:let|var) (\w+): *([\w?[\].]+)/gm)) {
+    types[match[1] as string] = match[2] as string;
+  }
+  return types;
+};
+
 describe('the snapshot the widget reads', () => {
   const swift = read(WIDGET_SNAPSHOT);
 
@@ -92,6 +144,40 @@ describe('the snapshot the widget reads', () => {
     expect(propertiesOf(swift, 'Row')).toEqual(Object.keys(sample.rows[0] as object));
   });
 
+  it('types every field the way JSON actually arrives', () => {
+    /*
+     * Every one of these is `String`, `Int`, `Bool` or an array of them —
+     * nothing that needs a decoding strategy. A `Date` here is the specific
+     * failure described on `typesOf` above: it type-checks on both sides, the
+     * field names agree, and the whole document silently fails to decode.
+     */
+    expect(typesOf(swift, 'Snapshot')).toEqual({
+      day: 'String',
+      doneCount: 'Int',
+      totalCount: 'Int',
+      rows: '[Row]',
+      writtenAt: 'String',
+    });
+
+    expect(typesOf(swift, 'Row')).toEqual({
+      id: 'String',
+      title: 'String',
+      done: 'Bool',
+      ink: 'String?',
+      inkDark: 'String?',
+    });
+  });
+
+  it('asks for no decoding strategy, because there is nothing to decode', () => {
+    /*
+     * Belt and braces with the type check above: a strategy appearing here is
+     * the clue that somebody reintroduced a `Date`.
+     */
+    const withoutComments = code(WIDGET_SNAPSHOT);
+    expect(withoutComments).not.toContain('dateDecodingStrategy');
+    expect(withoutComments).not.toContain('dateEncodingStrategy');
+  });
+
   it('reads the file the module writes, from the group the module uses', () => {
     /*
      * The literals, not the variable names. An app writing
@@ -109,6 +195,19 @@ describe('the snapshot the widget reads', () => {
   it('drains the same queue the home-screen tick writes', () => {
     expect(read(WIDGET_TICK)).toContain('"pendingTicks"');
     expect(read(MODULE)).toContain('"pendingTicks"');
+  });
+
+  it('reads and acknowledges ticks separately, never in one destructive call', () => {
+    /*
+     * One call that returned the queue *and* cleared it lost ticks twice over:
+     * on a cold start every key looked up nothing and was dropped as archived,
+     * and offline the completion rejected with nothing left to retry. The
+     * protocol is read, write, then forget.
+     */
+    const bridge = read(MODULE);
+    expect(bridge).toContain('Function("pendingTicks")');
+    expect(bridge).toContain('Function("acknowledgeTicks")');
+    expect(code(MODULE)).not.toContain('takePendingTicks');
   });
 });
 
@@ -133,9 +232,15 @@ describe('the Live Activity attributes', () => {
     const call = read(MODULE).match(/AsyncFunction\("showActivity"\)[\s\S]*?->/);
     expect(call).not.toBeNull();
 
-    for (const field of state) {
-      expect(call?.[0]).toContain(`${field}:`);
-    }
+    /*
+     * Exact and ordered, not "contains each". `src/data/widget.ts` passes
+     * these positionally, so an argument inserted in the middle of the Swift
+     * signature would shift every one after it — and a one-directional
+     * "does the signature mention each field" check passes happily through
+     * that.
+     */
+    const args = [...(call?.[0] ?? '').matchAll(/(\w+): [\w?[\]]+/g)].map((m) => m[1] as string);
+    expect(args).toEqual(['day', ...state]);
     expect(state).toEqual(['title', 'occurrenceKey', 'remaining', 'total', 'ink', 'inkDark']);
   });
 });

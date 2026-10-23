@@ -28,8 +28,23 @@ struct Snapshot: Codable {
     let doneCount: Int
     let totalCount: Int
     let rows: [Row]
-    /// When the app last wrote this. Shown when it is old enough to matter.
-    let writtenAt: Date
+    /**
+     When the app last wrote this, as ISO 8601 text.
+
+     **A `String`, not a `Date`, and that is not a style choice.** It was a
+     `Date` with `dateDecodingStrategy = .iso8601`, and JavaScript's
+     `new Date().toISOString()` always emits three fractional digits —
+     `2026-10-22T09:30:00.000Z`. Foundation's `.iso8601` strategy uses
+     `.withInternetDateTime` *without* `.withFractionalSeconds`, so it rejected
+     every single snapshot: `load()` returned nil forever, the widget showed
+     "Open Chorus" permanently, and nothing was logged on either side. Verified
+     with a standalone decode before and after.
+
+     Kept as text because nothing compares it — it is here for a human reading
+     the file while debugging. A value no code reads cannot be worth a decoding
+     strategy that can reject the whole document.
+     */
+    let writtenAt: String
 
     static let appGroup = "group.com.delimiters.chorus"
     static let fileName = "plan-snapshot.json"
@@ -47,9 +62,9 @@ struct Snapshot: Codable {
     /// have not been told yet" is a different thing and gets different words.
     static func load() -> Snapshot? {
         guard let url = fileURL, let data = try? Data(contentsOf: url) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(Snapshot.self, from: data)
+        // No `dateDecodingStrategy`: there are no dates in here, deliberately.
+        // See the note on `writtenAt`.
+        return try? JSONDecoder().decode(Snapshot.self, from: data)
     }
 
     /// Ticks one row in place, so the widget can reflect a tap immediately.
@@ -71,9 +86,7 @@ struct Snapshot: Codable {
             rows: rows,
             writtenAt: current.writtenAt
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(next) {
+        if let data = try? JSONEncoder().encode(next) {
             try? data.write(to: url, options: .atomic)
         }
     }

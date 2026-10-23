@@ -26,7 +26,7 @@ public class WidgetBridgeModule: Module {
     /*
      * These three literals are duplicated in `targets/plan/Snapshot.swift` and
      * `targets/plan/TickIntent.swift`, because the extension and the app are
-     * separate compilation units. `src/core/widget/attributes.drift.test.ts`
+     * separate compilation units. `src/core/widget/contract.test.ts`
      * fails if they stop matching — the alternative is an app writing to one
      * path and a widget reading another, with no error on either side.
      */
@@ -72,33 +72,44 @@ public class WidgetBridgeModule: Module {
         }
 
         /**
-         Takes the ticks made from the home screen and clears them.
+         The ticks made from the home screen. **Does not clear them.**
 
-         Destructive on purpose, and the reason the app must write them to the
-         database before it forgets: taking without clearing would replay the
-         same tick on every foreground. `unique (chore_id, occurrence_key)`
-         makes a replay harmless, but an unbounded list is not.
+         Read-then-acknowledge, in two calls, because the first version took and
+         cleared in one and lost ticks for real. Two ways:
+
+         - On a cold start the app's queries have not resolved, so every key
+           looked up nothing and was dropped as "archived" — a tick made on the
+           lock screen before opening the app simply vanished.
+         - Offline, the completion mutation rejects immediately (`retry: 0`) and
+           the optimistic update rolls back, leaving no record anywhere that the
+           tap happened.
+
+         Neither failed loudly, and the only feedback channel — the box filling
+         in the widget — lives in this process and would never be corrected.
+         Now nothing is forgotten until the database has it.
          */
-        Function("takePendingTicks") { () -> [String] in
+        Function("pendingTicks") { () -> [String] in
             guard let defaults = UserDefaults(suiteName: Self.appGroup) else { return [] }
-            let keys = defaults.stringArray(forKey: Self.pendingTicksKey) ?? []
-            if !keys.isEmpty {
-                defaults.removeObject(forKey: Self.pendingTicksKey)
-            }
-            return keys
+            return defaults.stringArray(forKey: Self.pendingTicksKey) ?? []
         }
 
         /**
-         Whether a Live Activity may be started at all.
+         Forgets the keys the app has now written down.
 
-         Three separate things can make this false: the OS is older than 16.2,
-         the user has turned Live Activities off for Chorus, or they have turned
-         them off system-wide. All three mean the same thing to the caller, so
-         they are not distinguished.
+         Removes only what it is given, rather than clearing the lot: a tick
+         made *while* the app was replaying an earlier batch would otherwise be
+         thrown away unprocessed.
          */
-        Function("activitiesEnabled") { () -> Bool in
-            guard #available(iOS 16.2, *) else { return false }
-            return ActivityAuthorizationInfo().areActivitiesEnabled
+        Function("acknowledgeTicks") { (keys: [String]) in
+            guard let defaults = UserDefaults(suiteName: Self.appGroup) else { return }
+            let done = Set(keys)
+            let remaining = (defaults.stringArray(forKey: Self.pendingTicksKey) ?? [])
+                .filter { !done.contains($0) }
+            if remaining.isEmpty {
+                defaults.removeObject(forKey: Self.pendingTicksKey)
+            } else {
+                defaults.set(remaining, forKey: Self.pendingTicksKey)
+            }
         }
 
         /**
@@ -141,14 +152,23 @@ public class WidgetBridgeModule: Module {
              * point: iOS keeps one alive for up to eight hours, which spans a
              * day break, and a card headed with the wrong day is worse than no
              * card.
+             *
+             * The whole array is walked, with a flag — not `return`ed from on
+             * the first match. `Activity.activities` has no documented
+             * ordering, so returning early left yesterday's card up whenever it
+             * happened to sort second: the exact thing this loop exists to
+             * prevent, working or not depending on array order.
              */
+            var updated = false
             for activity in Activity<PlanAttributes>.activities {
-                if activity.attributes.day == day {
+                if activity.attributes.day == day, !updated {
                     await activity.update(content)
-                    return true
+                    updated = true
+                } else {
+                    await activity.end(nil, dismissalPolicy: .immediate)
                 }
-                await activity.end(nil, dismissalPolicy: .immediate)
             }
+            if updated { return true }
 
             do {
                 _ = try Activity.request(

@@ -33,13 +33,17 @@ module.exports = {
   displayName: 'Chorus',
   colors: {
     // The two people, and the paper they sit on. Same values as
-    // src/design/tokens.ts — a widget that drifted from the app's inks would
-    // undo the one thing the palette is for.
+    // src/design/tokens.ts — a widget that drifted from the app's grounds
+    // would undo the one thing the palette is for.
+    //
+    // Only the grounds live here. A *person's* ink is per member and arrives
+    // on each row of the snapshot, both variants, because an asset catalogue
+    // cannot hold a value that depends on who the chore belongs to. The two
+    // brand inks used to be declared here and referenced by nothing, which
+    // read as if they were what the rows were drawn in.
     $paper: { color: '#F3F2EE', darkColor: '#121219' },
     $text: { color: '#17171F', darkColor: '#ECEBE6' },
     $textFaint: { color: '#7C7C86', darkColor: '#76757F' },
-    $inkA: { color: '#2B4ACB', darkColor: '#7C93FF' },
-    $inkB: { color: '#D42B85', darkColor: '#FF6FB4' },
     $overprint: { color: '#5B2E9E', darkColor: '#B08CFF' },
   },
 };

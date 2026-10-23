@@ -13,10 +13,10 @@ export interface WidgetBridge {
   writeSnapshot(json: string): boolean;
   /** Asks every placed widget to rebuild. */
   reloadTimelines(): void;
-  /** Returns the ticks made from the home screen, and clears them. */
-  takePendingTicks(): string[];
-  /** Whether a Live Activity may be started at all. */
-  activitiesEnabled(): boolean;
+  /** The ticks made from the home screen. Does not clear them. */
+  pendingTicks(): string[];
+  /** Forgets the given keys, leaving any that arrived since. */
+  acknowledgeTicks(keys: readonly string[]): void;
   /** Starts the activity, or updates the one already running for `day`. */
   showActivity(
     day: string,

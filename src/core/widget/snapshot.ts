@@ -12,7 +12,7 @@
  * is the failure `docs/POSTMORTEM-SWIFT.md` exists to describe.
  *
  * Pure, `Date`-free, and shaped to match `targets/plan/Snapshot.swift` field for
- * field. `snapshot.contract.test.ts` fails if the two stop agreeing.
+ * field. `contract.test.ts` fails if the two stop agreeing.
  */
 
 import type { CivilDate } from '../civil/types';
@@ -55,7 +55,15 @@ export interface WidgetSnapshot {
   readonly doneCount: number;
   readonly totalCount: number;
   readonly rows: readonly WidgetRow[];
-  /** ISO 8601, UTC. Shown by the widget when it is old enough to matter. */
+  /**
+   * ISO 8601, UTC. **Not displayed** — it is here for a human reading the file
+   * while debugging.
+   *
+   * A `string` on both sides, and `targets/plan/Snapshot.swift` explains why at
+   * length: it was a Swift `Date` with `.iso8601` decoding, which rejects the
+   * three fractional digits `toISOString()` always emits. Every snapshot failed
+   * to decode and the widget showed "Open Chorus" forever.
+   */
   readonly writtenAt: string;
 }
 

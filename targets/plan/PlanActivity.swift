@@ -55,6 +55,13 @@ private struct ActivityTickButton: View {
                     .font(.system(size: compact ? 9 : 13, weight: .bold))
                     .foregroundStyle(Color.faint)
             )
+            /*
+             * 44×44, which is `MIN_TARGET`, against a 28pt box. The card has
+             * the room the widget row does not, and this is the one surface
+             * where a mis-tap completes the wrong chore with no undo in reach.
+             */
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
     }
 }
 
@@ -95,8 +102,13 @@ struct PlanActivityView: View {
      * display starts lying.
      */
     private var remainingLabel: String {
+        /*
+         * No zero case. `activityState` returns nil for an empty plan and for a
+         * finished one, and the app ends the card rather than updating it — so
+         * `total == 0` cannot reach here, and a branch written for it would be
+         * untested words describing a state that must not exist.
+         */
         let done = max(0, state.total - state.remaining)
-        if state.total == 0 { return "On your plan" }
         return "\(done) of \(state.total) done · \(state.remaining) left"
     }
 }

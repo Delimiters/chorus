@@ -79,6 +79,22 @@ func inkColor(_ light: String?, _ dark: String?, _ scheme: ColorScheme) -> Color
 /// The box is a `Button` running an App Intent, so the tap lands without
 /// opening the app. On iOS 16 the button simply is not offered — a widget that
 /// looks tappable and is not is worse than one that is plainly a display.
+///
+/// **A finished row is not a button either**, for the same reason. It used to
+/// be: tapping a filled box enqueued a key the app then skipped, so the tap
+/// did nothing and said nothing. Worse for a *skipped* row — the projection
+/// counts skipped as done, so the box was filled, and the drain's only guard
+/// was against `completed`: tapping it completed a chore you had deliberately
+/// skipped.
+///
+/// **The tap region is 44pt wide and the full height of the row**, against a
+/// 20pt box. `MIN_TARGET` is 44 and this is the project's most repeated
+/// failure (see `src/design/tapTargets.test.ts`, which cannot see Swift). A
+/// widget row is 22pt tall because a small widget is ~155pt and has to hold a
+/// header and three rows, so 44×44 is physically impossible here — but the
+/// *width* is free, and the consequence of a mis-tap is worse than in the app:
+/// it completes the wrong chore, with no undo anywhere on the home screen, and
+/// an interval chore's next due date moves.
 struct PlanRow: View {
     let row: Snapshot.Row
     @Environment(\.colorScheme) private var scheme
@@ -89,14 +105,18 @@ struct PlanRow: View {
                 .fill(inkColor(row.ink, row.inkDark, scheme))
                 .frame(width: 3)
 
-            if #available(iOS 17.0, *) {
+            if #available(iOS 17.0, *), !row.done {
                 Button(intent: TickIntent(occurrenceKey: row.id)) {
                     box
+                        .frame(width: 44, height: 22)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(row.done ? "\(row.title), done" : "Mark \(row.title) done")
+                .accessibilityLabel("Mark \(row.title) done")
             } else {
                 box
+                    .frame(width: 44, height: 22)
+                    .accessibilityLabel(row.done ? "\(row.title), done" : row.title)
             }
 
             Text(row.title)
@@ -117,6 +137,8 @@ struct PlanRow: View {
                 RoundedRectangle(cornerRadius: 5).fill(row.done ? Color.ink : .clear)
             )
             .frame(width: 20, height: 20)
+            // The visual size. The tap region is set by the caller, which is
+            // wider than this on purpose.
             .overlay(
                 Image(systemName: "checkmark")
                     .font(.system(size: 11, weight: .bold))

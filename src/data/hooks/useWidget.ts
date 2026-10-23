@@ -11,7 +11,7 @@
  * guards against, and the reason neither of them owns a query.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AppState } from 'react-native';
 
 import { safeDayStart } from '@/core/civil/daybreak';
@@ -23,7 +23,7 @@ import { nativeWidget, widgetAvailable, type WidgetTransport } from '../widget';
 import { useToday } from '../today';
 import { useHousehold, useMembers } from './useHousehold';
 import { quantiseWindow, useOccurrences, useToggleCompletion } from './useOccurrences';
-import { useMyPlanEntries } from './usePlan';
+import { useMyPlanEntries, usePlanLoading } from './usePlan';
 
 interface Options {
   /** Off on web and in tests, where there is no widget to talk to. */
@@ -53,8 +53,32 @@ export function useWidgetSync({
    * the plan screen already holds. So this costs no extra fetch.
    */
   const window = useMemo(() => quantiseWindow(today, weekStartsOn, 2, 1), [today, weekStartsOn]);
-  const { items } = useOccurrences(window);
+  const { items, isLoading: occurrencesLoading } = useOccurrences(window);
   const entries = useMyPlanEntries(today);
+  const planLoading = usePlanLoading(today);
+
+  /**
+   * Whether the plan on screen is the real one yet.
+   *
+   * **This is the guard that matters, and the first version got it wrong.** It
+   * gated on `household.data`, which is one fast query — while
+   * `useMyPlanEntries` returns `[]` and `useOccurrences` returns `[]` for
+   * several round trips after that. So every cold start published a
+   * `totalCount: 0` snapshot, which the widget renders as the confident lie
+   * "Nothing left today.", and called `endActivity()` on a card that should
+   * still have been up — then raised a fresh one a moment later.
+   *
+   * The same shape as the bug that seeded the chore chart from a household
+   * that had not loaded yet: an empty result and an unloaded query are
+   * indistinguishable unless you ask.
+   */
+  const ready =
+    enabled &&
+    userId !== null &&
+    household.data !== undefined &&
+    members.data !== undefined &&
+    !occurrencesLoading &&
+    !planLoading;
 
   const planned = useMemo(() => planFor(entries, today, items), [entries, today, items]);
 
@@ -81,19 +105,31 @@ export function useWidgetSync({
   );
 
   const published = useRef<string>('');
+  /**
+   * Serialises calls into ActivityKit.
+   *
+   * Two unawaited `showActivity` calls can each observe an empty
+   * `Activity.activities` and each reach `Activity.request`, leaving two cards
+   * for the same day — after which only the first one found is ever updated and
+   * the other sits there with a frozen chore. Reachable on a cold start, where
+   * the snapshot changes once when the occurrences land and again when the
+   * member inks do.
+   */
+  const activityQueue = useRef<Promise<unknown>>(Promise.resolve());
+
+  const pushActivity = useCallback((fn: () => Promise<unknown>) => {
+    activityQueue.current = activityQueue.current.then(fn, fn).catch(() => {
+      /*
+       * Swallowed on purpose, and explicitly. Expo rejects on an argument
+       * mismatch, and an unhandled rejection in a side-effect hook is a
+       * red-box in dev over an accessory feature. The transport's own
+       * failures are already reported as `false`.
+       */
+    });
+  }, []);
 
   useEffect(() => {
-    if (!enabled || userId === null) return;
-    /*
-     * Hold off until the plan query has actually resolved.
-     *
-     * `useMyPlanEntries` returns an empty array while loading, which is
-     * indistinguishable from "nothing planned today" — and publishing that
-     * would blank the widget on every cold start and end the Live Activity
-     * before the data arrived. The same shape as the bug that seeded the chart
-     * from a household that had not loaded yet.
-     */
-    if (household.data === undefined) return;
+    if (!ready) return;
 
     const { writtenAt: _ignored, ...comparable } = snapshot;
     const fingerprint = JSON.stringify(comparable);
@@ -109,11 +145,11 @@ export function useWidgetSync({
        * are "nothing to be persistent about", and a card that outlives its
        * list is worse than no card.
        */
-      void transport.endActivity();
+      pushActivity(() => transport.endActivity());
     } else {
-      void transport.showActivity(today, state);
+      pushActivity(() => transport.showActivity(today, state));
     }
-  }, [enabled, userId, household.data, snapshot, today, transport]);
+  }, [ready, snapshot, today, transport, pushActivity]);
 
   /*
    * Ticks made from the home screen or the lock screen.
@@ -126,49 +162,99 @@ export function useWidgetSync({
    * by: which day a tick belongs to, and what it does to the next due date.
    */
   const toggle = useToggleCompletion();
-  const replaying = useRef(false);
+  /**
+   * The mutation, behind a ref.
+   *
+   * `useMutation` returns a fresh object every render, so depending on it made
+   * the drain effect tear down its `AppState` listener and read the native
+   * queue on *every render of the root layout*. Kept current in an effect
+   * rather than during render, which the React Compiler would bail out of.
+   */
+  const toggleRef = useRef(toggle);
+  useEffect(() => {
+    toggleRef.current = toggle;
+  }, [toggle]);
+
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  const draining = useRef(false);
+
+  const drain = useCallback(async () => {
+    /*
+     * One drain at a time. This one is real: the loop awaits each write, so a
+     * second drain started by a foreground event mid-flight would try the same
+     * keys again. (The first version held this flag across a loop with no
+     * `await` in it, where it could never be observed as set.)
+     */
+    if (draining.current) return;
+
+    const keys = transport.pendingTicks();
+    if (keys.length === 0) return;
+
+    draining.current = true;
+    try {
+      /**
+       * Acknowledged one at a time, after the write lands.
+       *
+       * Nothing is forgotten until the database has it, which is the whole
+       * point of the two-call protocol: a tick made on the lock screen and
+       * replayed while offline stays queued for the next launch instead of
+       * disappearing.
+       */
+      for (const key of keys) {
+        const item = itemsRef.current.find((candidate) => candidate.occurrenceKey === key);
+
+        /*
+         * A key with nothing behind it is acknowledged and dropped. It means
+         * the chore was archived, or rescheduled so its key changed, and the
+         * tick has nowhere to land — keeping it would retry it forever.
+         *
+         * Safe only because this runs when the queries have resolved: the
+         * earlier version drained on the first render, where *every* key
+         * looked unknown, and silently threw away every tick made before the
+         * app was opened.
+         */
+        if (item === undefined || item.status === 'completed' || item.status === 'skipped') {
+          transport.acknowledgeTicks([key]);
+          continue;
+        }
+
+        try {
+          await toggleRef.current.mutateAsync({ item, complete: true });
+          transport.acknowledgeTicks([key]);
+        } catch {
+          /*
+           * Left in the queue, and the drain stops. Offline is the usual
+           * cause, and the rest of the batch would fail the same way.
+           */
+          break;
+        }
+      }
+    } finally {
+      draining.current = false;
+    }
+  }, [transport]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!ready) return;
 
-    const drain = () => {
-      /*
-       * One drain at a time. `takePendingTicks` is destructive, so two
-       * overlapping drains would each take half the queue and the second would
-       * fire while the first is still awaiting — losing nothing, but doubling
-       * the writes.
-       */
-      if (replaying.current) return;
-      const keys = transport.takePendingTicks();
-      if (keys.length === 0) return;
+    void drain();
 
-      replaying.current = true;
-      try {
-        for (const key of keys) {
-          const item = items.find((candidate) => candidate.occurrenceKey === key);
-          /*
-           * A key with nothing behind it is dropped, not retried. It means the
-           * chore was archived or rescheduled since the tap, and the tick has
-           * nowhere to land. Keeping it would replay it forever.
-           */
-          if (item === undefined) continue;
-          if (item.status === 'completed') continue;
-          /*
-           * No `completedOn`: it defaults to today, which is right. A tick from
-           * the lock screen happens now, and `exactOptionalPropertyTypes` makes
-           * passing an explicit undefined a type error rather than a shrug.
-           */
-          toggle.mutate({ item, complete: true });
-        }
-      } finally {
-        replaying.current = false;
-      }
-    };
-
-    drain();
+    /*
+     * On every foreground, which is also what keeps the Live Activity honest:
+     * its `staleDate` is four hours out, and iOS dims a card past it to say
+     * "this may be out of date". Re-publishing on foreground is what the
+     * staleDate comment claims happens — it did not, before this.
+     */
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active') drain();
+      if (next !== 'active') return;
+      void drain();
+      const state = activityState(snapshot);
+      if (state !== null) pushActivity(() => transport.showActivity(today, state));
     });
     return () => subscription.remove();
-  }, [enabled, items, toggle, transport]);
+  }, [ready, drain, snapshot, today, transport, pushActivity]);
 }

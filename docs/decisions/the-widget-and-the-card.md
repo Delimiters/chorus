@@ -85,16 +85,45 @@ The queue is drained on every foreground, not only on a foreground that lands on
 Today — which is why `useWidgetSync` is mounted in `(app)/_layout.tsx` beside
 `useReminderSync`, and not on the plan screen.
 
-Three things the drain does that are easy to get wrong, and are tested:
+### Read, write, then forget — in that order
 
-- A key with no occurrence behind it is **dropped, not retried**. It means the
-  chore was archived or rescheduled since the tap. Keeping it would replay it
-  forever.
-- An already-completed key is skipped, so a double tap is not a double write.
-  `unique (chore_id, occurrence_key)` would make it harmless anyway; this makes
-  it quiet.
-- One drain at a time. `takePendingTicks` is destructive, so two overlapping
-  drains would each take half the queue.
+The first version had one native call that returned the queue **and cleared
+it**. Review found it lost ticks two different ways, both silent:
+
+- **On a cold start**, `useOccurrences` and `useMyPlanEntries` both return `[]`
+  for several round trips. The drain ran on the first render, looked every key
+  up against an empty list, concluded each one was archived, and dropped it. A
+  tick made on the lock screen before opening the app simply vanished.
+- **Offline**, mutations have `retry: 0` and `wireOnlineManager` never pauses
+  them, so the completion rejected immediately and the optimistic update rolled
+  back. Nothing anywhere recorded that the tap had happened.
+
+Neither failed loudly, and the only feedback channel — the box filling in the
+widget — lives in the *other* process and would never have been corrected.
+
+So it is two calls now, `pendingTicks()` and `acknowledgeTicks(keys)`, and a key
+is forgotten only once the database has it. A failed write leaves it queued and
+stops the batch; the next launch tries again.
+
+`acknowledgeTicks` removes only the keys it is given rather than clearing the
+lot, so a tick made *while* a batch is replaying is not thrown away unprocessed.
+
+Three more things the drain does that are easy to get wrong, all tested:
+
+- **It waits for the queries.** `ready` gates on `useOccurrences`'s
+  `isLoading`, `usePlanLoading`, and the household *and* members queries. The
+  first version gated on `household.data` alone, which resolves several round
+  trips earlier — so every cold start also published a `totalCount: 0` snapshot
+  (the widget's "Nothing left today.", a confident lie) and ended a live card
+  that should have stayed up.
+- **A key with no occurrence behind it is acknowledged and dropped**, not
+  retried. It means the chore was archived, or rescheduled so its key changed.
+  Keeping it would block everything queued behind it forever.
+- **A finished key is acknowledged without a write.** Both `completed` *and*
+  `skipped`: the projection counts skipped as done, so the widget draws a
+  filled box, and a drain guarding only `completed` would have completed a
+  chore you deliberately skipped. The box on a finished row is no longer a
+  button either.
 
 ## What is deliberately *not* here
 
@@ -137,6 +166,55 @@ or diverging the two attribute copies each turns a test red.
 Why the attributes file is duplicated rather than shared: the extension compiles
 `targets/plan/`, the app compiles the module's pod, and a CocoaPod may not reach
 outside its own directory for sources.
+
+## The bug that proved the point
+
+The section above was written before the feature had ever rendered, and it was
+right about the shape of the danger and wrong about where it would land.
+`writtenAt` was declared `Date` in Swift with
+`dateDecodingStrategy = .iso8601`, and JavaScript's `new Date().toISOString()`
+always emits three fractional digits. Foundation's `.iso8601` has no
+`.withFractionalSeconds`, so it rejected **every** snapshot:
+
+```
+2026-10-22T09:30:00.000Z  ->  nil (rejected)
+2026-10-22T09:30:00Z      ->  decoded
+```
+
+`load()` returned nil forever. The widget showed "Open Chorus" permanently,
+`markDone` bailed so the box never even filled optimistically, and nothing was
+logged on either side. Build 66 shipped to both phones in exactly that state.
+
+Every field name matched perfectly, which is why the contract test passed. It
+now compares **types** as well, and asserts no decoding strategy appears in the
+file at all — a `Date` there is the clue that somebody has reintroduced this.
+`writtenAt` is a `String` and nothing reads it.
+
+The lesson, which is not the one the file was already warning about: a
+cross-language contract is not only a list of names. Everything crossing that
+boundary is now `String`, `Int`, `Bool`, or an array of those.
+
+## Two more things review caught
+
+**Both tap targets were too small.** 20pt in the widget and 18–28pt on the card,
+against `MIN_TARGET` of 44 — the project's single most repeated failure, and
+`src/design/tapTargets.test.ts` cannot see Swift. The card's is now a true
+44×44. A widget row is 22pt tall because a small widget is ~155pt and has to
+hold a header and three rows, so 44×44 is physically impossible there; the hit
+region is 44pt wide and the full height of the row instead. The consequence of a
+mis-tap is worse than in the app: it completes the *wrong* chore, with no undo
+anywhere on the home screen.
+
+**The `staleDate` comment was fiction.** It claims "the app refreshes it every
+foreground", which nothing did — the only trigger was a changed snapshot
+fingerprint. Four hours after you last changed your plan, iOS dims the card to
+say "this may be out of date", and it would have stayed dimmed. The AppState
+listener now re-publishes it, which is also what the comment always said.
+
+Calls into ActivityKit are serialised through a promise chain, because two
+unawaited `showActivity` calls can each see no running activity and each
+request one — leaving two cards for the same day, after which only the first
+found is ever updated.
 
 ## Signing
 

@@ -67,18 +67,8 @@ capability was enabled on both App IDs all along with an **empty** array, so
 `containerURL(forSecurityApplicationGroupIdentifier:)` returned nil with no
 error anywhere. See the signing section of `docs/WHERE-THINGS-STAND.md`.
 
-## Still missing before this ships
+## Shipped
 
-The native side is written — `targets/plan/` has the timeline, the views, the
-App Intent and the snapshot reader. Nothing writes the snapshot yet. A widget
-runs in its own process and cannot execute the app's JavaScript, and the App
-Group container path is not reachable from `expo-file-system`, so the remaining
-work is a small native module exposing three things to JS:
-
-- `writeSnapshot(json)` — the projection the app already computed for Today
-- `reloadTimelines()` — so a tick in the app updates the home screen at once
-- `takePendingTicks()` — drains the queue `TickIntent` writes, for the app to
-  replay through the real completion path
-
-Until that exists the widget renders its "not been told yet" state, which is
-why this branch is not merged.
+`modules/widget-bridge` is the native module this section used to say was
+missing, and `docs/decisions/the-widget-and-the-card.md` describes it. The
+widget and the Live Activity both work as of build 67.
