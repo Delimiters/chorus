@@ -85,5 +85,10 @@
     "db:diff": "supabase db diff --schema public",
     "ios:prebuild": "expo prebuild --platform ios --clean --no-install && node scripts/sign-targets.cjs && cd ios && pod install"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "./modules"
+    }
+  }
 }

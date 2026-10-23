@@ -71,6 +71,7 @@ module.exports = {
     'src/core/lib/': coverageThreshold,
     'src/core/routines/': coverageThreshold,
     'src/core/notify/': coverageThreshold,
+    'src/core/widget/': coverageThreshold,
     'src/core/chore/': coverageThreshold,
     'src/core/plan/': coverageThreshold,
     'src/core/chart/': coverageThreshold,

@@ -17,8 +17,11 @@ struct Snapshot: Codable {
         let id: String
         let title: String
         let done: Bool
-        /// Hex for whoever it belongs to, or nil for shared work.
+        /// Hex for whoever it belongs to on the paper ground; nil for shared work.
         let ink: String?
+        /// The same ink on the night ground. Hand-lifted, not derived — see
+        /// src/design/inks.ts.
+        let inkDark: String?
     }
 
     let day: String
@@ -58,7 +61,7 @@ struct Snapshot: Codable {
         guard let url = fileURL, let current = load() else { return }
         let rows = current.rows.map { row in
             row.id == id
-                ? Row(id: row.id, title: row.title, done: true, ink: row.ink)
+                ? Row(id: row.id, title: row.title, done: true, ink: row.ink, inkDark: row.inkDark)
                 : row
         }
         let next = Snapshot(

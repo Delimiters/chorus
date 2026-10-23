@@ -41,22 +41,35 @@ struct PlanProvider: TimelineProvider {
 /// Named colours come from the asset catalogue the target config generates, so
 /// light and dark are handled by the system rather than by a branch here — and
 /// so changing an ink in `expo-target.config.js` changes it in one place.
-private extension Color {
+extension Color {
     static let paper = Color("$paper")
     static let ink = Color("$text")
     static let faint = Color("$textFaint")
     static let overprint = Color("$overprint")
 }
 
-private func inkColor(_ hex: String?) -> Color {
-    guard let hex, hex.count == 7, hex.hasPrefix("#") else { return .overprint }
+/// Parses `#RRGGBB`. Returns nil on anything else rather than guessing, so a
+/// malformed value falls back to the overprint instead of rendering black.
+func parseHex(_ hex: String?) -> Color? {
+    guard let hex, hex.count == 7, hex.hasPrefix("#") else { return nil }
     var value: UInt64 = 0
-    Scanner(string: String(hex.dropFirst())).scanHexInt64(&value)
+    guard Scanner(string: String(hex.dropFirst())).scanHexInt64(&value) else { return nil }
     return Color(
         red: Double((value & 0xFF0000) >> 16) / 255,
         green: Double((value & 0x00FF00) >> 8) / 255,
         blue: Double(value & 0x0000FF) / 255
     )
+}
+
+/// Whoever's ink, on the ground this widget is actually being drawn on.
+///
+/// Both hexes come from the snapshot because the app cannot know the viewer's
+/// theme — and `src/design/inks.ts` is explicit that the dark variant is
+/// hand-lifted rather than derived, so darkening the light one here would undo
+/// the only reason the palette is curated.
+func inkColor(_ light: String?, _ dark: String?, _ scheme: ColorScheme) -> Color {
+    let chosen = scheme == .dark ? (dark ?? light) : light
+    return parseHex(chosen) ?? .overprint
 }
 
 // MARK: - Views
@@ -68,11 +81,12 @@ private func inkColor(_ hex: String?) -> Color {
 /// looks tappable and is not is worse than one that is plainly a display.
 struct PlanRow: View {
     let row: Snapshot.Row
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(inkColor(row.ink))
+                .fill(inkColor(row.ink, row.inkDark, scheme))
                 .frame(width: 3)
 
             if #available(iOS 17.0, *) {
@@ -174,7 +188,24 @@ struct ChorusWidgetView: View {
 
 // MARK: - Widget
 
+/**
+ Both things this extension serves.
+
+ A widget extension hosts every WidgetKit surface an app has, and a Live
+ Activity is one — `PlanActivity` is in `PlanActivity.swift`. So `@main` moves
+ to the bundle: two `@main` declarations in one target do not compile, and the
+ bundle is the only place that can own it.
+ */
 @main
+struct ChorusWidgetBundle: WidgetBundle {
+    var body: some Widget {
+        ChorusWidget()
+        if #available(iOS 16.2, *) {
+            PlanActivity()
+        }
+    }
+}
+
 struct ChorusWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "ChorusWidget", provider: PlanProvider()) { entry in
