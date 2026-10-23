@@ -16,7 +16,12 @@ import { AppState } from 'react-native';
 
 import { safeDayStart } from '@/core/civil/daybreak';
 import { planFor } from '@/core/plan/plan';
-import { activityState, widgetSnapshot, type InkByMember } from '@/core/widget/snapshot';
+import {
+  activityState,
+  widgetSnapshot,
+  type ActivityState,
+  type InkByMember,
+} from '@/core/widget/snapshot';
 import { inkByName } from '@/design/inks';
 import { useUserId } from '@/stores/sessionStore';
 import { nativeWidget, widgetAvailable, type WidgetTransport } from '../widget';
@@ -91,9 +96,25 @@ export function useWidgetSync({
    * first version raised one whenever anything was outstanding, which put a
    * permanent box on the lock screen for an ordinary day.
    */
+  const insistKey = chores
+    .filter((chore) => chore.nagUntilDone)
+    .map((chore) => chore.id)
+    .sort()
+    .join('|');
+
+  /*
+   * Memoised on the *key*, not on `chores`.
+   *
+   * `useOccurrences` returns `choresQuery.data?.chores ?? []`, which is a fresh
+   * array literal whenever `data` is undefined — reachable when that query has
+   * errored, since `isLoading` goes false while `data` stays undefined. Keyed
+   * on `chores` this Set was then a new object every render, and the effects
+   * that depend on it tore down and re-added their `AppState` listener on every
+   * render of the root layout.
+   */
   const insistChoreIds = useMemo(
-    () => new Set(chores.filter((chore) => chore.nagUntilDone).map((chore) => chore.id)),
-    [chores],
+    () => new Set(insistKey === '' ? [] : insistKey.split('|')),
+    [insistKey],
   );
 
   const inkByMember = useMemo<InkByMember>(() => {
@@ -119,6 +140,8 @@ export function useWidgetSync({
   );
 
   const published = useRef<string>('');
+  /** The card last asked for, as JSON. `'null'` means "asked for none". */
+  const cardShown = useRef<string>('');
   /**
    * Serialises calls into ActivityKit.
    *
@@ -142,29 +165,63 @@ export function useWidgetSync({
     });
   }, []);
 
+  /**
+   * Raises, updates or ends the card to match `state`.
+   *
+   * Gated separately from the snapshot, which is the whole point. There was one
+   * fingerprint over the snapshot and an early `return` in front of
+   * `activityState` — sound while the card was a pure function of the snapshot,
+   * and wrong the moment it gained a third input the snapshot does not carry.
+   * `nagUntilDone` is deliberately absent from `WidgetRow`, so turning the
+   * switch off changed nothing the fingerprint could see: the effect returned
+   * early, `endActivity` was never called, and the card stayed on the lock
+   * screen until the app was restarted or something else on the plan changed.
+   * Turning it on was equally invisible.
+   */
+  const syncCard = useCallback(
+    (state: ActivityState | null) => {
+      const fingerprint = JSON.stringify(state);
+      if (fingerprint === cardShown.current) return;
+      cardShown.current = fingerprint;
+
+      if (state === null) {
+        /*
+         * Ends the card when no outstanding chore has asked to insist — which
+         * covers a finished plan, an empty one, and the ordinary case of a day
+         * with work on it and nothing urgent enough to pin to the lock screen.
+         * A card that outlives its reason is worse than no card.
+         */
+        pushActivity(() => transport.endActivity());
+      } else {
+        pushActivity(() => transport.showActivity(today, state));
+      }
+    },
+    [pushActivity, today, transport],
+  );
+
+  const card = useMemo(
+    () => activityState(planned, inkByMember, insistChoreIds),
+    [planned, inkByMember, insistChoreIds],
+  );
+
   useEffect(() => {
     if (!ready) return;
 
+    /*
+     * Two gates, one effect. The snapshot is rewritten only when its own
+     * content changed — iOS budgets roughly 40-70 widget reloads a day and
+     * spending them on no-ops is how a widget ends up stale all evening —
+     * while the card is compared against what was last asked for.
+     */
     const { writtenAt: _ignored, ...comparable } = snapshot;
     const fingerprint = JSON.stringify(comparable);
-    if (fingerprint === published.current) return;
-    published.current = fingerprint;
-
-    transport.publish(snapshot);
-
-    const state = activityState(planned, inkByMember, insistChoreIds);
-    if (state === null) {
-      /*
-       * Ends the card when no outstanding chore has asked to insist — which
-       * covers a finished plan, an empty one, and the ordinary case of a day
-       * with work on it and nothing urgent enough to pin to the lock screen.
-       * A card that outlives its reason is worse than no card.
-       */
-      pushActivity(() => transport.endActivity());
-    } else {
-      pushActivity(() => transport.showActivity(today, state));
+    if (fingerprint !== published.current) {
+      published.current = fingerprint;
+      transport.publish(snapshot);
     }
-  }, [ready, snapshot, planned, inkByMember, insistChoreIds, today, transport, pushActivity]);
+
+    syncCard(card);
+  }, [ready, snapshot, card, transport, syncCard]);
 
   /*
    * Ticks made from the home screen or the lock screen.
@@ -274,9 +331,19 @@ export function useWidgetSync({
     const subscription = AppState.addEventListener('change', (next) => {
       if (next !== 'active') return;
       void drain().catch(() => {});
-      const state = activityState(planned, inkByMember, insistChoreIds);
-      if (state !== null) pushActivity(() => transport.showActivity(today, state));
+      /*
+       * Through the same path as the effect, so a foreground can *end* a card
+       * as well as raise one. The old version was `if (state !== null) show`
+       * with no `else`, which meant foregrounding could never clear a stale
+       * card — the only other thing that would have rescued the bug above.
+       *
+       * `cardShown` is cleared first because this is also the staleness
+       * refresh: iOS dims a card past its four-hour `staleDate`, and re-asking
+       * for an identical one is exactly what undims it.
+       */
+      cardShown.current = '';
+      syncCard(card);
     });
     return () => subscription.remove();
-  }, [ready, drain, planned, inkByMember, insistChoreIds, today, transport, pushActivity]);
+  }, [ready, drain, card, syncCard]);
 }

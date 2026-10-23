@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.delimiters.chorus",
-      "buildNumber": "70",
+      "buildNumber": "71",
       "supportsTablet": false,
       "appleTeamId": "SY59JGZ44Y",
       "entitlements": {

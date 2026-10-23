@@ -103,8 +103,10 @@ struct PlanActivityView: View {
      */
     private var remainingLabel: String {
         /*
-         * No zero case. `activityState` returns nil for an empty plan and for a
-         * finished one, and the app ends the card rather than updating it — so
+         * No zero case. `activityState` returns nil whenever no outstanding
+         * chore has asked to insist — which covers an empty plan, a finished
+         * one, and an ordinary day — and the app ends the card then rather
+         * than updating it, so
          * `total == 0` cannot reach here, and a branch written for it would be
          * untested words describing a state that must not exist.
          */

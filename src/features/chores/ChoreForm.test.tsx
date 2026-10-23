@@ -1260,10 +1260,18 @@ describe('keeping on at you until it is done', () => {
     );
 
     expect(screen.getByText(/breaking through Focus/)).toBeOnTheScreen();
-    // The switch is also what decides whether a chore gets a persistent card.
-    // Nothing else in the app offers that, so the hint is the only place it is
-    // ever said.
-    expect(screen.getByText(/sits on your lock screen until it is done/)).toBeOnTheScreen();
+    /*
+     * The switch is also what decides whether a chore gets a persistent card,
+     * and this hint is the only place in the app that is ever said — so it has
+     * to say it accurately. Both qualifications are load-bearing: there is one
+     * card for the whole plan rather than one per chore, and iOS only lets an
+     * app start one while it is in the foreground. An earlier version of this
+     * copy promised a card per chore, arriving when the chore came due.
+     */
+    expect(screen.getByText(/also sits on your lock screen until it is ticked/)).toBeOnTheScreen();
+    expect(
+      screen.getByText(/one at a time, and from the next time you open the app/),
+    ).toBeOnTheScreen();
     /*
      * And it does not claim the nagging stops the moment the chore is ticked.
      * It cannot: pending notifications can only be cancelled by this app

@@ -330,6 +330,85 @@ describe('the persistent card', () => {
     expect(transport.shown[0]?.title).toBe('Insistent one');
   });
 
+  it('comes down when the switch is turned off mid-session', async () => {
+    /*
+     * The case a green suite missed. There was one fingerprint, over the
+     * snapshot, with an early `return` in front of the card decision — and
+     * `nagUntilDone` is deliberately not in the snapshot, so turning the
+     * switch off changed nothing the gate could see. The card stayed on the
+     * lock screen until the app was restarted.
+     *
+     * Every row is byte-identical across the rerender on purpose: that is what
+     * makes the snapshot fingerprint match and the old gate return early.
+     */
+    mockChores = [{ id: 'a', nagUntilDone: true }];
+    mockItems = [item('a:1', 'Mop the floor')];
+    mockEntries = [entry('a:1', 1)];
+
+    const transport = recorder();
+    const { rerender } = render(transport);
+    await waitFor(() => expect(transport.shown).toHaveLength(1));
+    expect(transport.ended).toHaveLength(0);
+
+    mockChores = [{ id: 'a', nagUntilDone: false }];
+    rerender({});
+
+    await waitFor(() => expect(transport.ended).toHaveLength(1));
+    // And the snapshot was not rewritten, because its content did not change.
+    expect(transport.published).toHaveLength(1);
+  });
+
+  it('goes up when the switch is turned on mid-session', async () => {
+    mockChores = [{ id: 'a', nagUntilDone: false }];
+    mockItems = [item('a:1', 'Mop the floor')];
+    mockEntries = [entry('a:1', 1)];
+
+    const transport = recorder();
+    const { rerender } = render(transport);
+    await waitFor(() => expect(transport.ended).toHaveLength(1));
+    expect(transport.shown).toHaveLength(0);
+
+    mockChores = [{ id: 'a', nagUntilDone: true }];
+    rerender({});
+
+    await waitFor(() => expect(transport.shown).toHaveLength(1));
+    expect(transport.shown[0]?.title).toBe('Mop the floor');
+    expect(transport.published).toHaveLength(1);
+  });
+
+  it('does not re-ask for a card that has not changed', async () => {
+    /*
+     * The fixtures are *rebuilt*, not reused, so every memo downstream of them
+     * gets a new identity and the effect really does run again — while the card
+     * it computes is JSON-identical. A version of this test that reused the
+     * same arrays passed with the card's dedupe deleted outright, because
+     * nothing re-ran at all. Confirmed by deleting it.
+     *
+     * Not academic: a refetch that returns equal-but-not-shared rows does
+     * exactly this, and re-requesting an identical Live Activity makes it
+     * flicker on the lock screen.
+     */
+    const build = () => {
+      mockChores = [{ id: 'a', nagUntilDone: true }];
+      mockItems = [item('a:1', 'Mop the floor')];
+      mockEntries = [entry('a:1', 1)];
+    };
+
+    build();
+    const transport = recorder();
+    const { rerender } = render(transport);
+    await waitFor(() => expect(transport.shown).toHaveLength(1));
+
+    build();
+    rerender({});
+    build();
+    rerender({});
+    await act(async () => {});
+
+    expect(transport.shown).toHaveLength(1);
+    expect(transport.ended).toHaveLength(0);
+  });
+
   it('comes down once the plan is finished', async () => {
     mockItems = [item('a:1', 'Dishes', { status: 'completed' })];
     mockEntries = [entry('a:1', 1)];

@@ -255,7 +255,7 @@ struct ChorusWidget: Widget {
             ChorusWidgetView(entry: entry)
         }
         .configurationDisplayName("Your day")
-        .description("What is left on today's plan. Tap a box to tick it off.")
+        .description("What is left on today's plan. Tap a row to tick it off.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

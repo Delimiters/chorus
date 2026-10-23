@@ -23,7 +23,7 @@ all three share is the App Group container, and nothing in Expo can reach it —
 `expo-file-system` exposes the app's own sandbox, and the container path
 contains a UUID that is only discoverable from native code.
 
-So `modules/widget-bridge` exists, and does exactly four things:
+So `modules/widget-bridge` exists, and does exactly five things:
 
 | | |
 |---|---|
@@ -224,14 +224,27 @@ boundary is now `String`, `Int`, `Bool`, or an array of those.
 
 ## Two more things review caught
 
-**Both tap targets were too small.** 20pt in the widget and 18–28pt on the card,
-against `MIN_TARGET` of 44 — the project's single most repeated failure, and
-`src/design/tapTargets.test.ts` cannot see Swift. The card's is now a true
-44×44. A widget row is 22pt tall because a small widget is ~155pt and has to
-hold a header and three rows, so 44×44 is physically impossible there; the hit
-region is 44pt wide and the full height of the row instead. The consequence of a
-mis-tap is worse than in the app: it completes the *wrong* chore, with no undo
-anywhere on the home screen.
+**Both tap targets were too small.** 20pt in the widget and 18–28pt on the
+card, against `MIN_TARGET` of 44 — the project's single most repeated failure,
+and `src/design/tapTargets.test.ts` cannot see Swift. The consequence of a
+mis-tap is worse here than in the app: it completes the *wrong* chore, with no
+undo anywhere on the home screen.
+
+The card's is a true 44×44 on the lock screen, and 28pt inside the Dynamic
+Island, whose leading and trailing regions flank the ~37pt sensor housing.
+
+The widget's went through two versions. Padding the box out to 44pt worked and
+cost 24pt of a small widget's ~130pt content width, cutting the title from
+about thirteen characters to eight — silently, because it is `lineLimit(1)`.
+So **the whole row is the button** instead: a hit region wider than 44pt at
+every widget size, no cost to the title, and nothing to explain about which
+part of the row to aim at. A finished row is not a button at all. The gallery
+description says "tap a row", because that is now what it is.
+
+What that trades away: there is less inert area left to open the app from. The
+header, the inter-row gaps, the "+N more" line and the container margin all
+still fall through to launching Chorus, but on a small widget the chore list is
+most of the face. Tapping a row ticks it.
 
 **The `staleDate` comment was fiction.** It claims "the app refreshes it every
 foreground", which nothing did — the only trigger was a changed snapshot

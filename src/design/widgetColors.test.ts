@@ -77,6 +77,39 @@ const hexOf = (entry: Entry): string => {
   );
 };
 
+describe('the colour config', () => {
+  /*
+   * The generated files are committed, so a test that reads only those stays
+   * green after someone reverts the config to the plugin's documented-but-wrong
+   * `{ color, darkColor }` shape — right up until the next prebuild rewrites
+   * them empty and ships an invisible widget. This reads the config itself.
+   *
+   * Comments are stripped first, because the config *quotes* the wrong form in
+   * the paragraph explaining why it is wrong — and the first version of this
+   * test found that quote instead of the code. Third time this exact trap has
+   * cost something here: see `limits.test.ts` and `contract.test.ts`.
+   */
+  const config = readFileSync(join(repo, 'targets', 'plan', 'expo-target.config.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  it('uses the keys the plugin actually reads', () => {
+    for (const [name] of GROUNDS) {
+      const escaped = name.replace('$', '\\$');
+      expect(config).toMatch(
+        new RegExp(`${escaped}: \\{ light: '#[0-9A-Fa-f]{6}', dark: '#[0-9A-Fa-f]{6}' \\}`),
+      );
+    }
+
+    /*
+     * The plugin's own type documentation says to write it the other way. Its
+     * code reads `color.light` and `color.dark`, so the documented form
+     * produces `{ "colors": [] }` with no warning anywhere.
+     */
+    expect(config).not.toContain('darkColor');
+  });
+});
+
 describe('the widget colour assets', () => {
   /*
    * A loop rather than `it.each`, which infers a union of tuples from a

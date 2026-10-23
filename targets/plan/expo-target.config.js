@@ -47,7 +47,7 @@ module.exports = {
    * invisible. Jake, on build 67: *"when i added the widget it was just
    * blank"*.
    *
-   * `src/core/widget/colors.test.ts` reads the generated Contents.json and
+   * `src/design/widgetColors.test.ts` reads the generated Contents.json and
    * fails if any colorset is empty or drifts from `src/design/tokens.ts`.
    */
   colors: {

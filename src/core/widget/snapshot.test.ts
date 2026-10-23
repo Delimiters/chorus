@@ -215,3 +215,40 @@ describe('what the Live Activity says', () => {
     expect(activityState([], INKS, NAGS)).toBeNull();
   });
 });
+
+describe('the two derived views', () => {
+  /*
+   * `widgetSnapshot` and `activityState` are two functions over the same
+   * `planned` list, and each holds its own copy of the same three expressions:
+   * what counts as finished, what order rows are in, and how a member's ink is
+   * resolved. Nothing but this makes them agree, and a row the widget calls
+   * done while the card calls it outstanding is the shape this project keeps
+   * hitting — `useOccurrences.ts:152` is the archetype.
+   */
+  const plan = [
+    row('nag:0', 'Done', { status: 'completed', member: ALICE }),
+    row('quiet:1', 'Not insistent'),
+    row('nag:1', 'Next up', { member: BOB }),
+    row('nag:2', 'Later', { status: 'skipped' }),
+  ];
+
+  it('agree about how much is left', () => {
+    const snap = widgetSnapshot(plan, DAY, INKS, WRITTEN);
+    const state = activityState(plan, INKS, new Set(['nag']));
+
+    expect(state?.total).toBe(snap.totalCount);
+    expect(state?.remaining).toBe(snap.totalCount - snap.doneCount);
+  });
+
+  it('agree about the row the card names', () => {
+    const snap = widgetSnapshot(plan, DAY, INKS, WRITTEN);
+    const state = activityState(plan, INKS, new Set(['nag']));
+    const sameRow = snap.rows.find((r) => r.id === state?.occurrenceKey);
+
+    expect(sameRow).toBeDefined();
+    expect(sameRow?.done).toBe(false);
+    expect(state?.title).toBe(sameRow?.title);
+    expect(state?.ink).toBe(sameRow?.ink);
+    expect(state?.inkDark).toBe(sameRow?.inkDark);
+  });
+});
