@@ -1270,7 +1270,9 @@ describe('keeping on at you until it is done', () => {
      */
     expect(screen.getByText(/also sits on your lock screen until it is ticked/)).toBeOnTheScreen();
     expect(
-      screen.getByText(/one at a time, and from the next time you open the app/),
+      screen.getByText(
+        /flagged ones first, one at a time, and from the next time you open the app/,
+      ),
     ).toBeOnTheScreen();
     /*
      * And it does not claim the nagging stops the moment the chore is ticked.

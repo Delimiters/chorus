@@ -59,6 +59,13 @@ jest.mock('./useOccurrences', () => ({
   useToggleCompletion: () => ({ mutateAsync: mockToggle }),
 }));
 
+/** Chore ids anybody has flagged, as `useFlagsByChore` returns them. */
+let mockFlagged: readonly string[] = [];
+
+jest.mock('./useFlags', () => ({
+  useFlagsByChore: () => new Map(mockFlagged.map((id) => [id, ['user-them']])),
+}));
+
 jest.mock('./usePlan', () => ({
   useMyPlanEntries: () => mockEntries,
   usePlanLoading: () => mockPlanLoading,
@@ -210,6 +217,7 @@ beforeEach(() => {
     { id: 'b', nagUntilDone: true },
   ];
   mockEntries = [];
+  mockFlagged = [];
   mockOccurrencesLoading = false;
   mockPlanLoading = false;
   mockToggleFails = false;
@@ -328,6 +336,55 @@ describe('the persistent card', () => {
 
     await waitFor(() => expect(transport.shown).toHaveLength(1));
     expect(transport.shown[0]?.title).toBe('Insistent one');
+  });
+
+  it('follows a flagged chore over the one that is merely next', async () => {
+    /*
+     * Both chores asked to insist, so plan order would pick `a`. The flag on
+     * `b` is what moves it — and it is raised by the *housemate*, because
+     * "flagged means flagged" rather than flagged-by-me.
+     */
+    mockChores = [
+      { id: 'a', nagUntilDone: true },
+      { id: 'b', nagUntilDone: true },
+    ];
+    mockItems = [item('a:1', 'Next in the plan'), item('b:1', 'Flagged')];
+    mockEntries = [entry('a:1', 1), entry('b:1', 2)];
+    mockFlagged = ['b'];
+
+    const transport = recorder();
+    render(transport);
+
+    await waitFor(() => expect(transport.shown).toHaveLength(1));
+    expect(transport.shown[0]?.title).toBe('Flagged');
+  });
+
+  it('moves to a chore flagged mid-session', async () => {
+    /*
+     * Raising a flag has to move the card, which means `flaggedChoreIds` has
+     * to reach the card's own gate — the snapshot does not carry flags any
+     * more than it carries the switch, and the same early-return bug would
+     * otherwise leave the old chore pinned.
+     */
+    mockChores = [
+      { id: 'a', nagUntilDone: true },
+      { id: 'b', nagUntilDone: true },
+    ];
+    mockItems = [item('a:1', 'Next in the plan'), item('b:1', 'Later')];
+    mockEntries = [entry('a:1', 1), entry('b:1', 2)];
+
+    const transport = recorder();
+    const { rerender } = render(transport);
+    await waitFor(() => expect(transport.shown).toHaveLength(1));
+    expect(transport.shown[0]?.title).toBe('Next in the plan');
+
+    mockFlagged = ['b'];
+    rerender({});
+
+    await waitFor(() => expect(transport.shown).toHaveLength(2));
+    expect(transport.shown[1]?.title).toBe('Later');
+    // The plan's content did not change, so the widget was not rewritten.
+    expect(transport.published).toHaveLength(1);
   });
 
   it('comes down when the switch is turned off mid-session', async () => {

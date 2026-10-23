@@ -24,6 +24,7 @@ import {
 } from '@/core/widget/snapshot';
 import { inkByName } from '@/design/inks';
 import { useUserId } from '@/stores/sessionStore';
+import { useFlagsByChore } from './useFlags';
 import { nativeWidget, widgetAvailable, type WidgetTransport } from '../widget';
 import { useToday } from '../today';
 import { useHousehold, useMembers } from './useHousehold';
@@ -61,6 +62,7 @@ export function useWidgetSync({
   const { items, chores, isLoading: occurrencesLoading } = useOccurrences(window);
   const entries = useMyPlanEntries(today);
   const planLoading = usePlanLoading(today);
+  const flagsByChore = useFlagsByChore();
 
   /**
    * Whether the plan on screen is the real one yet.
@@ -199,9 +201,23 @@ export function useWidgetSync({
     [pushActivity, today, transport],
   );
 
+  /**
+   * Which chores anybody has flagged.
+   *
+   * Anybody's, not only yours — "flagged means flagged" is the rule the rest of
+   * the app follows, and a flag Emily raised is still the household saying this
+   * one matters. Keyed like `insistChoreIds` so the Set is stable across
+   * renders.
+   */
+  const flagKey = [...flagsByChore.keys()].sort().join('|');
+  const flaggedChoreIds = useMemo(
+    () => new Set(flagKey === '' ? [] : flagKey.split('|')),
+    [flagKey],
+  );
+
   const card = useMemo(
-    () => activityState(planned, inkByMember, insistChoreIds),
-    [planned, inkByMember, insistChoreIds],
+    () => activityState(planned, inkByMember, insistChoreIds, flaggedChoreIds),
+    [planned, inkByMember, insistChoreIds, flaggedChoreIds],
   );
 
   useEffect(() => {

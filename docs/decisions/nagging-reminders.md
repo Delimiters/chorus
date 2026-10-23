@@ -105,7 +105,7 @@ nothing about them needs Xcode.
 
 **And a card on the lock screen, as of build 70** — one card, not one per
 chore. The same switch raises a Live Activity for whichever insistent chore is
-next on your plan: persistent, with a Done button, until it is ticked, at which
+next on your plan — flagged ones first: persistent, with a Done button, until it is ticked, at which
 point it moves to the next one. Two qualifications that matter, because the
 form's hint has to state them: there is a single card for the whole plan, and
 iOS only lets an app start one **while it is in the foreground**, so it appears

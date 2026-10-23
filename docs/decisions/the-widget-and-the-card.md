@@ -75,8 +75,27 @@ Focus breakthrough, **and** a card on the lock screen; leaving it off gets one
 quiet reminder and nothing persistent. The form's hint says all four, because
 nothing else in the app does.
 
-Within the chores that asked, it is still the first unfinished one in plan
-order. The counts, though, describe the **whole** plan — "2 of 5 done · 3 left"
+Within the chores that asked, **flagged ones come first** — then plan order.
+
+> "the persistent notification should prioritize flagged chores"
+
+A flag is raised by hand, today; the switch is a standing property of the
+chore. When both apply the flag is the more recent statement of intent, so it
+decides. Anybody's flag counts, which is the rule everywhere else: flagged
+means flagged, not flagged-by-me.
+
+It reuses `flaggedFirst` from `src/core/chore/flag.ts` — a **stable
+partition**, so the flagged ones move to the front without scrambling their
+order relative to each other, and plan order survives inside both groups. A
+sort would have thrown away the ordering the user built, and a second notion of
+precedence living here is how two views of one list start disagreeing.
+
+**Flagging is not a second way in.** The switch still decides whether there is
+a card at all; the flag only decides which of the candidates it is about. A
+flagged chore with the switch off gets nothing, which is what keeps the
+opt-in promise above honest.
+
+The counts describe the **whole** plan — "2 of 5 done · 3 left"
 is the useful context, and a card counting only insistent chores would
 disagree with the app on the same screen.
 
