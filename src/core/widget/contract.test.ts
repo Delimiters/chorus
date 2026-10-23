@@ -41,6 +41,7 @@ const WIDGET_TICK = 'targets/plan/TickIntent.swift';
 const WIDGET_ATTRIBUTES = 'targets/plan/PlanActivityAttributes.swift';
 const MODULE = 'modules/widget-bridge/ios/WidgetBridgeModule.swift';
 const MODULE_ATTRIBUTES = 'modules/widget-bridge/ios/PlanActivityAttributes.swift';
+const WIDGET_BUNDLE = 'targets/plan/ChorusWidget.swift';
 
 /**
  * Swift property names declared in a `struct`, in source order.
@@ -208,6 +209,36 @@ describe('the snapshot the widget reads', () => {
     expect(bridge).toContain('Function("pendingTicks")');
     expect(bridge).toContain('Function("acknowledgeTicks")');
     expect(code(MODULE)).not.toContain('takePendingTicks');
+  });
+});
+
+describe('the widget bundle', () => {
+  const bundle = code(WIDGET_BUNDLE);
+
+  it('registers the Live Activity unconditionally', () => {
+    /*
+     * `PlanActivity()` sat inside `if #available(iOS 16.2, *)`. That compiles —
+     * `WidgetBundleBuilder.buildOptional` accepts an availability clause — by
+     * wrapping the widget in SwiftUI's type-erased `LimitedAvailabilityWidget`,
+     * which is what the system must look through to find the
+     * `ActivityConfiguration` for a running activity's attributes. It did not
+     * find it: the card appeared as the system's blank container with the app's
+     * name and nothing in it, and nothing was logged anywhere.
+     *
+     * The check was also unreachable. This target's deployment target is iOS
+     * 18.0, so no availability clause below that can be false in it.
+     */
+    const body = bundle.slice(bundle.indexOf('struct ChorusWidgetBundle'));
+    expect(body).toContain('PlanActivity()');
+    expect(body).not.toContain('#available');
+  });
+
+  it('has exactly one @main, on the bundle', () => {
+    // Two in one target do not compile, and whichever lost would take its
+    // surface off the phone silently.
+    const mains = (code(WIDGET_BUNDLE).match(/@main/g) ?? []).length;
+    expect(mains).toBe(1);
+    expect(bundle).toMatch(/@main\s+struct ChorusWidgetBundle: WidgetBundle/);
   });
 });
 

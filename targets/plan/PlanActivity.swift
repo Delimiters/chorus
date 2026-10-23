@@ -25,25 +25,24 @@ import WidgetKit
 /// `TickIntent` is the same one the home-screen widget uses, so a tick from the
 /// lock screen and a tick from the widget land in the same queue and are
 /// replayed through the same completion path. Two buttons, one mechanism.
-@available(iOS 16.2, *)
 private struct ActivityTickButton: View {
     let occurrenceKey: String
     let title: String
     var compact = false
 
     var body: some View {
-        if #available(iOS 17.0, *) {
-            Button(intent: TickIntent(occurrenceKey: occurrenceKey)) {
-                label
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Mark \(title) done")
-        } else {
-            // iOS 16 has Live Activities but no interactive buttons in them.
-            // Showing a box that cannot be tapped would be a lie, so the card
-            // is a display there and the app is where you tick.
+        /*
+         * No `#available` check. This target's floor is iOS 18.0, so the
+         * interactive-button branch is the only reachable one — and a
+         * conditional in a Live Activity view is how the whole card ended up
+         * rendering as the system's blank placeholder once already. See the
+         * note on `ChorusWidgetBundle`.
+         */
+        Button(intent: TickIntent(occurrenceKey: occurrenceKey)) {
             label
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Mark \(title) done")
     }
 
     private var label: some View {
@@ -56,16 +55,17 @@ private struct ActivityTickButton: View {
                     .foregroundStyle(Color.faint)
             )
             /*
-             * 44×44, which is `MIN_TARGET`, against a 28pt box. The card has
-             * the room the widget row does not, and this is the one surface
-             * where a mis-tap completes the wrong chore with no undo in reach.
+             * 44×44 on the lock-screen card, which is `MIN_TARGET` — the one
+             * surface here with the room for it, and one where a mis-tap
+             * completes the wrong chore with no undo in reach. The Dynamic
+             * Island passes `compact` and gets 28pt, because its regions flank
+             * the sensor housing.
              */
-            .frame(width: 44, height: 44)
+            .frame(width: compact ? 28 : 44, height: compact ? 28 : 44)
             .contentShape(Rectangle())
     }
 }
 
-@available(iOS 16.2, *)
 struct PlanActivityView: View {
     let state: PlanAttributes.ContentState
     @Environment(\.colorScheme) private var scheme
@@ -113,7 +113,6 @@ struct PlanActivityView: View {
     }
 }
 
-@available(iOS 16.2, *)
 struct PlanActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: PlanAttributes.self) { context in
@@ -141,9 +140,19 @@ struct PlanActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
+                    /*
+                     * `compact`, so the target is 28pt rather than 44pt.
+                     * The expanded island's leading and trailing regions flank
+                     * the sensor housing, which is about 37pt wide, and Apple
+                     * is explicit that content there should stay minimal — a
+                     * 44pt frame either pushes the top row taller or gets
+                     * clipped. The lock-screen card below has the room and
+                     * uses the full target.
+                     */
                     ActivityTickButton(
                         occurrenceKey: context.state.occurrenceKey,
-                        title: context.state.title
+                        title: context.state.title,
+                        compact: true
                     )
                 }
             } compactLeading: {

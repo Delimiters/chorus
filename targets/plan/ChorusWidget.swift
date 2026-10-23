@@ -76,48 +76,49 @@ func inkColor(_ light: String?, _ dark: String?, _ scheme: ColorScheme) -> Color
 
 /// One row: the ink stripe, the box, the title.
 ///
-/// The box is a `Button` running an App Intent, so the tap lands without
-/// opening the app. On iOS 16 the button simply is not offered — a widget that
-/// looks tappable and is not is worse than one that is plainly a display.
+/// **The whole row is the button**, not just the box. Three reasons, in order
+/// of how much they cost to learn:
 ///
-/// **A finished row is not a button either**, for the same reason. It used to
-/// be: tapping a filled box enqueued a key the app then skipped, so the tap
-/// did nothing and said nothing. Worse for a *skipped* row — the projection
-/// counts skipped as done, so the box was filled, and the drain's only guard
-/// was against `completed`: tapping it completed a chore you had deliberately
-/// skipped.
+/// 1. `MIN_TARGET` is 44 and a 20pt box is less than half that. This is the
+///    project's most repeated failure, and `src/design/tapTargets.test.ts`
+///    cannot see Swift. A mis-tap here is worse than in the app: it completes
+///    the *wrong* chore, with no undo anywhere on the home screen, and an
+///    interval chore's next due date moves.
+/// 2. Padding the box to 44pt instead — the first attempt — took 24pt out of a
+///    small widget's ~130pt content width, cutting the title from about
+///    thirteen characters to eight. Silently, because the title is
+///    `lineLimit(1)`. The row is free; the box is not.
+/// 3. A row that is entirely tappable needs no affordance explaining which
+///    part of it to hit.
 ///
-/// **The tap region is 44pt wide and the full height of the row**, against a
-/// 20pt box. `MIN_TARGET` is 44 and this is the project's most repeated
-/// failure (see `src/design/tapTargets.test.ts`, which cannot see Swift). A
-/// widget row is 22pt tall because a small widget is ~155pt and has to hold a
-/// header and three rows, so 44×44 is physically impossible here — but the
-/// *width* is free, and the consequence of a mis-tap is worse than in the app:
-/// it completes the wrong chore, with no undo anywhere on the home screen, and
-/// an interval chore's next due date moves.
+/// A finished row is not a button at all. It used to be: tapping a filled box
+/// enqueued a key the app then skipped, so the tap did nothing and said
+/// nothing. Worse for a *skipped* row — the projection counts skipped as done,
+/// so the box was filled, and the drain's only guard was against `completed`:
+/// tapping it completed a chore you had deliberately skipped.
 struct PlanRow: View {
     let row: Snapshot.Row
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        if row.done {
+            content.accessibilityLabel("\(row.title), done")
+        } else {
+            Button(intent: TickIntent(occurrenceKey: row.id)) {
+                content
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Mark \(row.title) done")
+        }
+    }
+
+    private var content: some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(inkColor(row.ink, row.inkDark, scheme))
                 .frame(width: 3)
 
-            if #available(iOS 17.0, *), !row.done {
-                Button(intent: TickIntent(occurrenceKey: row.id)) {
-                    box
-                        .frame(width: 44, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Mark \(row.title) done")
-            } else {
-                box
-                    .frame(width: 44, height: 22)
-                    .accessibilityLabel(row.done ? "\(row.title), done" : row.title)
-            }
+            box
 
             Text(row.title)
                 .font(.system(size: 14, weight: .medium))
@@ -128,6 +129,9 @@ struct PlanRow: View {
             Spacer(minLength: 0)
         }
         .frame(height: 22)
+        // The row's own area is the hit region, which is wider than 44pt at
+        // every widget size and needs no padding to get there.
+        .contentShape(Rectangle())
     }
 
     private var box: some View {
@@ -137,8 +141,7 @@ struct PlanRow: View {
                 RoundedRectangle(cornerRadius: 5).fill(row.done ? Color.ink : .clear)
             )
             .frame(width: 20, height: 20)
-            // The visual size. The tap region is set by the caller, which is
-            // wider than this on purpose.
+            // The visual size only. The hit region is the whole row.
             .overlay(
                 Image(systemName: "checkmark")
                     .font(.system(size: 11, weight: .bold))
@@ -217,14 +220,32 @@ struct ChorusWidgetView: View {
  Activity is one — `PlanActivity` is in `PlanActivity.swift`. So `@main` moves
  to the bundle: two `@main` declarations in one target do not compile, and the
  bundle is the only place that can own it.
+
+ ## Nothing here is wrapped in `if #available`, and that is load-bearing
+
+ It was. `PlanActivity()` sat inside `if #available(iOS 16.2, *)`, which
+ compiles — `WidgetBundleBuilder.buildOptional` accepts an availability clause —
+ by wrapping the widget in SwiftUI's type-erased `LimitedAvailabilityWidget`.
+ That erasure is what the system has to look through to find the
+ `ActivityConfiguration` matching a running activity's attributes, and it did
+ not find it: the app started the activity, iOS showed its container with the
+ app's name and no content in it, and nothing was logged. Jake, on build 66:
+ *"a semi transparent notification that said chorus but had nothing on it"*.
+
+ The guard bought nothing either way. This target's deployment target is **iOS
+ 18.0** — see `IPHONEOS_DEPLOYMENT_TARGET` in the generated project — so no
+ availability check below that can ever be false here. `PlanAttributes` keeps
+ its `@available(iOS 16.2, *)` because that file is compiled into the *app*
+ too, whose floor is 15.1.
+
+ `src/core/widget/contract.test.ts` fails if a conditional reappears in this
+ bundle.
  */
 @main
 struct ChorusWidgetBundle: WidgetBundle {
     var body: some Widget {
         ChorusWidget()
-        if #available(iOS 16.2, *) {
-            PlanActivity()
-        }
+        PlanActivity()
     }
 }
 

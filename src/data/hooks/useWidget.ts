@@ -241,7 +241,14 @@ export function useWidgetSync({
   useEffect(() => {
     if (!ready) return;
 
-    void drain();
+    /*
+     * `.catch` on both, and not decoratively: `pendingTicks` and
+     * `acknowledgeTicks` are synchronous Expo `Function`s, which *throw*
+     * rather than reject — and `pendingTicks` is called outside the
+     * try/finally. Inside an async function that becomes an unhandled
+     * rejection, which red-boxes in dev over an accessory feature.
+     */
+    void drain().catch(() => {});
 
     /*
      * On every foreground, which is also what keeps the Live Activity honest:
@@ -251,7 +258,7 @@ export function useWidgetSync({
      */
     const subscription = AppState.addEventListener('change', (next) => {
       if (next !== 'active') return;
-      void drain();
+      void drain().catch(() => {});
       const state = activityState(snapshot);
       if (state !== null) pushActivity(() => transport.showActivity(today, state));
     });

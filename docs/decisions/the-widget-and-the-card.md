@@ -29,7 +29,8 @@ So `modules/widget-bridge` exists, and does exactly four things:
 |---|---|
 | `writeSnapshot(json)` | the projection the app already computed, written down |
 | `reloadTimelines()` | redraw now, rather than at WidgetKit's leisure |
-| `takePendingTicks()` | drain what was ticked from the home or lock screen |
+| `pendingTicks()` | what was ticked from the home or lock screen |
+| `acknowledgeTicks(keys)` | forget those, now the database has them |
 | `showActivity` / `endActivities` | raise and lower the persistent card |
 
 **It computes nothing.** The snapshot arrives as a JSON string and is written
@@ -215,6 +216,69 @@ Calls into ActivityKit are serialised through a promise chain, because two
 unawaited `showActivity` calls can each see no running activity and each
 request one — leaving two cards for the same day, after which only the first
 found is ever updated.
+
+## Two things it took a phone to find
+
+Both shipped to both handsets, both invisible to 2,100 green tests, and both
+exactly the shape `docs/WHERE-THINGS-STAND.md` warns about: *decode the
+artifact, do not read the dashboard.*
+
+### Every colour was empty
+
+`expo-target.config.js` declared four colours. The plugin's own type
+documentation says to write them as
+`{ color: "#FF0000", darkColor: "#0000FF" }`. Its code reads `color.light` and
+`color.dark`. Given the documented shape both are `undefined`, and it writes:
+
+```json
+{ "colors": [], "info": { "version": 1, "author": "expo" } }
+```
+
+A colorset containing no colours. The plugin said nothing, the prebuild
+succeeded, the build succeeded. `Color("$paper")` resolved to nothing, so the
+widget's background was transparent and every piece of text was invisible —
+a blank widget, and a Live Activity that Jake described as *"a semi transparent
+notification that said chorus but had nothing on it"*.
+
+`src/design/widgetColors.test.ts` now reads the generated `Contents.json` and
+fails if a colorset is empty, is missing its dark variant, or drifts from
+`src/design/tokens.ts`. It lives beside the tokens rather than in
+`src/core/widget/` because it has to import them, and `src/core` may not import
+outward.
+
+### The Live Activity was never registered
+
+`PlanActivity()` sat inside `if #available(iOS 16.2, *)` in the widget bundle.
+That compiles — `WidgetBundleBuilder.buildOptional` accepts an availability
+clause — by wrapping the widget in SwiftUI's type-erased
+`LimitedAvailabilityWidget`. The system has to look through that to find the
+`ActivityConfiguration` matching a running activity's attributes, and it did
+not: iOS showed the activity's container with the app's name and no view inside
+it.
+
+The check was unreachable anyway. **The widget target's deployment target is
+iOS 18.0** while the app's is 15.1 — so no availability clause below 18.0 can
+ever be false inside the extension, and on iOS 15.1–17.x the app installs
+normally and the widget and the card simply do not exist. `PlanAttributes`
+keeps its `@available(iOS 16.2, *)` because that file is compiled into the app
+too.
+
+`contract.test.ts` fails if a conditional reappears in the bundle, or if a
+second `@main` shows up.
+
+## One race left, knowingly
+
+`acknowledgeTicks` filters the queue and `PendingTicks.add` appends to it, from
+two processes, on the same App Group `UserDefaults` key, with no atomicity. A
+tick landing inside the app's read-modify-write can be lost: the app reads
+`[A]`, the widget writes `[A, B]`, the app writes back `[]`, and B is gone with
+the box un-filling on the next publish.
+
+The window is microseconds wide and needs a tap inside it, so it is left alone
+rather than fixed with a lock that would have to span two processes. Worth
+knowing it is there, and that the snapshot beside it is written `.atomic` for
+exactly this reason. It is not new — the destructive single call had the same
+race and a wider window.
 
 ## Signing
 

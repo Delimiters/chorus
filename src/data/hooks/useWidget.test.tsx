@@ -428,6 +428,70 @@ describe('coming back to the app', () => {
     expect(transport.shown.length).toBeGreaterThan(1);
   });
 
+  it('drains the queue, which is the reason this lives in the root layout', async () => {
+    /*
+     * Deleting the `drain()` call in the AppState handler left every other
+     * test green, while both the code comment and the decision note claim the
+     * queue is drained on every foreground — and claim it is *why* the hook is
+     * mounted in `_layout.tsx` rather than on the plan screen. A tick made on
+     * the lock screen while the app sits in the background would have waited
+     * for an unrelated re-render.
+     */
+    mockItems = [item('a:1', 'Dishes')];
+    mockEntries = [entry('a:1', 1)];
+
+    const transport = recorder();
+    render(transport);
+    await act(async () => {});
+    expect(mockToggle).not.toHaveBeenCalled();
+
+    // Ticked on the lock screen while the app was in the background.
+    transport.pending = ['a:1'];
+    await act(async () => {
+      listeners.forEach((fn) => fn('active'));
+    });
+
+    expect(mockToggle).toHaveBeenCalledTimes(1);
+    expect(transport.pending).toEqual([]);
+  });
+
+  it('will not start a second drain over a running one', async () => {
+    /*
+     * The re-entrancy guard had a six-line comment arguing it was load-bearing
+     * and could be deleted with the suite staying green. It is load-bearing
+     * now that the loop awaits each write: two foregrounds in quick succession
+     * would otherwise both read the same unacknowledged key and write it twice.
+     */
+    mockItems = [item('a:1', 'Dishes'), item('b:1', 'Litter')];
+    mockEntries = [entry('a:1', 1), entry('b:1', 2)];
+
+    let release: (() => void) | null = null;
+    mockToggle.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    const transport = recorder();
+    transport.pending = ['a:1', 'b:1'];
+    render(transport);
+
+    // First drain is parked mid-write; a foreground tries to start another.
+    await waitFor(() => expect(mockToggle).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      listeners.forEach((fn) => fn('active'));
+    });
+    expect(mockToggle).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release?.();
+    });
+    await waitFor(() => expect(transport.pending).toEqual([]));
+    // Two keys, two writes. Not three.
+    expect(mockToggle).toHaveBeenCalledTimes(2);
+  });
+
   it('asks ActivityKit one thing at a time', async () => {
     /*
      * Two unawaited calls can each see no running activity and each request
