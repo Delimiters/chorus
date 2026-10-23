@@ -61,9 +61,11 @@ jest.mock('./useOccurrences', () => ({
 
 /** Chore ids anybody has flagged, as `useFlagsByChore` returns them. */
 let mockFlagged: readonly string[] = [];
+let mockFlagsLoading = false;
 
 jest.mock('./useFlags', () => ({
   useFlagsByChore: () => new Map(mockFlagged.map((id) => [id, ['user-them']])),
+  useFlagsLoading: () => mockFlagsLoading,
 }));
 
 jest.mock('./usePlan', () => ({
@@ -218,6 +220,7 @@ beforeEach(() => {
   ];
   mockEntries = [];
   mockFlagged = [];
+  mockFlagsLoading = false;
   mockOccurrencesLoading = false;
   mockPlanLoading = false;
   mockToggleFails = false;
@@ -248,6 +251,7 @@ describe('publishing the plan', () => {
     ['the members', () => (mockMembers = { data: undefined })],
     ['the occurrences', () => (mockOccurrencesLoading = true)],
     ['the plan entries', () => (mockPlanLoading = true)],
+    ['the flags', () => (mockFlagsLoading = true)],
   ])('says nothing at all while %s is still loading', async (_name, unload) => {
     mockItems = [item('a:1', 'Dishes')];
     mockEntries = [entry('a:1', 1)];

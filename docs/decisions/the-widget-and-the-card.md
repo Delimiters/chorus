@@ -56,8 +56,11 @@ ordering the user built deliberately; re-sorting it on the home screen would
 make that ordering meaningless, and a second ordering computed from the wrong
 thing is the `useOccurrences.ts:152` shape that type-checks fine and is wrong.
 
-The card is about **the first unfinished row in that order** — the next thing
-you said you would do. Not the most overdue: that would second-guess the plan.
+The card is about the first unfinished row in that order, **flagged ones
+first** — the next thing you said you would do, unless you have since said one
+of them matters more. The rule is stated in full under *The card is opt-in, per
+chore* below; what it is never ordered by is overdueness, which would
+second-guess the plan.
 
 ### The card is opt-in, per chore
 

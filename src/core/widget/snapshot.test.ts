@@ -209,19 +209,22 @@ describe('what the Live Activity says', () => {
 
   it('keeps plan order within the flagged ones', () => {
     /*
-     * A stable partition, not a sort: flagging two things moves both to the
-     * front without scrambling their order relative to each other. `b` is
-     * flagged and earlier than `c`, so it wins; `a` is unflagged and first
-     * overall, so it loses.
+     * A stable partition, not a sort.
+     *
+     * The flagged pair is in plan order `c` then `b`, which *contradicts*
+     * their chore-id order. A version of this test with them the other way
+     * round stayed green when the partition was replaced by a sort on chore
+     * id, because plan order and id order agreed — proving the partition held
+     * the flagged ones at the front, and nothing about their order within it.
      */
     const plan = [
       row('a:1', 'Unflagged but first'),
-      row('b:1', 'Flagged earlier'),
-      row('c:1', 'Flagged later'),
+      row('c:1', 'Flagged earlier in the plan'),
+      row('b:1', 'Flagged later in the plan'),
     ];
 
     const state = activityState(plan, INKS, THREE, new Set(['b', 'c']));
-    expect(state?.title).toBe('Flagged earlier');
+    expect(state?.title).toBe('Flagged earlier in the plan');
   });
 
   it('ignores a flag on a chore that did not ask to insist', () => {
@@ -315,9 +318,15 @@ describe('the two derived views', () => {
     expect(state?.remaining).toBe(snap.totalCount - snap.doneCount);
   });
 
-  it('agree about the row the card names', () => {
+  it('agree about the row the card names, flagged or not', () => {
+    /*
+     * With a flag in play, so the agreement is checked on the path the card
+     * actually takes rather than only on the unflagged one. `flaggedFirst` is
+     * length-preserving, so the counts cannot move — but that is a property
+     * worth pinning rather than assuming.
+     */
     const snap = widgetSnapshot(plan, DAY, INKS, WRITTEN);
-    const state = activityState(plan, INKS, new Set(['nag']), NO_FLAGS);
+    const state = activityState(plan, INKS, new Set(['nag']), new Set(['nag']));
     const sameRow = snap.rows.find((r) => r.id === state?.occurrenceKey);
 
     expect(sameRow).toBeDefined();

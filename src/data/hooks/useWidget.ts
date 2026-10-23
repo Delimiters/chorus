@@ -24,7 +24,7 @@ import {
 } from '@/core/widget/snapshot';
 import { inkByName } from '@/design/inks';
 import { useUserId } from '@/stores/sessionStore';
-import { useFlagsByChore } from './useFlags';
+import { useFlagsByChore, useFlagsLoading } from './useFlags';
 import { nativeWidget, widgetAvailable, type WidgetTransport } from '../widget';
 import { useToday } from '../today';
 import { useHousehold, useMembers } from './useHousehold';
@@ -63,6 +63,7 @@ export function useWidgetSync({
   const entries = useMyPlanEntries(today);
   const planLoading = usePlanLoading(today);
   const flagsByChore = useFlagsByChore();
+  const flagsLoading = useFlagsLoading();
 
   /**
    * Whether the plan on screen is the real one yet.
@@ -85,7 +86,8 @@ export function useWidgetSync({
     household.data !== undefined &&
     members.data !== undefined &&
     !occurrencesLoading &&
-    !planLoading;
+    !planLoading &&
+    !flagsLoading;
 
   const planned = useMemo(() => planFor(entries, today, items), [entries, today, items]);
 

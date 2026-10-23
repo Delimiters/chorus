@@ -105,15 +105,19 @@ nothing about them needs Xcode.
 
 **And a card on the lock screen, as of build 70** — one card, not one per
 chore. The same switch raises a Live Activity for whichever insistent chore is
-next on your plan — flagged ones first: persistent, with a Done button, until it is ticked, at which
-point it moves to the next one. Two qualifications that matter, because the
-form's hint has to state them: there is a single card for the whole plan, and
-iOS only lets an app start one **while it is in the foreground**, so it appears
-the next time you open the app rather than the moment the chore comes due. The
-ladder is still what gets your attention. It was briefly unconditional, which
-put a box on the lock screen for an ordinary day;
-`docs/decisions/the-widget-and-the-card.md` has the reasoning for tying it to
-this switch rather than inventing a second one.
+next on your plan, flagged ones first: persistent, with a Done button, until it
+is ticked, at which point it moves to the next one.
+
+Two qualifications matter enough that the form's hint states them. There is a
+single card for the whole plan, not one per chore. And iOS only lets an app
+start one **while it is in the foreground**, so it appears the next time you
+open the app rather than the moment the chore comes due — the ladder is still
+what gets your attention.
+
+It was briefly unconditional, which put a box on the lock screen for an
+ordinary day. `docs/decisions/the-widget-and-the-card.md` has the reasoning for
+tying it to this switch rather than inventing a second one, and for letting a
+flag reorder which chore it names.
 
 **Audible only when asked.** Ordinary reminders stay exactly as they were —
 silent, banner only. Marking everything Time Sensitive is the notification
