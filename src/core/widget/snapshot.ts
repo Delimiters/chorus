@@ -118,26 +118,53 @@ export interface ActivityState {
 }
 
 /**
- * The one chore the persistent card is about.
+ * The one chore the persistent card is about — and whether to have one at all.
  *
- * The first unfinished row in the plan's own order, which is the next thing you
- * said you would do — not the most overdue, and not an arbitrary pick. The plan
- * is an ordering the user built deliberately; second-guessing it on the lock
- * screen would make the order they chose meaningless.
+ * **Only a chore that asked.** The first version raised a card whenever
+ * anything was outstanding, which put a permanent box on the lock screen for
+ * an ordinary day. Jake: *"it shouldn't just always have a focus box it should
+ * be something you check for certain chores"*. `insistChoreIds` is the set
+ * whose `nagUntilDone` is on — the same switch, and the same set, that the
+ * reminder ladder uses. One checkbox, one meaning: insist on this until it is
+ * done.
  *
- * Null when there is nothing left, and the caller ends the activity. A card
- * reading "0 left" is a card whose own existence contradicts it.
+ * Within those, it is the **first unfinished one in the plan's own order** —
+ * the next such thing you said you would do, not the most overdue. The plan is
+ * an ordering built deliberately and second-guessing it on the lock screen
+ * would make it meaningless.
+ *
+ * Derived from `planned` rather than from a `WidgetSnapshot`, deliberately.
+ * Both views come from the projector's output and neither from the other: that
+ * is the `useOccurrences.ts:152` archetype, where one derived view was computed
+ * from another and the rule it implemented went inert while type-checking
+ * perfectly. It also keeps `choreId` out of the snapshot, which the widget has
+ * no use for — an unused field in that contract is what `writtenAt` already
+ * cost once.
+ *
+ * The counts still describe the **whole** plan: "2 of 5 done · 3 left" is the
+ * useful context, and a card counting only insistent chores would disagree
+ * with the app on the same screen.
  */
-export function activityState(snapshot: WidgetSnapshot): ActivityState | null {
-  const next = snapshot.rows.find((row) => !row.done);
+export function activityState(
+  planned: readonly PlannedItem<AgendaItem>[],
+  inkByMember: InkByMember,
+  insistChoreIds: ReadonlySet<string>,
+): ActivityState | null {
+  const next = planned.find(
+    ({ item }) => !isFinished(item.status) && insistChoreIds.has(item.choreId),
+  );
   if (next === undefined) return null;
 
+  const done = planned.filter(({ item }) => isFinished(item.status)).length;
+  const assignee = next.item.assignee;
+  const ink = assignee.kind === 'member' ? (inkByMember[assignee.memberId] ?? null) : null;
+
   return {
-    title: next.title,
-    occurrenceKey: next.id,
-    remaining: snapshot.totalCount - snapshot.doneCount,
-    total: snapshot.totalCount,
-    ink: next.ink,
-    inkDark: next.inkDark,
+    title: next.item.choreTitle,
+    occurrenceKey: next.item.occurrenceKey,
+    remaining: planned.length - done,
+    total: planned.length,
+    ink: ink?.light ?? null,
+    inkDark: ink?.dark ?? null,
   };
 }

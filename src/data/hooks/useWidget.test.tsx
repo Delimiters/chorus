@@ -25,6 +25,8 @@ const ME = 'user-me';
 let mockHousehold: { data: unknown } = { data: { timeZone: 'UTC', weekStartsOn: 0 } };
 let mockMembers: { data: unknown } = { data: [] };
 let mockItems: readonly AgendaItem[] = [];
+/** The chore rows behind those items, carrying the nag switch. */
+let mockChores: readonly { id: string; nagUntilDone: boolean }[] = [];
 let mockEntries: readonly PlanEntry[] = [];
 /** Whether the queries behind the plan have resolved. */
 let mockOccurrencesLoading = false;
@@ -49,7 +51,11 @@ jest.mock('../today', () => ({ useToday: () => '2026-10-22' }));
 
 jest.mock('./useOccurrences', () => ({
   quantiseWindow: () => ({ start: '2026-10-05', end: '2026-11-01' }),
-  useOccurrences: () => ({ items: mockItems, isLoading: mockOccurrencesLoading }),
+  useOccurrences: () => ({
+    items: mockItems,
+    chores: mockChores,
+    isLoading: mockOccurrencesLoading,
+  }),
   useToggleCompletion: () => ({ mutateAsync: mockToggle }),
 }));
 
@@ -194,6 +200,15 @@ beforeEach(() => {
     ],
   };
   mockItems = [];
+  /*
+   * Nagging by default in this file, because most of these tests are about the
+   * publish and drain paths and would otherwise raise no card at all. The
+   * tests that care about the switch set it explicitly.
+   */
+  mockChores = [
+    { id: 'a', nagUntilDone: true },
+    { id: 'b', nagUntilDone: true },
+  ];
   mockEntries = [];
   mockOccurrencesLoading = false;
   mockPlanLoading = false;
@@ -279,6 +294,40 @@ describe('the persistent card', () => {
       ink: '#C2185B',
     });
     expect(transport.ended).toHaveLength(0);
+  });
+
+  it('is never raised when no outstanding chore asked to insist', async () => {
+    /*
+     * Jake: "it shouldn't just always have a focus box it should be something
+     * you check for certain chores". An ordinary day has work on it and should
+     * put nothing permanent on the lock screen.
+     */
+    mockChores = [{ id: 'a', nagUntilDone: false }];
+    mockItems = [item('a:1', 'Dishes')];
+    mockEntries = [entry('a:1', 1)];
+
+    const transport = recorder();
+    render(transport);
+
+    await waitFor(() => expect(transport.published).toHaveLength(1));
+    expect(transport.published[0]?.rows).toHaveLength(1);
+    expect(transport.shown).toHaveLength(0);
+    expect(transport.ended).toHaveLength(1);
+  });
+
+  it('is about the chore that asked, not the first one outstanding', async () => {
+    mockChores = [
+      { id: 'a', nagUntilDone: false },
+      { id: 'b', nagUntilDone: true },
+    ];
+    mockItems = [item('a:1', 'Quiet one'), item('b:1', 'Insistent one')];
+    mockEntries = [entry('a:1', 1), entry('b:1', 2)];
+
+    const transport = recorder();
+    render(transport);
+
+    await waitFor(() => expect(transport.shown).toHaveLength(1));
+    expect(transport.shown[0]?.title).toBe('Insistent one');
   });
 
   it('comes down once the plan is finished', async () => {

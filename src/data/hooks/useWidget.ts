@@ -53,7 +53,7 @@ export function useWidgetSync({
    * the plan screen already holds. So this costs no extra fetch.
    */
   const window = useMemo(() => quantiseWindow(today, weekStartsOn, 2, 1), [today, weekStartsOn]);
-  const { items, isLoading: occurrencesLoading } = useOccurrences(window);
+  const { items, chores, isLoading: occurrencesLoading } = useOccurrences(window);
   const entries = useMyPlanEntries(today);
   const planLoading = usePlanLoading(today);
 
@@ -81,6 +81,20 @@ export function useWidgetSync({
     !planLoading;
 
   const planned = useMemo(() => planFor(entries, today, items), [entries, today, items]);
+
+  /**
+   * Which chores asked to be insisted on.
+   *
+   * The same switch and the same set the reminder ladder uses — one checkbox,
+   * one meaning — and from the query the window already pulled, so it costs no
+   * fetch. It is what decides whether there is a persistent card at all: the
+   * first version raised one whenever anything was outstanding, which put a
+   * permanent box on the lock screen for an ordinary day.
+   */
+  const insistChoreIds = useMemo(
+    () => new Set(chores.filter((chore) => chore.nagUntilDone).map((chore) => chore.id)),
+    [chores],
+  );
 
   const inkByMember = useMemo<InkByMember>(() => {
     const map: Record<string, { light: string; dark: string }> = {};
@@ -138,18 +152,19 @@ export function useWidgetSync({
 
     transport.publish(snapshot);
 
-    const state = activityState(snapshot);
+    const state = activityState(planned, inkByMember, insistChoreIds);
     if (state === null) {
       /*
-       * Ends the card when the plan is finished *and* when it is empty. Both
-       * are "nothing to be persistent about", and a card that outlives its
-       * list is worse than no card.
+       * Ends the card when no outstanding chore has asked to insist — which
+       * covers a finished plan, an empty one, and the ordinary case of a day
+       * with work on it and nothing urgent enough to pin to the lock screen.
+       * A card that outlives its reason is worse than no card.
        */
       pushActivity(() => transport.endActivity());
     } else {
       pushActivity(() => transport.showActivity(today, state));
     }
-  }, [ready, snapshot, today, transport, pushActivity]);
+  }, [ready, snapshot, planned, inkByMember, insistChoreIds, today, transport, pushActivity]);
 
   /*
    * Ticks made from the home screen or the lock screen.
@@ -259,9 +274,9 @@ export function useWidgetSync({
     const subscription = AppState.addEventListener('change', (next) => {
       if (next !== 'active') return;
       void drain().catch(() => {});
-      const state = activityState(snapshot);
+      const state = activityState(planned, inkByMember, insistChoreIds);
       if (state !== null) pushActivity(() => transport.showActivity(today, state));
     });
     return () => subscription.remove();
-  }, [ready, drain, snapshot, today, transport, pushActivity]);
+  }, [ready, drain, planned, inkByMember, insistChoreIds, today, transport, pushActivity]);
 }

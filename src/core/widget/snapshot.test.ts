@@ -5,7 +5,7 @@ import type { AgendaItem } from '@/core/occurrence/agenda';
 import type { OccurrenceStatus } from '@/core/occurrence/types';
 import type { PlannedItem } from '@/core/plan/plan';
 
-import { activityState, widgetSnapshot, type WidgetSnapshot } from './snapshot';
+import { activityState, widgetSnapshot } from './snapshot';
 
 const d = (s: string) => s as CivilDate;
 const DAY = d('2026-10-22');
@@ -144,54 +144,74 @@ describe('the widget snapshot', () => {
 });
 
 describe('what the Live Activity says', () => {
-  const planOf = (...rows: readonly PlannedItem<AgendaItem>[]): WidgetSnapshot =>
-    widgetSnapshot(rows, DAY, INKS, WRITTEN);
+  const NAGS = new Set(['nag']);
 
-  it('is about the first unfinished row, not the first row', () => {
+  it('is about the first unfinished chore that asked to insist', () => {
     const state = activityState(
-      planOf(
-        row('a:1', 'Already done', { status: 'completed', member: ALICE }),
-        row('b:1', 'Next up', { member: BOB }),
-        row('c:1', 'After that'),
-      ),
+      [
+        row('nag:0', 'Already done', { status: 'completed', member: ALICE }),
+        row('quiet:1', 'Not insistent', { member: BOB }),
+        row('nag:1', 'Next up', { member: BOB }),
+        row('nag:2', 'After that'),
+      ],
+      INKS,
+      NAGS,
     );
 
+    /*
+     * Deliberately not the first unfinished row — that is `quiet:1`, which did
+     * not ask. A test whose only unfinished row was also the insistent one
+     * would pass with the `insistChoreIds` check deleted.
+     */
     expect(state).toEqual({
       title: 'Next up',
-      occurrenceKey: 'b:1',
-      remaining: 2,
-      total: 3,
+      occurrenceKey: 'nag:1',
+      remaining: 3,
+      total: 4,
       ink: '#C2185B',
       inkDark: '#FF8FC2',
     });
   });
 
-  it('counts what is left, not what there is', () => {
-    const state = activityState(
-      planOf(
-        row('a:1', 'One', { status: 'completed' }),
-        row('b:1', 'Two', { status: 'skipped' }),
-        row('c:1', 'Three'),
-        row('d:1', 'Four'),
-      ),
-    );
-
-    expect(state?.remaining).toBe(2);
-    expect(state?.total).toBe(4);
+  it('is nothing at all when nothing outstanding asked to insist', () => {
+    /*
+     * The whole point of the switch. An ordinary day has outstanding chores and
+     * should put no permanent box on the lock screen.
+     */
+    expect(
+      activityState([row('quiet:1', 'Dishes'), row('quiet:2', 'Litter')], INKS, NAGS),
+    ).toBeNull();
   });
 
-  it('is nothing at all once the plan is finished', () => {
+  it('counts the whole plan, not just the chores that asked', () => {
+    const state = activityState(
+      [
+        row('quiet:1', 'One', { status: 'completed' }),
+        row('quiet:2', 'Two', { status: 'skipped' }),
+        row('quiet:3', 'Three'),
+        row('nag:1', 'Four'),
+      ],
+      INKS,
+      NAGS,
+    );
+
+    // Two done of four, two left — the card agrees with the app's own count.
+    expect(state?.remaining).toBe(2);
+    expect(state?.total).toBe(4);
+    expect(state?.title).toBe('Four');
+  });
+
+  it('is nothing at all once the insistent chore is done', () => {
     expect(
       activityState(
-        planOf(
-          row('a:1', 'One', { status: 'completed' }),
-          row('b:1', 'Two', { status: 'skipped' }),
-        ),
+        [row('nag:1', 'One', { status: 'completed' }), row('quiet:1', 'Two')],
+        INKS,
+        NAGS,
       ),
     ).toBeNull();
   });
 
   it('is nothing at all when there is no plan', () => {
-    expect(activityState(planOf())).toBeNull();
+    expect(activityState([], INKS, NAGS)).toBeNull();
   });
 });

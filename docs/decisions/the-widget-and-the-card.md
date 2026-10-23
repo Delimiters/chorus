@@ -59,6 +59,33 @@ thing is the `useOccurrences.ts:152` shape that type-checks fine and is wrong.
 The card is about **the first unfinished row in that order** — the next thing
 you said you would do. Not the most overdue: that would second-guess the plan.
 
+### The card is opt-in, per chore
+
+The first version raised one whenever anything was outstanding, which is to say
+almost always. Jake, on build 69:
+
+> "i noticed i have a persistent focus notification though even tho I didn't set
+> anything up to be focused. it shouldn't just always have a focus box it should
+> be something you check for certain chores"
+
+So it is gated on `nagUntilDone` — the switch that already existed, rather than
+a second one meaning almost the same thing. One checkbox, one meaning: *insist
+on this until it is done.* Turning it on gets the reminder ladder, sound, the
+Focus breakthrough, **and** a card on the lock screen; leaving it off gets one
+quiet reminder and nothing persistent. The form's hint says all four, because
+nothing else in the app does.
+
+Within the chores that asked, it is still the first unfinished one in plan
+order. The counts, though, describe the **whole** plan — "2 of 5 done · 3 left"
+is the useful context, and a card counting only insistent chores would
+disagree with the app on the same screen.
+
+`activityState` takes `planned` directly rather than a `WidgetSnapshot`, which
+is what lets it see `choreId` without putting that field into the snapshot the
+widget reads. Two derived views from one projection, neither computed from the
+other — the `useOccurrences.ts:152` rule. An unused field in that cross-language
+contract is what `writtenAt` already cost once.
+
 ## Both inks, because a widget does not know the theme
 
 Each row carries `ink` *and* `inkDark`. `src/design/inks.ts` is explicit that

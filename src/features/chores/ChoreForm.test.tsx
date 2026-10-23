@@ -1260,6 +1260,10 @@ describe('keeping on at you until it is done', () => {
     );
 
     expect(screen.getByText(/breaking through Focus/)).toBeOnTheScreen();
+    // The switch is also what decides whether a chore gets a persistent card.
+    // Nothing else in the app offers that, so the hint is the only place it is
+    // ever said.
+    expect(screen.getByText(/sits on your lock screen until it is done/)).toBeOnTheScreen();
     /*
      * And it does not claim the nagging stops the moment the chore is ticked.
      * It cannot: pending notifications can only be cancelled by this app
