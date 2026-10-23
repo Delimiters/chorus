@@ -40,6 +40,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@bacons/apple-targets": "^5.0.0",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^29.5.14",
     "@types/react": "~19.1.10",
@@ -54,7 +55,8 @@
     "react-test-renderer": "^19.1.0",
     "tsx": "^4.23.1",
     "typescript": "~5.9.2",
-    "typescript-eslint": "^8.65.0"
+    "typescript-eslint": "^8.65.0",
+    "xcode": "^3.0.1"
   },
   "scripts": {
     "start": "expo start",
@@ -80,7 +82,13 @@
     "db:reset": "supabase db reset",
     "db:test": "supabase test db",
     "db:types": "supabase gen types typescript --local --schema public > src/data/database.types.ts",
-    "db:diff": "supabase db diff --schema public"
+    "db:diff": "supabase db diff --schema public",
+    "ios:prebuild": "expo prebuild --platform ios --clean --no-install && node scripts/sign-targets.cjs && cd ios && pod install"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "./modules"
+    }
+  }
 }

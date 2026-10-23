@@ -534,7 +534,7 @@ export function ChoreForm({
             label="Reminders"
             hint={
               nagUntilDone
-                ? 'Reminds again at 3, 8, 16, 27 and 40 minutes, with sound, breaking through Focus. Ticking it off stops the rest next time this phone opens the app — if it is in your pocket, the remaining nudges still arrive. Three chores a day can do this; iOS limits how many reminders an app may queue.'
+                ? 'Reminds again at 3, 8, 16, 27 and 40 minutes, with sound, breaking through Focus. Whichever of these is next on your plan also sits on your lock screen until it is ticked — one at a time, and from the next time you open the app, which is the only moment iOS lets one start. Ticking it off stops the rest next time this phone opens the app — if it is in your pocket, the remaining nudges still arrive. Three chores a day can do this; iOS limits how many reminders an app may queue.'
                 : 'One reminder, quietly, at the time the chore asks for.'
             }
           >

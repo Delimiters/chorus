@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 import { useBootstrapHousehold } from '@/data/hooks/useHousehold';
 import { useRealtimeHousehold } from '@/data/hooks/useRealtime';
 import { useReminderSync } from '@/data/hooks/useReminders';
+import { useWidgetSync } from '@/data/hooks/useWidget';
 import { usePushRegistration } from '@/data/hooks/usePushRegistration';
 import { useReminderPolicy, useReminderStore } from '@/stores/reminderStore';
 import { LoadingState } from '@/design/components';
@@ -65,6 +66,15 @@ export default function AppLayout() {
    * on the same pass that the prompt is granted rather than the next one.
    */
   usePushRegistration();
+  /*
+   * The home-screen widget and the Live Activity.
+   *
+   * Here rather than on the plan screen, because both have to stay right while
+   * the app is nowhere near that tab — and a tick made from the lock screen has
+   * to be replayed on *any* foreground, not only one that happens to land on
+   * Today.
+   */
+  useWidgetSync();
 
   if (status === 'loading') return <LoadingState />;
   if (status === 'signedOut') return <Redirect href="/sign-in" />;
