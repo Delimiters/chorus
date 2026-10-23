@@ -202,4 +202,26 @@ module.exports = defineConfig([
       ],
     },
   },
+
+  /**
+   * Build tooling runs in Node, not in the app bundle.
+   *
+   * `scripts/*.cjs` is CommonJS run directly by `node` from an npm script, so
+   * `__dirname`, `require` and `module` are real there. Expo's shared config
+   * assumes the React Native runtime, where they are not.
+   */
+  {
+    files: ['scripts/**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        console: 'readonly',
+        module: 'writable',
+        process: 'readonly',
+        require: 'readonly',
+      },
+    },
+  },
 ]);

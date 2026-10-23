@@ -114,17 +114,24 @@ no Metro, no Expo Go, no laptop, because a Release build embeds
 `main.jsbundle`.
 
 ```bash
-npx expo prebuild --platform ios --clean --no-install
-cd ios && pod install
+npm run ios:prebuild   # prebuild + sign-targets + pod install
+cd ios
 xcodebuild -workspace Chorus.xcworkspace -scheme Chorus \
   -configuration Release -destination 'generic/platform=iOS' \
   -derivedDataPath /tmp/ddev DEVELOPMENT_TEAM=SY59JGZ44Y \
-  CODE_SIGN_STYLE=Manual \
-  PROVISIONING_PROFILE_SPECIFIER="Chorus Dev" build
+  build
 
 xcrun devicectl device install app --device <coredevice-uuid> \
   /tmp/ddev/Build/Products/Release-iphoneos/Chorus.app
 ```
+
+**Signing is set per target by `scripts/sign-targets.cjs`, which
+`npm run ios:prebuild` runs.** Not on the command line: a
+`PROVISIONING_PROFILE_SPECIFIER` flag applies one value to every target, and the
+widget needs `Chorus Widget Dev` while the app needs `Chorus Dev`. A bare
+`npx expo prebuild` leaves automatic signing in place and the build then fails
+with "No Accounts". `docs/decisions/widget-signing.md` has the detail, including
+why this is a script and not a config plugin.
 
 **Signing is manual as of build 64, and that is deliberate.** Automatic signing
 needs an Apple ID in Xcode to mint profiles, and signing one in has twice minted
