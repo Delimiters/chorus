@@ -16,7 +16,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -57,17 +57,8 @@ import { ModeSwitch } from '@/features/common/ModeSwitch';
 import { useRoutineStore } from '@/stores/routineStore';
 import { useSubtaskTicksFor, useSubtasksByChore, useToggleSubtask } from '@/data/hooks/useSubtasks';
 
-/**
- * How long a just-finished row stays where it is before sinking.
- *
- * Long enough to watch the tick land and to think better of it, short enough
- * that the list is tidy again by the time you look back up. Three seconds is a
- * guess made on the sofa rather than a measurement; it is one number to change.
- */
 /** Shared empty set, so a row without ticks does not get a new one each render. */
 const EMPTY_TICKS: ReadonlySet<string> = new Set();
-
-const SETTLE_MS = 3000;
 
 interface PlanScreenProps {
   /** Everything outstanding or done today, from Today's own query. */
@@ -226,107 +217,35 @@ export function PlanScreen({
     }
   }, [refetch]);
 
-  const theirInPlanOrder = useMemo(
-    () => planFor(theirEntries, today as never, available),
-    [theirEntries, today, available],
-  );
-
   const inPlanOrder = useMemo(
     () => planFor(entries, today as never, available),
     [entries, today, available],
   );
 
-  /*
-   * Rows just ticked, held in place before they sink.
+  /**
+   * Nothing is held. A ticked row sinks immediately, and `Undo` is the safety
+   * net instead.
    *
-   * A row that leaves the instant you touch it takes its own feedback with it:
-   * you never see the tick land, and if it was the wrong row, undoing means
-   * hunting for it somewhere else. So completion and movement are two beats,
-   * a few seconds apart.
+   * There *was* a hold: a just-completed row stayed in place for three seconds
+   * so you could see the tick land, then sank. The reasoning was sound and the
+   * feel was not. Jake:
    *
-   * Held keys live in state because the order depends on them, and the timers
-   * in a ref because they must survive re-renders — this screen re-renders on
-   * every query that feeds it.
+   * > "the delay on chores jumping to the bottom after you complete them on
+   * > the daily plan page just feels glitchy and honestly ends up making me
+   * > click the wrong chore sometimes when I'm moving fast. I think we should
+   * > just have an undo button pop up for a few seconds in case you didn't
+   * > mean to"
+   *
+   * Which is the better trade. The hold put a reflow three seconds *after* the
+   * tap — by which time the finger has moved on to the next row, and the list
+   * shifts under it. Undo answers the same worry ("that was the wrong row")
+   * without ever moving anything while you are still working, and it answers
+   * it on a screen you are already looking at rather than by making you find
+   * the row again.
+   *
+   * What is lost: you no longer see the tick land in place. The toast says
+   * which chore it was, which is the part that actually mattered.
    */
-  const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set());
-  const holdTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-
-  /*
-   * What each row looked like last time, so a *transition* can be recognised.
-   *
-   * The first attempt used a "have I looked once" flag, and a review showed it
-   * cannot survive the load race: the plan and the agenda are separate queries
-   * with no ordering between them, so the first run routinely sees an empty
-   * plan, burns the flag, and then treats every row that arrives already
-   * finished as freshly ticked — held mid-list for three seconds and jumping.
-   * The same held for midnight rolling the date over and for switching
-   * household, neither of which a one-shot flag re-arms.
-   *
-   * A key absent last time has just arrived and is not a tick, whatever its
-   * status. Only false → true is.
-   */
-  const wasDone = useRef<ReadonlyMap<string, boolean>>(new Map());
-
-  /*
-   * Both days, because both are on screen and both are tickable.
-   *
-   * Fed from your plan alone, `held` was applied to their section too — so a
-   * row you ticked on *their* day sank the instant you touched it, which is the
-   * thing the hold exists to prevent: you never see the tick land, and undoing
-   * means hunting for the row somewhere else.
-   */
-  const watched = useMemo(
-    () => [...inPlanOrder, ...theirInPlanOrder],
-    [inPlanOrder, theirInPlanOrder],
-  );
-
-  useEffect(() => {
-    const now = new Map(watched.map((p) => [p.item.occurrenceKey, isSettled(p.item)] as const));
-
-    for (const [key, done] of now) {
-      const before = wasDone.current.get(key);
-      // Newly finished: present before, not done then, done now.
-      if (!done || before !== false || holdTimers.current.has(key)) continue;
-      setHeld((current) => new Set(current).add(key));
-      holdTimers.current.set(
-        key,
-        setTimeout(() => {
-          holdTimers.current.delete(key);
-          setHeld((current) => {
-            const next = new Set(current);
-            next.delete(key);
-            return next;
-          });
-        }, SETTLE_MS),
-      );
-    }
-
-    /*
-     * Unticked while still held, or gone from the day: release it. It is not
-     * finished any more, so it stays put on its own, and a stale timer would
-     * sink it seconds later for no reason anyone could see.
-     */
-    for (const [key, timer] of holdTimers.current) {
-      if (now.get(key) === true) continue;
-      clearTimeout(timer);
-      holdTimers.current.delete(key);
-      setHeld((current) => {
-        const next = new Set(current);
-        next.delete(key);
-        return next;
-      });
-    }
-
-    wasDone.current = now;
-  }, [watched]);
-
-  useEffect(
-    () => () => {
-      for (const timer of holdTimers.current.values()) clearTimeout(timer);
-      holdTimers.current.clear();
-    },
-    [],
-  );
 
   /*
    * Finished work leaves the draggable list rather than moving within it.
@@ -420,7 +339,7 @@ export function PlanScreen({
    */
   const sectionsFor = (rows: readonly PlanEntry[]) => {
     const ordered = planFor(rows, today as never, available);
-    const { active, sunk } = partitionSettled(ordered, held, (p) => p.item);
+    const { active, sunk } = partitionSettled(ordered, (p) => p.item);
     return { active, sunk, all: ordered, done: ordered.filter((p) => isSettled(p.item)).length };
   };
 
@@ -431,12 +350,12 @@ export function PlanScreen({
   const mySections = useMemo(
     () => sectionsFor(entries),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entries, available, today, held],
+    [entries, available, today],
   );
   const theirSections = useMemo(
     () => sectionsFor(theirEntries),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [theirEntries, available, today, held],
+    [theirEntries, available, today],
   );
 
   /*
@@ -751,6 +670,14 @@ export function PlanScreen({
     ((toggle.error ?? remove.error ?? toggleSubtask.error) as Error | null)?.message ?? null;
   /** A failure already dismissed, so it does not reappear on the next render. */
   const [hiddenFailure, setHiddenFailure] = useState<string | null>(null);
+  /**
+   * The last thing ticked, and how to say so.
+   *
+   * One at a time, and the newest wins: ticking three things quickly offers to
+   * undo the third. Stacking them would mean a toast that grows while you
+   * work, and an `Undo` whose target you have to read to know.
+   */
+  const [undo, setUndo] = useState<{ item: AgendaItem; label: string } | null>(null);
   const mutationFailure = rawFailure === hiddenFailure ? null : rawFailure;
 
   const renderRow = ({ item }: { item: AgendaItem }, ownerId: string | undefined) => {
@@ -805,7 +732,13 @@ export function PlanScreen({
         }
         onToggle={() => {
           tapped();
-          toggle.mutate({ item, complete: item.status !== 'completed' });
+          const complete = item.status !== 'completed';
+          toggle.mutate({ item, complete });
+          /*
+           * Only on completing. Un-ticking is already the undo of a tick, and
+           * offering to undo *that* is a loop with no bottom.
+           */
+          setUndo(complete ? { item, label: `${item.choreTitle} — done` } : null);
         }}
         onOpen={() => setRemoving({ item, ownerId })}
       />
@@ -1361,13 +1294,32 @@ export function PlanScreen({
         belongs to any of these three.
       */}
       <Toast
-        message={mutationFailure}
+        /*
+         * A failure outranks an undo: "something went wrong" matters more than
+         * "you can take that back", and the two cannot share the one toast.
+         */
+        message={mutationFailure ?? (undo === null ? null : undo.label)}
+        {...(mutationFailure === null && undo !== null
+          ? {
+              actionLabel: 'Undo',
+              onAction: () => {
+                toggle.mutate({ item: undo.item, complete: false });
+                setUndo(null);
+              },
+              // The shrinking bar, which is only honest next to an action that
+              // expires. An unread error should not look like it is going away.
+              countdown: true,
+            }
+          : {})}
         /*
          * Hidden locally rather than reset: `reset()` detaches the observer
          * from a mutation that may still be in flight, so its failure never
          * arrives and the next one is swallowed.
          */
-        onDismiss={() => setHiddenFailure(mutationFailure)}
+        onDismiss={() => {
+          setUndo(null);
+          setHiddenFailure(mutationFailure);
+        }}
         bottomInset={ADD_BUTTON_CLEARANCE}
       />
     </SafeAreaView>

@@ -12,6 +12,7 @@ import { civilDate } from '@/core/civil/date';
 import type { AgendaItem } from '@/core/occurrence/agenda';
 import type { PlanEntry } from '@/core/plan/plan';
 import { ThemeProvider } from '@/design/theme';
+import { TOAST_MS } from '@/design/Toast';
 import { PlanScreen } from './PlanScreen';
 
 const ME = 'user-me';
@@ -802,7 +803,80 @@ describe('finished work sinking to the bottom', () => {
       .getAllByTestId(/^(drag|done)-row:/)
       .map((row) => row.props.testID.replace(/^(drag|done)-row:v1:/, ''));
 
-  it('holds a just-ticked row in place, then sinks it', () => {
+  it('offers to undo the chore it names, and undoes that one', () => {
+    /*
+     * The safety net that replaced the hold. Two chores are ticked in a row —
+     * fast, which is the situation described — and the toast must name and undo
+     * the *second*. A fixture with one chore could not tell the two apart, and
+     * a version that undid the first would be worse than nothing.
+     */
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    fireEvent.press(screen.getByRole('checkbox', { name: /Dishes/ }));
+    fireEvent.press(screen.getByRole('checkbox', { name: /Trash/ }));
+
+    expect(screen.getByText('Trash — done')).toBeOnTheScreen();
+    mockToggle.mockClear();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+    expect(mockToggle).toHaveBeenCalledTimes(1);
+    expect(mockToggle.mock.calls[0]?.[0]).toMatchObject({
+      complete: false,
+      item: { choreTitle: 'Trash' },
+    });
+  });
+
+  it('counts the undo down, so it is clear it expires', () => {
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('checkbox', { name: /Dishes/ }));
+    /*
+     * `includeHiddenElements` because the bar is deliberately hidden from
+     * accessibility: VoiceOver already announces the message and that an action
+     * is available, and "72 per cent" would be noise. Testing Library skips
+     * a11y-hidden elements by default, so saying so here is the honest way
+     * round rather than weakening the component.
+     */
+    expect(
+      screen.getByTestId('toast-countdown', { includeHiddenElements: true }),
+    ).toBeOnTheScreen();
+
+    // And it goes away on its own, rather than needing to be dismissed.
+    act(() => {
+      jest.advanceTimersByTime(TOAST_MS + 100);
+    });
+    expect(screen.queryByText('Dishes — done')).toBeNull();
+  });
+
+  it('does not offer to undo an un-tick', () => {
+    /*
+     * Un-ticking is already the undo of a tick. Offering to undo that is a loop
+     * with no bottom, and a toast appearing when you *fix* a mistake reads as
+     * if something went wrong.
+     */
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes', 'completed')]);
+
+    fireEvent.press(screen.getByRole('checkbox', { name: /Dishes/ }));
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
+  it('sinks a just-ticked row at once, with no delay to be surprised by', () => {
+    /*
+     * This asserted the opposite until build 74: a just-ticked row was held in
+     * place for three seconds and then sank, so you could watch the tick land
+     * before the row moved. True as far as it went, and it put a reflow three
+     * seconds after the tap — when the finger has already moved to the next
+     * row. Jake: *"ends up making me click the wrong chore sometimes when I'm
+     * moving fast"*. The undo toast answers the same worry without moving
+     * anything.
+     *
+     * The timer advance is kept deliberately: without it this could not tell
+     * "moved immediately" from "moved on a timer that happened to fire", and
+     * the point is that no timer exists.
+     */
     mockEntries = [entry('dishes', 1), entry('trash', 2), entry('bins', 3)];
     const { rerender } = renderScreen([
       item('dishes', 'Dishes'),
@@ -810,30 +884,17 @@ describe('finished work sinking to the bottom', () => {
       item('bins', 'Bins'),
     ]);
 
-    // Ticked while you are looking at it, which is the only case that holds.
     rerenderWith(rerender, [
       item('dishes', 'Dishes', 'completed'),
       item('trash', 'Trash'),
       item('bins', 'Bins'),
     ]);
 
-    expect(titles()).toEqual(['dishes', 'trash', 'bins']);
-
-    /*
-     * Still there half a second later. Without this step the test cannot tell a
-     * three-second delay from no delay at all — under fake timers a zero-length
-     * timeout is equally unfired until time is advanced, and the delay is the
-     * entire design.
-     */
-    act(() => {
-      jest.advanceTimersByTime(500);
-    });
-    expect(titles()).toEqual(['dishes', 'trash', 'bins']);
+    expect(titles()).toEqual(['trash', 'bins', 'dishes']);
 
     act(() => {
-      jest.advanceTimersByTime(3000);
+      jest.advanceTimersByTime(4000);
     });
-
     expect(titles()).toEqual(['trash', 'bins', 'dishes']);
   });
 
@@ -1015,11 +1076,11 @@ describe('two days on one screen', () => {
     expect(onAdd).toHaveBeenCalled();
   });
 
-  it('holds a row ticked on their day, exactly as on yours', () => {
+  it('sinks a row ticked on their day at once, exactly as on yours', () => {
     /*
-     * `held` was fed from your plan alone and applied to both sections, so a
-     * row ticked on theirs sank the instant it was touched — the tick never
-     * landed visibly and undoing meant hunting for it below the line.
+     * Both sections behave the same way — which is what the old `held` set got
+     * wrong in the other direction: it was fed from your plan alone and applied
+     * to both, so a row ticked on theirs sank while yours waited.
      */
     mockTheirEntries = [
       { occurrenceKey: 'v1:bins', position: 1, plannedFor: TODAY },
@@ -1038,14 +1099,8 @@ describe('two days on one screen', () => {
       item('mopping', 'Mopping'),
     ]);
 
-    // Still in the draggable half, where it was.
-    expect(screen.queryByTestId('drag-row:v1:bins')).not.toBeNull();
-
-    act(() => {
-      jest.advanceTimersByTime(3500);
-    });
-
     expect(screen.queryByTestId('done-row:v1:bins')).not.toBeNull();
+    expect(screen.queryByTestId('drag-row:v1:bins')).toBeNull();
   });
 });
 
