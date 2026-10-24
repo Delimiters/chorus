@@ -38,6 +38,15 @@ interface ToastProps {
    * read yet should not look like it is expiring.
    */
   countdown?: boolean;
+  /**
+   * Changes when a *new* thing happened, even if the words are the same.
+   *
+   * The clock is keyed on the message text, which is right for an error — a
+   * second identical error should not reset a toast you are reading — and
+   * wrong for an undo: two chores can share a label, and the second undo then
+   * inherited whatever was left of the first one's five seconds.
+   */
+  restartKey?: number;
   actionLabel?: string;
   onAction?: () => void;
   onDismiss: () => void;
@@ -52,12 +61,23 @@ export function Toast({
   onDismiss,
   bottomInset = 0,
   countdown = false,
+  restartKey,
 }: ToastProps) {
   const { colors } = useTheme();
   const opacity = useRef(new Animated.Value(0)).current;
   /** 1 → 0 over `TOAST_MS`. Drives the bar's width. */
   const remaining = useRef(new Animated.Value(1)).current;
   const [reduceMotion, setReduceMotion] = useState(false);
+  /*
+   * Also in a ref, so the effect below does not depend on it.
+   *
+   * With `reduceMotion` in that dep list, the OS setting changing while a
+   * toast was up re-announced the message to VoiceOver, re-ran the fade, and
+   * restarted the five-second timer — so the toast outlived its five seconds,
+   * which is the one thing the countdown promises cannot happen.
+   */
+  const motionOff = useRef(false);
+  motionOff.current = reduceMotion;
 
   useEffect(() => {
     let alive = true;
@@ -100,7 +120,7 @@ export function Toast({
      * that costs more than it saves for one thin rectangle.
      */
     remaining.setValue(1);
-    if (!reduceMotion) {
+    if (!motionOff.current) {
       Animated.timing(remaining, {
         toValue: 0,
         duration: TOAST_MS,
@@ -111,7 +131,7 @@ export function Toast({
 
     const timer = setTimeout(() => dismiss.current(), TOAST_MS);
     return () => clearTimeout(timer);
-  }, [message, actionLabel, opacity, remaining, reduceMotion]);
+  }, [message, actionLabel, restartKey, opacity, remaining]);
 
   if (message === null) return null;
 

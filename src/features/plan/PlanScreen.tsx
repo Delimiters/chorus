@@ -677,7 +677,7 @@ export function PlanScreen({
    * undo the third. Stacking them would mean a toast that grows while you
    * work, and an `Undo` whose target you have to read to know.
    */
-  const [undo, setUndo] = useState<{ item: AgendaItem; label: string } | null>(null);
+  const [undo, setUndo] = useState<{ item: AgendaItem; label: string; nonce: number } | null>(null);
   const mutationFailure = rawFailure === hiddenFailure ? null : rawFailure;
 
   const renderRow = ({ item }: { item: AgendaItem }, ownerId: string | undefined) => {
@@ -738,7 +738,18 @@ export function PlanScreen({
            * Only on completing. Un-ticking is already the undo of a tick, and
            * offering to undo *that* is a loop with no bottom.
            */
-          setUndo(complete ? { item, label: `${item.choreTitle} — done` } : null);
+          /*
+           * The nonce is in the message, invisibly, because `Toast` keys its
+           * five-second clock on the message text — and two undos can share a
+           * label. Shared work lands on both plans and both days are tickable
+           * from this screen, so ticking "Dishes" on yours and then "Dishes" on
+           * theirs produced one unchanged string: the clock never restarted and
+           * the second undo inherited whatever was left of the first's, which
+           * could be a fraction of a second.
+           */
+          setUndo(
+            complete ? { item, label: `${item.choreTitle} — done`, nonce: Date.now() } : null,
+          );
         }}
         onOpen={() => setRemoving({ item, ownerId })}
       />
@@ -1299,6 +1310,8 @@ export function PlanScreen({
          * "you can take that back", and the two cannot share the one toast.
          */
         message={mutationFailure ?? (undo === null ? null : undo.label)}
+        // Distinct per tick, so an identical label still restarts the clock.
+        {...(mutationFailure === null && undo !== null ? { restartKey: undo.nonce } : {})}
         {...(mutationFailure === null && undo !== null
           ? {
               actionLabel: 'Undo',
@@ -1318,7 +1331,23 @@ export function PlanScreen({
          */
         onDismiss={() => {
           setUndo(null);
-          setHiddenFailure(mutationFailure);
+          /*
+           * `rawFailure`, not `mutationFailure`.
+           *
+           * The toast has two sources now, so this fires while it is showing an
+           * *undo* — at which point `mutationFailure` is null, and recording
+           * null erased the memory of an error dismissed earlier. It then
+           * re-evaluated as unsuppressed and the old failure popped back up on
+           * its own.
+           *
+           * Reachable because two of the three mutations behind `rawFailure`
+           * are never reset: `remove` and `toggleSubtask` keep their error
+           * indefinitely, where `toggle.error` self-clears on the next tick.
+           * So: fail a step tick offline, let it expire, come back online, tick
+           * a chore, and five seconds later the network error returns with no
+           * Undo and no countdown.
+           */
+          setHiddenFailure(rawFailure);
         }}
         bottomInset={ADD_BUTTON_CLEARANCE}
       />

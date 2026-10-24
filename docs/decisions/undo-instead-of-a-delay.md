@@ -51,7 +51,17 @@ than "you can take that back".
 
 **The bar is cosmetic; the timeout is the truth.** They are two clocks — an
 `Animated.timing` and a `setTimeout` — so a dropped frame makes the bar lag
-slightly and can never make the toast outlive its five seconds or vanish early.
+slightly and cannot change when the toast goes away.
+
+Keeping that honest took two fixes review found. The clock is keyed on the
+message text, so a second undo with an *identical label* — easy, since shared
+work lands on both plans and both days are tickable from this screen —
+inherited whatever was left of the first one's five seconds. Hence
+`restartKey`, which is per-tick rather than per-wording; the message text still
+governs for errors, where a repeated failure must not reset a toast you are
+part-way through reading. And `reduceMotion` was in the dismissal effect's
+dependency list, so the OS setting flipping mid-toast restarted the timer and
+re-announced the message to VoiceOver — it is read through a ref now.
 
 **No bar under Reduce Motion.** A bar whose entire content is movement has
 nothing to say when it cannot move, and a static full-width line reads as a
@@ -69,9 +79,25 @@ what the function does, and the test that used to exercise the hold now asserts
 the opposite — immediate sinking — so the behaviour is pinned in both
 directions.
 
-## Scope
+## Scope, and what the two screens now do differently
 
-The plan screen only, which is what was asked for and where the complaint came
-from. `TodayScreen` already had its own undo toast (built for Emily's *"i
-accidentally checked something off and it disappeared 😭"*) and keeps it; it has
-never had the hold.
+The plan screen only — which is where the complaint came from, and is now the
+more interesting half of a deliberate difference:
+
+| | when you tick something |
+|---|---|
+| **Plan** | the row sinks to the bottom of the day at once |
+| **Today** | the row does not move at all until you leave the screen |
+
+Today's hold is *stronger* than the three-second one deleted here: it pins the
+row, struck through, in its original section until the screen is blurred,
+released on navigation rather than on a timer. That is right for Today, which
+is a list you read in sections rather than work down in order, and where a row
+jumping between "mine" and "done" mid-glance is the disorienting thing.
+
+Today already had its own undo toast — built for Emily's *"i accidentally
+checked something off and it disappeared 😭"* — and keeps both it and the hold.
+
+If the plan screen's immediacy turns out to be the wrong call, the comparison
+to make is against Today rather than against the old three-second timer, which
+had neither screen's virtue.

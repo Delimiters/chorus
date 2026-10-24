@@ -35,6 +35,16 @@ let mockTheirEntries: { occurrenceKey: string; position: number; plannedFor: str
 const mockRemove = jest.fn();
 const mockReorder = jest.fn();
 const mockToggle = jest.fn();
+/**
+ * A live mutation error, which the mocks had no way to express.
+ *
+ * Without these, `rawFailure` is permanently null and *every* branch of the
+ * toast's failure-versus-undo precedence runs in one state — so dropping the
+ * precedence entirely, or the guard that hides `Undo` behind it, was green.
+ * That is where the error-resurrection bug lived.
+ */
+let mockToggleError: Error | null = null;
+let mockRemoveError: Error | null = null;
 const mockSetMode = jest.fn();
 const mockPush = jest.fn();
 
@@ -44,12 +54,12 @@ jest.mock('@/data/hooks/usePlan', () => ({
   useTheirPlanTotal: () => mockTheirTotal,
   useTheirPlanEntries: () => mockTheirEntries,
   usePlanUnavailable: () => mockPlanUnknown,
-  useRemoveFromPlan: () => ({ mutate: mockRemove }),
+  useRemoveFromPlan: () => ({ mutate: mockRemove, error: mockRemoveError }),
   useReorderPlan: () => ({ mutate: mockReorder }),
 }));
 
 jest.mock('@/data/hooks/useOccurrences', () => ({
-  useToggleCompletion: () => ({ mutate: mockToggle }),
+  useToggleCompletion: () => ({ mutate: mockToggle, error: mockToggleError }),
 }));
 
 /**
@@ -262,6 +272,8 @@ const rerenderWith = (rerender: (ui: React.ReactElement) => void, available: Age
 };
 
 beforeEach(() => {
+  mockToggleError = null;
+  mockRemoveError = null;
   mockEntries = [];
   mockTheirCount = 0;
   mockTheirTotal = 0;
@@ -803,6 +815,98 @@ describe('finished work sinking to the bottom', () => {
       .getAllByTestId(/^(drag|done)-row:/)
       .map((row) => row.props.testID.replace(/^(drag|done)-row:v1:/, ''));
 
+  it('clears the toast once Undo is pressed', () => {
+    /*
+     * Otherwise the button stays there, offering to un-complete something that
+     * is already un-completed — which on a second press does nothing visible
+     * and reads as the app ignoring you.
+     */
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('checkbox', { name: /Dishes/ }));
+    fireEvent.press(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(screen.queryByText('Dishes — done')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
+  it('shows a failure instead of an undo, and offers no Undo for it', () => {
+    /*
+     * One toast, two sources. "Something went wrong" matters more than "you
+     * can take that back", and an `Undo` attached to a tick that did not
+     * happen would be a button that makes things worse.
+     */
+    mockToggleError = new Error('Network request failed');
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes')]);
+
+    fireEvent.press(screen.getByRole('checkbox', { name: /Dishes/ }));
+
+    expect(screen.getByText('Network request failed')).toBeOnTheScreen();
+    expect(screen.queryByText('Dishes — done')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
+  it('does not bring a dismissed failure back when an undo expires', () => {
+    /*
+     * The bug this file could not see. `onDismiss` fires for the undo toast
+     * too, and it recorded the *shown* message — null, while an undo was up —
+     * which erased the record of an error dismissed earlier. The error then
+     * re-evaluated as unsuppressed and reappeared on its own.
+     *
+     * `remove` is the source rather than `toggle` because `toggle.error`
+     * self-clears on the next tick: a mutation that is never reset is what
+     * makes this reachable at all.
+     */
+    mockRemoveError = new Error('Network request failed');
+    mockEntries = [entry('dishes', 1), entry('trash', 2)];
+    renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
+
+    // The failure shows, and is dismissed by expiring.
+    expect(screen.getByText('Network request failed')).toBeOnTheScreen();
+    act(() => {
+      jest.advanceTimersByTime(TOAST_MS + 100);
+    });
+    expect(screen.queryByText('Network request failed')).toBeNull();
+
+    // A tick now raises an undo; the still-live failure stays suppressed.
+    fireEvent.press(screen.getByRole('checkbox', { name: /Dishes/ }));
+    expect(screen.getByText('Dishes — done')).toBeOnTheScreen();
+
+    act(() => {
+      jest.advanceTimersByTime(TOAST_MS + 100);
+    });
+    expect(screen.queryByText('Dishes — done')).toBeNull();
+    expect(screen.queryByText('Network request failed')).toBeNull();
+  });
+
+  it('gives a second undo its own five seconds, even with the same words', () => {
+    /*
+     * The clock is keyed on the message text, and two chores can share a
+     * label — shared work lands on both plans and both days are tickable from
+     * this screen. So "Dishes — done" at t=0 and again at t=4.8s left the
+     * second undo with 200ms of life and a bar already drawn empty.
+     */
+    mockTheirEntries = [{ occurrenceKey: 'v1:dishes2', position: 1, plannedFor: TODAY }];
+    mockEntries = [entry('dishes', 1)];
+    renderScreen([item('dishes', 'Dishes'), item('dishes2', 'Dishes')]);
+
+    const boxes = screen.getAllByRole('checkbox', { name: /Dishes/ });
+    fireEvent.press(boxes[0] as never);
+
+    act(() => {
+      jest.advanceTimersByTime(TOAST_MS - 200);
+    });
+    fireEvent.press(boxes[1] as never);
+
+    // Where the first one's clock would have expired, this one is still up.
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+    expect(screen.getByText('Dishes — done')).toBeOnTheScreen();
+  });
+
   it('offers to undo the chore it names, and undoes that one', () => {
     /*
      * The safety net that replaced the hold. Two chores are ticked in a row —
@@ -898,11 +1002,14 @@ describe('finished work sinking to the bottom', () => {
     expect(titles()).toEqual(['trash', 'bins', 'dishes']);
   });
 
-  it('does not hold work that was already done when the screen opened', () => {
+  it('puts work finished earlier straight at the bottom', () => {
     /*
-     * Otherwise every row you finished earlier sits in its old place for three
-     * seconds and then jumps, every single time you open the app. The hold is
-     * for work you finish while looking at it.
+     * Nothing special about it — which is the point. When a hold existed this
+     * test guarded against every row you finished earlier sitting in its old
+     * place for three seconds and then jumping, every time you opened the app;
+     * the `wasDone` map existed to tell "arrived finished" from "just ticked".
+     * With no hold there is no distinction to get wrong, and this is the
+     * regression test for reintroducing one.
      */
     mockEntries = [entry('dishes', 1), entry('trash', 2)];
     renderScreen([item('dishes', 'Dishes', 'completed'), item('trash', 'Trash')]);
@@ -931,7 +1038,7 @@ describe('finished work sinking to the bottom', () => {
   });
 
   it('leaves an untouched day alone', () => {
-    // Nothing finished, so nothing to sink and nothing to hold.
+    // Nothing finished, so nothing to sink.
     mockEntries = [entry('dishes', 1), entry('trash', 2)];
     renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
 
@@ -942,16 +1049,17 @@ describe('finished work sinking to the bottom', () => {
     expect(titles()).toEqual(['dishes', 'trash']);
   });
 
-  it('does not hold work that arrives already finished after the plan loads', () => {
+  it('sinks work that arrives already finished after the plan loads', () => {
     /*
-     * The load race. The plan and the agenda are separate queries with no
-     * ordering between them, so the first render routinely has an empty plan.
+     * The load race, kept because it is the hardest case for anything that
+     * tries to tell "just ticked" from "arrived finished". The plan and the
+     * agenda are separate queries with no ordering between them, so the first
+     * render routinely has an empty plan — which burns a "have I looked once"
+     * flag and makes every row that arrives finished look freshly ticked. The
+     * same happens at midnight and on switching household.
      *
-     * A "have I looked once" flag is burned by that empty render, and every row
-     * that then arrives already finished counts as freshly ticked — held
-     * mid-list for three seconds and jumping. The same happens at midnight when
-     * the date rolls over, and on switching household. Holding on the
-     * transition rather than on a flag is what makes all three behave.
+     * Nothing distinguishes them now, which is why there is nothing to get
+     * wrong; this fails the moment something tries to again.
      */
     mockEntries = [];
     const { rerender } = renderScreen([
