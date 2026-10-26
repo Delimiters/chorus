@@ -26,6 +26,18 @@
  * silently. Paging has no number in it to be wrong.
  */
 
+/**
+ * One page, matching PostgREST's `max_rows` in `supabase/config.toml`.
+ *
+ * The coupling is load-bearing in one direction only. If `max_rows` were
+ * *raised*, this still works — pages would just be smaller than the server
+ * would allow. If it were ever *lowered* below this, every first page would
+ * come back short, the loop would stop, and the original silent truncation
+ * would be back. The deleted `MAX_COMPLETIONS_PER_FETCH` carried this
+ * cross-reference; it is restated here rather than lost.
+ */
+import { describeError } from '../supabase';
+
 const PAGE = 1000;
 
 /**
@@ -37,6 +49,15 @@ const PAGE = 1000;
  * and silently returning a prefix is the bug this module exists to prevent.
  */
 const MAX_PAGES = 20;
+
+/** Whatever PostgREST handed back, in the shape `describeError` expects. */
+function asError(error: unknown): { code?: string | undefined; message: string } {
+  const e = (error ?? {}) as { code?: unknown; message?: unknown };
+  return {
+    ...(typeof e.code === 'string' ? { code: e.code } : {}),
+    message: typeof e.message === 'string' ? e.message : String(error),
+  };
+}
 
 export class TooManyPagesError extends Error {
   constructor(table: string) {
@@ -55,7 +76,10 @@ export class TooManyPagesError extends Error {
  * query, because a Supabase query builder is single-use and the filters differ
  * per call site.
  *
- * `to` is inclusive, matching PostgREST's `Range` header.
+ * `to` is inclusive. supabase-js implements `.range()` as `offset`/`limit`
+ * query parameters rather than a `Range` header, so an offset past the end is
+ * an empty 200 rather than a 416 — which is what makes the extra
+ * boundary-case request harmless.
  */
 export async function fetchAllPages<T>(
   table: string,
@@ -66,7 +90,19 @@ export async function fetchAllPages<T>(
   for (let index = 0; index < MAX_PAGES; index += 1) {
     const from = index * PAGE;
     const { data, error } = await page(from, from + PAGE - 1);
-    if (error) throw new Error((error as { message?: string }).message ?? String(error));
+    /*
+     * Through `describeError`, like every hand-written query in this layer.
+     *
+     * The first version threw `new Error(error.message ?? String(error))`,
+     * which quietly took seven queries *out* of that translation — their
+     * errors reach `ErrorState`, which renders the message with no fallback.
+     * So a permission failure went from "You don't have permission to do
+     * that." to `permission denied for table chore_completions`, and an
+     * object-shaped error would have rendered the literal string
+     * `[object Object]` on the plan screen: the exact case `describeError`
+     * exists to prevent, named in its own comment.
+     */
+    if (error) throw new Error(describeError(asError(error)));
 
     const rows = data ?? [];
     all.push(...rows);

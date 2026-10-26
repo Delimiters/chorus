@@ -73,6 +73,26 @@ describe('reading a list that may be longer than one response', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('translates the error rather than surfacing the raw one', async () => {
+    /*
+     * These errors reach `ErrorState`, which renders the message with no
+     * fallback. The first version of this helper threw `error.message ??
+     * String(error)`, which took seven queries out of `describeError`: a
+     * permission failure became "permission denied for table
+     * chore_completions", and an object-shaped error would have rendered the
+     * literal `[object Object]` on the plan screen.
+     */
+    await expect(
+      fetchAllPages('chore_completions', () =>
+        Promise.resolve({ data: null, error: { code: '42501', message: 'permission denied' } }),
+      ),
+    ).rejects.toThrow("You don't have permission to do that.");
+
+    await expect(
+      fetchAllPages('plan_entries', () => Promise.resolve({ data: null, error: {} })),
+    ).rejects.toThrow('Something went wrong. Please try again.');
+  });
+
   it('throws rather than returning a prefix when the error comes back', async () => {
     /*
      * Returning what arrived before the failure is the exact shape of the bug

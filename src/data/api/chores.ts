@@ -230,7 +230,7 @@ export async function listCompletionsForChores(
    * describes: there is no longer a row to lose, so nothing has to be chosen
    * to lose. `id` orders the paging; the caller does not care about order.
    */
-  const data = await fetchAllPages('chore_completions', (lo, hi) =>
+  const rows = await fetchAllPages('chore_completions', (lo, hi) =>
     supabase
       .from('chore_completions')
       .select(COMPLETION_COLUMNS)
@@ -239,7 +239,7 @@ export async function listCompletionsForChores(
       .order('id')
       .range(lo, hi),
   );
-  return (data ?? []).map(toCompletion);
+  return rows.map(toCompletion);
 }
 
 /** Exceptions for a specific handful of chores, unbounded by date. */
