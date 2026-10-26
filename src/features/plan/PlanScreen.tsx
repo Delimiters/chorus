@@ -344,8 +344,8 @@ export function PlanScreen({
   };
 
   /*
-   * `sectionsFor` is redefined each render and closes over `available`, `today`
-   * and `held` — all listed here, which is what actually decides these.
+   * `sectionsFor` is redefined each render and closes over `available` and
+   * `today` — both listed here, which is what actually decides these.
    */
   const mySections = useMemo(
     () => sectionsFor(entries),

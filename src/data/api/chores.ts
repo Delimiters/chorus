@@ -20,6 +20,7 @@ import type { CivilDate } from '@/core/civil/types';
 import { toPriority, type Priority } from '@/core/chore/priority';
 import type { Json } from '../database.types';
 import { describeError, isDuplicate, supabase } from '../supabase';
+import { fetchAllPages } from './pages';
 
 function fail(error: { code?: string | undefined; message: string }): never {
   throw new Error(describeError(error));
@@ -163,14 +164,6 @@ function toCompletion(row: {
 const COMPLETION_COLUMNS = 'chore_id, occurrence_key, completed_on, completed_by';
 
 /**
- * Matches PostgREST's `max_rows` in `supabase/config.toml`.
- *
- * Stated here so the truncation is a decision with an ordering rather than a
- * server default nobody named.
- */
-const MAX_COMPLETIONS_PER_FETCH = 1000;
-
-/**
  * Completions for occurrences **due** in a window, whenever they were done.
  *
  * `due_on`, not `completed_on`, and the distinction is load-bearing. The agenda
@@ -192,14 +185,24 @@ export async function listCompletions(
   from: CivilDate,
   to: CivilDate,
 ): Promise<readonly CompletionInput[]> {
-  const { data, error } = await supabase
-    .from('chore_completions')
-    .select(COMPLETION_COLUMNS)
-    .eq('household_id', householdId)
-    .gte('due_on', from)
-    .lte('due_on', to);
-  if (error) fail(error);
-  return (data ?? []).map(toCompletion);
+  /*
+   * Paged. One row per tick, for ever, so this crosses PostgREST's 1,000-row
+   * cap on its own schedule — and the truncation was in *unspecified* order
+   * here, which for the projector means completions simply vanishing and
+   * finished chores reading as outstanding. See `./pages.ts` for the live case
+   * that proved the cap silently drops rows.
+   */
+  const rows = await fetchAllPages('chore_completions', (lo, hi) =>
+    supabase
+      .from('chore_completions')
+      .select(COMPLETION_COLUMNS)
+      .eq('household_id', householdId)
+      .gte('due_on', from)
+      .lte('due_on', to)
+      .order('id')
+      .range(lo, hi),
+  );
+  return rows.map(toCompletion);
 }
 
 /**
@@ -222,14 +225,20 @@ export async function listCompletionsForChores(
   choreIds: readonly string[],
 ): Promise<readonly CompletionInput[]> {
   if (choreIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from('chore_completions')
-    .select(COMPLETION_COLUMNS)
-    .eq('household_id', householdId)
-    .in('chore_id', choreIds)
-    .order('due_on', { ascending: false })
-    .limit(MAX_COMPLETIONS_PER_FETCH);
-  if (error) fail(error);
+  /*
+   * Paged, which retires the ordered-truncation trade-off the note above
+   * describes: there is no longer a row to lose, so nothing has to be chosen
+   * to lose. `id` orders the paging; the caller does not care about order.
+   */
+  const data = await fetchAllPages('chore_completions', (lo, hi) =>
+    supabase
+      .from('chore_completions')
+      .select(COMPLETION_COLUMNS)
+      .eq('household_id', householdId)
+      .in('chore_id', choreIds)
+      .order('id')
+      .range(lo, hi),
+  );
   return (data ?? []).map(toCompletion);
 }
 
@@ -673,20 +682,21 @@ export async function listTurnOverrides(
   householdId: string,
 ): Promise<readonly TurnOverrideInput[]> {
   /*
-   * Ordered and capped, because PostgREST truncates at `max_rows` (1000) in
-   * *unspecified* order otherwise — the same hazard `listCompletionsForChores`
-   * documents. Rows accrue per tap and "Back to rotation" deletes them, so a
-   * two-person house will not come close; newest-first means the row lost to a
-   * cap is the oldest, which is the one whose occurrence is most likely gone.
+   * Paged. This used to be ordered-and-capped, on the reasoning that a
+   * two-person house would never come close to PostgREST's 1,000-row cap and
+   * that newest-first at least lost the least useful row. `plan_entries`
+   * reached 4,811 on exactly such a household, so "will not come close" is not
+   * a thing worth betting correctness on. See `./pages.ts`.
    */
-  const { data, error } = await supabase
-    .from('chore_turns')
-    .select('occurrence_key, user_id')
-    .eq('household_id', householdId)
-    .order('created_at', { ascending: false })
-    .limit(MAX_COMPLETIONS_PER_FETCH);
-  if (error) fail(error);
-  return (data ?? []).map((row) => ({
+  const rows = await fetchAllPages('chore_turns', (lo, hi) =>
+    supabase
+      .from('chore_turns')
+      .select('occurrence_key, user_id')
+      .eq('household_id', householdId)
+      .order('id')
+      .range(lo, hi),
+  );
+  return rows.map((row) => ({
     occurrenceKey: row.occurrence_key,
     userId: row.user_id,
   }));

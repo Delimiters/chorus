@@ -19,6 +19,7 @@ import type { Schedule } from '@/core/recurrence/types';
 import type { CivilDate, CivilTime } from '@/core/civil/types';
 import type { Json } from '../database.types';
 import { describeError, isDuplicate, supabase } from '../supabase';
+import { fetchAllPages } from './pages';
 
 function fail(error: { code?: string | undefined; message: string }): never {
   throw new Error(describeError(error));
@@ -155,15 +156,23 @@ export async function listRoutineCompletions(
   from: CivilDate,
   to: CivilDate,
 ): Promise<readonly RoutineCompletionInput[]> {
-  const { data, error } = await supabase
-    .from('routine_completions')
-    .select('routine_item_id, occurrence_key, completed_on')
-    .eq('household_id', householdId)
-    .gte('due_on', from)
-    .lte('due_on', to);
-  if (error) fail(error);
+  /*
+   * Paged: one row per routine item per day, so this grows with the calendar
+   * rather than with anything a person chooses. See `./pages.ts` for why a
+   * single request is not safe above a thousand rows.
+   */
+  const rows = await fetchAllPages('routine_completions', (lo, hi) =>
+    supabase
+      .from('routine_completions')
+      .select('routine_item_id, occurrence_key, completed_on')
+      .eq('household_id', householdId)
+      .gte('due_on', from)
+      .lte('due_on', to)
+      .order('id')
+      .range(lo, hi),
+  );
 
-  return (data ?? []).map((row) => ({
+  return rows.map((row) => ({
     routineItemId: row.routine_item_id,
     occurrenceKey: row.occurrence_key,
     completedOn: row.completed_on as CivilDate,
