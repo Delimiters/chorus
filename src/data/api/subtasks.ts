@@ -9,6 +9,7 @@
  */
 
 import { supabase } from '../supabase';
+import { fetchAllPages } from './pages';
 
 export interface Subtask {
   readonly id: string;
@@ -58,13 +59,20 @@ export async function listSubtaskTicksForOccurrences(
   occurrenceKeys: readonly string[],
 ): Promise<readonly { subtaskId: string; occurrenceKey: string }[]> {
   if (occurrenceKeys.length === 0) return [];
-  const { data, error } = await supabase
-    .from('chore_subtask_ticks')
-    .select('subtask_id, occurrence_key')
-    .eq('household_id', householdId)
-    .in('occurrence_key', [...occurrenceKeys]);
-  if (error) fail(error);
-  return (data ?? []).map((row) => ({
+  /*
+   * Paged: a tick per step per occurrence, so a chore with six steps ticked
+   * daily contributes six rows a day for ever. See `./pages.ts`.
+   */
+  const rows = await fetchAllPages('chore_subtask_ticks', (lo, hi) =>
+    supabase
+      .from('chore_subtask_ticks')
+      .select('subtask_id, occurrence_key')
+      .eq('household_id', householdId)
+      .in('occurrence_key', [...occurrenceKeys])
+      .order('id')
+      .range(lo, hi),
+  );
+  return rows.map((row) => ({
     subtaskId: row.subtask_id,
     occurrenceKey: row.occurrence_key,
   }));

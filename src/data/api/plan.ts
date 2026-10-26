@@ -9,6 +9,7 @@
 import { civilDate } from '@/core/civil/date';
 import type { CivilDate } from '@/core/civil/types';
 import { supabase } from '../supabase';
+import { fetchAllPages } from './pages';
 
 export interface PlanEntryRow {
   readonly id: string;
@@ -38,15 +39,31 @@ export async function listPlanEntries(
   from: CivilDate,
   to: CivilDate,
 ): Promise<readonly PlanEntryRow[]> {
-  const { data, error } = await supabase
-    .from('plan_entries')
-    .select(COLUMNS)
-    .eq('household_id', householdId)
-    .gte('planned_for', from)
-    .lte('planned_for', to)
-    .order('position');
-  if (error) fail(error);
-  return (data ?? []).map((row) => ({
+  /*
+   * Paged, because this one outgrew PostgREST's 1,000-row cap on a real
+   * household — nine days of two people's plans reached 1,317 rows, came back
+   * with 1,000, and lost the 317 with the highest `position`, which are the
+   * most recently added. A chore added to a day then could not be seen on it.
+   * See `./pages.ts`.
+   *
+   * `order('position')` is kept and matters more than it looks: paging without
+   * a total order lets the server return a row twice or not at all across
+   * pages. `position` alone is not unique, so `id` breaks the tie — every
+   * consumer re-sorts anyway, so this ordering is for the paging, not for
+   * display.
+   */
+  const rows = await fetchAllPages('plan_entries', (lo, hi) =>
+    supabase
+      .from('plan_entries')
+      .select(COLUMNS)
+      .eq('household_id', householdId)
+      .gte('planned_for', from)
+      .lte('planned_for', to)
+      .order('position')
+      .order('id')
+      .range(lo, hi),
+  );
+  return rows.map((row) => ({
     id: row.id,
     userId: row.user_id,
     choreId: row.chore_id,
@@ -162,14 +179,22 @@ export async function listPlanDismissals(
   from: CivilDate,
   to: CivilDate,
 ): Promise<readonly PlanDismissalRow[]> {
-  const { data, error } = await supabase
-    .from('plan_dismissals')
-    .select('user_id, occurrence_key, dismissed_on')
-    .eq('household_id', householdId)
-    .gte('dismissed_on', from)
-    .lte('dismissed_on', to);
-  if (error) fail(error);
-  return (data ?? []).map((row) => ({
+  /*
+   * Paged for the same reason as the entries above, and ordered only so the
+   * paging is stable — nothing here cares what order dismissals arrive in.
+   * One per thing taken off a plan, so it grows with the same arithmetic.
+   */
+  const rows = await fetchAllPages('plan_dismissals', (lo, hi) =>
+    supabase
+      .from('plan_dismissals')
+      .select('user_id, occurrence_key, dismissed_on')
+      .eq('household_id', householdId)
+      .gte('dismissed_on', from)
+      .lte('dismissed_on', to)
+      .order('id')
+      .range(lo, hi),
+  );
+  return rows.map((row) => ({
     userId: row.user_id,
     occurrenceKey: row.occurrence_key,
     dismissedOn: civilDate(row.dismissed_on),
