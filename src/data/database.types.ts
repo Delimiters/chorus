@@ -944,6 +944,7 @@ export type Database = {
           notes: string | null
           position: number | null
           remind: boolean
+          nag_until_done: boolean
           schedule: Json
           schedule_kind: string | null
           starts_on: string | null
@@ -965,6 +966,7 @@ export type Database = {
           notes?: string | null
           position?: number | null
           remind?: boolean
+          nag_until_done?: boolean
           schedule: Json
           schedule_kind?: string | null
           starts_on?: string | null
@@ -986,6 +988,7 @@ export type Database = {
           notes?: string | null
           position?: number | null
           remind?: boolean
+          nag_until_done?: boolean
           schedule?: Json
           schedule_kind?: string | null
           starts_on?: string | null

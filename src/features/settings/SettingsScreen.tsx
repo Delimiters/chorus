@@ -171,7 +171,18 @@ export function SettingsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
-      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl }}>
+      <ScrollView
+        /*
+          Shrinks the scroller by the keyboard rather than letting the keyboard
+          cover it. Applied to every scroll view in the app that contains a text
+          input, after Jake hit it on the notes page: *"keyboard needs to make
+          the whole view shrink so nothing's behind it (it should really do that
+          everywhere in the app probably)"*. Android resizes the window itself,
+          so this is iOS-only by design.
+        */
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={{ padding: space.lg, paddingBottom: space.xxxl }}
+      >
         <BackBar onPress={() => (router.canGoBack() ? router.back() : router.replace('/house'))} />
 
         <Txt variant="display" accessibilityRole="header">

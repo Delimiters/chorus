@@ -40,6 +40,16 @@ export interface RoutineItemInput {
   readonly linkedChoreId: string | null;
   readonly icon: string | null;
   readonly remind: boolean;
+  /**
+   * Keep asking until it is ticked, rather than once.
+   *
+   * Honoured only for a **timed** item. One that names a bucket shares a single
+   * grouped reminder with everything else in that bucket, so there is no
+   * instant for a ladder to climb from — and laddering a shared notification
+   * would keep nagging about things already done. See
+   * `core/notify/routines.ts`.
+   */
+  readonly nagUntilDone: boolean;
   /** Manual order within a bucket; null when never dragged. */
   readonly position: number | null;
   /** Soft-deleted items produce nothing. */
@@ -69,6 +79,8 @@ export interface RoutineOccurrence extends Occurrence {
   readonly linkedChoreId: string | null;
   readonly icon: string | null;
   readonly remind: boolean;
+  /** See `RoutineItemInput.nagUntilDone`. Timed items only. */
+  readonly nagUntilDone: boolean;
   readonly status: RoutineStatus;
   readonly completedOn: CivilDate | null;
   /**
@@ -131,6 +143,7 @@ export function projectRoutineOccurrences(
         linkedChoreId: item.linkedChoreId,
         icon: item.icon,
         remind: item.remind,
+        nagUntilDone: item.nagUntilDone,
         completedOn: done,
         status: statusOf(occurrence, done, today),
         sortKey: item.timeOfDay === null ? UNTIMED : minutesFromDayStart(item.timeOfDay),

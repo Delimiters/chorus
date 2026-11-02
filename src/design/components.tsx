@@ -267,6 +267,27 @@ export function Field({ label, error, hint, inputStyle, ...rest }: FieldProps) {
           },
           inputStyle,
         ]}
+        /**
+         * A multiline field grows instead of scrolling inside itself.
+         *
+         * iOS gives a multiline `TextInput` its own scroller, and a text view
+         * that scrolls inside a page that also scrolls is a fight the page
+         * cannot win: a drag starting on the text moves the text, so the page
+         * appears stuck and bounces. Jake:
+         *
+         * > "you often run into a scrollview within a scrollview issue where
+         * > you're trying to scroll and it's just bouncing because it's
+         * > scrolling the text view instead of the whole page"
+         *
+         * Turning the inner scroller off makes the input take its full content
+         * height, so there is exactly one scroller on the screen and nothing to
+         * arbitrate. The cost is that a very long note makes a very tall field,
+         * which is correct: that is what the page scroll is for.
+         *
+         * Overridable, and spread before `rest` so a caller that genuinely
+         * wants a fixed-height scrolling box can still ask for one.
+         */
+        {...(rest.multiline === true ? { scrollEnabled: false } : {})}
         {...rest}
       />
       {/*
@@ -368,14 +389,25 @@ export function LoadingState({ label }: { label?: string }) {
 export function BackBar({
   label = 'Back',
   onPress,
+  action,
 }: {
   /** "Cancel" on a form, where leaving discards work; "Back" elsewhere. */
   label?: string;
   onPress: () => void;
+  /**
+   * A trailing action that stays reachable however long the page is.
+   *
+   * Built for the note editor, where Save sat at the foot of a scroll view: on
+   * a long note you had to scroll to the bottom to save, and with the keyboard
+   * up it was behind the keyboard. Jake: *"Save button should also maybe be
+   * moved to the header and have the header be persistent so you don't have to
+   * scroll to the bottom to save on a big note"*.
+   */
+  action?: React.ReactNode;
 }) {
   const colors = useColors();
   return (
-    <View style={{ flexDirection: 'row' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
@@ -391,6 +423,12 @@ export function BackBar({
           {`‹  ${label}`}
         </Txt>
       </Pressable>
+      {action === undefined ? null : (
+        <>
+          <View style={{ flex: 1 }} />
+          {action}
+        </>
+      )}
     </View>
   );
 }

@@ -76,7 +76,13 @@ export function AssignmentPicker({
 
   const roster = members.map((m) => m.userId);
   const currentRoster = rosterOn(value, today);
-  const stale = rosterIsStale(value, roster, today);
+  /*
+   * `rosterIsStale` also guards the unloaded case, and the guard belongs there
+   * because it is the pure function every caller shares. This reads as the
+   * same question twice on purpose: a warning about the household should not
+   * be drawn from a household nobody has fetched.
+   */
+  const stale = roster.length > 0 && rosterIsStale(value, roster, today);
   const nameOf = (id: string) =>
     id === userId ? 'You' : (members.find((m) => m.userId === id)?.displayName ?? 'Someone');
 

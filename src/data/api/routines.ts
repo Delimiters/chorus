@@ -33,7 +33,7 @@ export interface RoutineItem extends RoutineItemInput {
 }
 
 const ITEM_COLUMNS =
-  'id, household_id, user_id, title, notes, icon, schedule, time_of_day, bucket, remind, linked_chore_id, archived_at, position';
+  'id, household_id, user_id, title, notes, icon, schedule, time_of_day, bucket, remind, nag_until_done, linked_chore_id, archived_at, position';
 
 /**
  * Parses a row into something the engine accepts.
@@ -54,6 +54,7 @@ function toItem(
     time_of_day: string | null;
     bucket: string | null;
     remind: boolean;
+    nag_until_done: boolean;
     position: number | null;
     linked_chore_id: string | null;
     archived_at: string | null;
@@ -82,6 +83,7 @@ function toItem(
       bucket: row.bucket,
       linkedChoreId: row.linked_chore_id,
       remind: row.remind,
+      nagUntilDone: row.nag_until_done,
       position: row.position ?? null,
       archived: row.archived_at !== null,
       archivedAt: row.archived_at,
@@ -188,6 +190,8 @@ export interface RoutineDraft {
   readonly bucketChoice: TimeBucket | null;
   readonly icon: string | null;
   readonly remind: boolean;
+  /** Keep asking until ticked. Honoured only for a timed item. */
+  readonly nagUntilDone: boolean;
   readonly linkedChoreId: string | null;
 }
 
@@ -206,6 +210,7 @@ export function routineRow(draft: RoutineDraft): {
   bucket_choice: string | null;
   icon: string | null;
   remind: boolean;
+  nag_until_done: boolean;
   linked_chore_id: string | null;
 } {
   const title = draft.title.trim();
@@ -236,6 +241,7 @@ export function routineRow(draft: RoutineDraft): {
     bucket_choice: draft.bucketChoice,
     icon: draft.icon,
     remind: draft.remind,
+    nag_until_done: draft.nagUntilDone,
     linked_chore_id: draft.linkedChoreId,
   };
 }

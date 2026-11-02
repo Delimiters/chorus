@@ -18,6 +18,7 @@ const draft = (over: Partial<RoutineDraft> = {}): RoutineDraft => ({
   bucketChoice: null,
   icon: null,
   remind: false,
+  nagUntilDone: false,
   linkedChoreId: null,
   ...over,
 });
@@ -30,6 +31,7 @@ describe('building the row', () => {
       'bucket_choice',
       'icon',
       'linked_chore_id',
+      'nag_until_done',
       'notes',
       'remind',
       'schedule',

@@ -88,6 +88,30 @@ export function rosterIsStale(
   on: CivilDate,
 ): boolean {
   if (assignment.kind !== 'rotate') return false;
+
+  /**
+   * An empty household is not a household — it is a query that has not landed.
+   *
+   * Every caller passes `members.data ?? []`, so while that query is in flight
+   * this was handed `[]`, found that *every* name in the rotation was unknown
+   * to it, and announced "This rotation does not match who lives here now." on
+   * a house whose membership had never changed. Jake:
+   *
+   * > "Sometimes a weird error message shows up saying a chore's rotation
+   * > doesn't match the members of the house anymore, even though we have never
+   * > changed our house members."
+   *
+   * A real household always contains at least the person reading the screen, so
+   * there is no ambiguity to preserve: zero members means "not yet", and the
+   * honest answer to "is this stale?" is that it cannot be known.
+   *
+   * The same shape as the chore chart seeded from an unloaded household, and
+   * the plan published as empty before its queries resolved — see
+   * `docs/WHERE-THINGS-STAND.md`. An empty result and an unasked question are
+   * not the same thing.
+   */
+  if (members.length === 0) return false;
+
   const current = rosterOn(assignment, on);
   if (current.length === 0) return true;
   const known = new Set(members);

@@ -13,6 +13,7 @@ import type { CivilDate } from '../civil/types';
 import type { ProjectedOccurrence } from '../occurrence/types';
 import { describeBucket, fallsOnNextCalendarDay, type TimeBucket } from '../routines/buckets';
 import type { RoutineOccurrence } from '../routines/project';
+import { MAX_NAGGING_PER_DAY, nagBody, nagSteps } from './insist';
 import {
   capReminders,
   keepAliveFor,
@@ -68,9 +69,23 @@ export function planRoutineReminders(input: {
   readonly today: CivilDate;
   readonly userId: string;
   readonly policy: ReminderPolicy;
+  /**
+   * Ladders already spent per date, shared with the chore planner.
+   *
+   * Mutated, which is unusual in `core` and is the point: `MAX_NAGGING_PER_DAY`
+   * is a budget against iOS's sixty-four pending notifications, and two
+   * planners each keeping their own count would spend it twice — three nagging
+   * chores plus three nagging routine items is thirty-six notifications for
+   * six things, which is most of the queue. One map, passed through both.
+   *
+   * Omitted by callers that plan routines alone, which then get the full
+   * ration to themselves.
+   */
+  readonly naggedOn?: Map<CivilDate, number>;
 }): readonly PlannedReminder[] {
   const { occurrences, today, userId, policy } = input;
   if (!policy.enabled || !policy.includeRoutines) return [];
+  const naggedOn = input.naggedOn ?? new Map<CivilDate, number>();
 
   const horizonEnd = addDays(today, ROUTINE_HORIZON_DAYS);
 
@@ -94,16 +109,57 @@ export function planRoutineReminders(input: {
 
   for (const occ of candidates) {
     if (occ.timeOfDay !== null) {
-      planned.push({
-        id: `${ITEM_PREFIX}${occ.occurrenceKey}`,
+      // The routine day starts at 05:00, so a 00:30 item sits in tonight's
+      // Night section and happens on tomorrow's date. Scheduling it against
+      // `dueOn` would fire it a day early — or, for today, at an instant
+      // already past, which the transport skips silently.
+      const onDate = fallsOnNextCalendarDay(occ.timeOfDay) ? addDays(occ.dueOn, 1) : occ.dueOn;
+      const base = {
         choreId: occ.itemId,
         title: occ.title,
         body: 'In your routine today',
-        // The routine day starts at 05:00, so a 00:30 item sits in tonight's
-        // Night section and happens on tomorrow's date. Scheduling it against
-        // `dueOn` would fire it a day early — or, for today, at an instant
-        // already past, which the transport skips silently.
-        onDate: fallsOnNextCalendarDay(occ.timeOfDay) ? addDays(occ.dueOn, 1) : occ.dueOn,
+      };
+
+      /*
+       * A ladder, when this item asked for one — the same six steps a nagging
+       * chore gets, from `insist.ts`, so "keep asking" means one thing in the
+       * app rather than two similar things.
+       *
+       * Timed items only, which is why this sits inside the branch. A bucket
+       * item shares one grouped notification with everything else in that part
+       * of the day, and laddering a shared notification would keep nagging
+       * about things already ticked.
+       */
+      const ladder = occ.nagUntilDone ? nagSteps(onDate, occ.timeOfDay) : [];
+      const touched = [...new Set(ladder.map((step) => step.onDate))];
+      const laddered =
+        ladder.length > 0 &&
+        touched.every((date) => (naggedOn.get(date) ?? 0) < MAX_NAGGING_PER_DAY);
+
+      if (laddered) {
+        for (const date of touched) naggedOn.set(date, (naggedOn.get(date) ?? 0) + 1);
+        for (const step of ladder) {
+          planned.push({
+            ...base,
+            // Every step needs its own id: the transport schedules by id, so
+            // two sharing one are a single notification.
+            id:
+              step.index === 0
+                ? `${ITEM_PREFIX}${occ.occurrenceKey}`
+                : `${ITEM_PREFIX}${occ.occurrenceKey}#${String(step.index)}`,
+            body: nagBody(base.body, step.index),
+            onDate: step.onDate,
+            atTime: step.atTime,
+            insistent: true,
+          });
+        }
+        continue;
+      }
+
+      planned.push({
+        ...base,
+        id: `${ITEM_PREFIX}${occ.occurrenceKey}`,
+        onDate,
         atTime: occ.timeOfDay,
       });
       continue;
@@ -181,15 +237,33 @@ export function planAllReminders(input: {
   const { chores, routines, today, userId, policy, dayStartsAtHour } = input;
   if (!policy.enabled) return [];
 
+  /**
+   * One ration, spent by both planners, chores first.
+   *
+   * `MAX_NAGGING_PER_DAY` is a budget against iOS's sixty-four pending
+   * notifications; two planners each keeping their own count would spend it
+   * twice over. Chores go first because a chore is the household's work and a
+   * routine item is one person's — if something has to lose its ladder, the
+   * shared commitment is the wrong thing to drop.
+   */
+  const naggedOn = new Map<CivilDate, number>();
+
   const chorePlan = planReminders({
     occurrences: chores,
     today,
     userId,
     policy,
     dayStartsAtHour,
+    naggedOn,
     ...(input.insistChoreIds === undefined ? {} : { insistChoreIds: input.insistChoreIds }),
   });
-  const routinePlan = planRoutineReminders({ occurrences: routines, today, userId, policy });
+  const routinePlan = planRoutineReminders({
+    occurrences: routines,
+    today,
+    userId,
+    policy,
+    naggedOn,
+  });
 
   const nearestFirst = (a: PlannedReminder, b: PlannedReminder): number =>
     toEpochDay(a.onDate) - toEpochDay(b.onDate) || a.atTime.localeCompare(b.atTime);

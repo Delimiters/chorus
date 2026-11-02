@@ -36,6 +36,15 @@ export function SignUpScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
+          /*
+          Shrinks the scroller by the keyboard rather than letting the keyboard
+          cover it. Applied to every scroll view in the app that contains a text
+          input, after Jake hit it on the notes page: *"keyboard needs to make
+          the whole view shrink so nothing's behind it (it should really do that
+          everywhere in the app probably)"*. Android resizes the window itself,
+          so this is iOS-only by design.
+        */
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: space.xl }}
           keyboardShouldPersistTaps="handled"
         >
