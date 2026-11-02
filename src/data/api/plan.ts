@@ -18,9 +18,18 @@ export interface PlanEntryRow {
   readonly occurrenceKey: string;
   readonly plannedFor: CivilDate;
   readonly position: number;
+  /**
+   * Who chose this, or null when the automatic fill did.
+   *
+   * Read as well as written now, because the two have to be told apart when a
+   * chore is reassigned: a row the fill added on an assumption that has since
+   * stopped being true should go, and a row a person deliberately added should
+   * stay. See `core/plan/reassigned.ts`.
+   */
+  readonly addedBy: string | null;
 }
 
-const COLUMNS = 'id, user_id, chore_id, occurrence_key, planned_for, position';
+const COLUMNS = 'id, user_id, chore_id, occurrence_key, planned_for, position, added_by';
 
 function fail(error: { message: string }): never {
   throw new Error(error.message);
@@ -75,6 +84,7 @@ export async function listPlanEntries(
     // arithmetically everywhere downstream. Without this a drag between 1 and 2
     // would sort "1.5" as a string and land in the wrong place.
     position: Number(row.position),
+    addedBy: row.added_by,
   }));
 }
 

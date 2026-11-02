@@ -47,6 +47,15 @@ export interface PlanEntry {
    * routine items use one. Ties are broken by key so the order is total.
    */
   readonly position: number;
+  /**
+   * Who chose this, or null when the automatic fill did.
+   *
+   * Optional because most callers do not care; `dropReassignedAutoRows` is the
+   * one that does, and a row without it is treated as deliberate — the safe
+   * direction, since the cost of keeping a row is a visible extra and the cost
+   * of dropping one is work disappearing.
+   */
+  readonly addedBy?: string | null;
 }
 
 /** Anything that can be planned. The screen's rows carry much more. */

@@ -203,11 +203,17 @@ const item = (
     assignee,
   }) as unknown as AgendaItem;
 
-const entry = (id: string, position: number): PlanEntry => ({
+const entry = (id: string, position: number, addedBy: string | null = ME): PlanEntry => ({
   occurrenceKey: `v1:${id}`,
   choreId: id,
   plannedFor: TODAY,
   position,
+  /*
+   * Deliberate by default. The fill's rows are the ones a reassignment can
+   * strand, so a test about that has to say `null` explicitly — and every
+   * other test in this file is about a day somebody built.
+   */
+  addedBy,
 });
 
 /** Notes by chore id, so a test can give one something worth reading. */
@@ -965,6 +971,50 @@ describe('finished work sinking to the bottom', () => {
 
     fireEvent.press(screen.getByRole('checkbox', { name: /Dishes/ }));
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
+  it("drops a filled row for a chore that is now the housemate's", () => {
+    /*
+     * Measured on the live household the day it was reported: of 208 plan rows
+     * for that day, exactly one sat on the wrong person's day — assigned to
+     * Emily, on Jake's. The fill added it while the chore was still his; she
+     * made it hers alone afterwards and nothing revisited the row.
+     *
+     * Two rows, and only one should go, so this cannot pass by the day
+     * rendering empty.
+     */
+    mockEntries = [entry('dishes', 1, null), entry('hers', 2, null)];
+    renderScreen([
+      item('dishes', 'Dishes', 'due', { kind: 'member', memberId: ME }),
+      item('hers', 'Her watering', 'due', { kind: 'member', memberId: 'user-them' }),
+    ]);
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.queryByText('Her watering')).toBeNull();
+  });
+
+  it("keeps a row you added yourself, even for the housemate's chore", () => {
+    /*
+     * Jake, before any of this was built: *"I should be able to add it to my
+     * own plan even if it's assigned to emily"*. Same fixture as above with
+     * one field changed — `addedBy` set rather than null — so the two tests
+     * together pin the distinction rather than the outcome.
+     */
+    mockEntries = [entry('dishes', 1, null), entry('hers', 2, ME)];
+    renderScreen([
+      item('dishes', 'Dishes', 'due', { kind: 'member', memberId: ME }),
+      item('hers', 'Her watering', 'due', { kind: 'member', memberId: 'user-them' }),
+    ]);
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.getByText('Her watering')).toBeOnTheScreen();
+  });
+
+  it('keeps shared work on a filled day', () => {
+    mockEntries = [entry('shared', 1, null)];
+    renderScreen([item('shared', 'Shared thing', 'due', { kind: 'anyone' })]);
+
+    expect(screen.getByText('Shared thing')).toBeOnTheScreen();
   });
 
   it('sinks a just-ticked row at once, with no delay to be surprised by', () => {

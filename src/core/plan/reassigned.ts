@@ -1,0 +1,99 @@
+/**
+ * Dropping a planned row the fill put on the wrong person's day.
+ *
+ * ## What happened
+ *
+ * An occurrence key does not encode who the chore belongs to — for everything
+ * but an `everyone` fan-out it is `v1:{choreId}:{period}:{slot}:-`. So
+ * reassigning a chore does not change the key, `planFor` goes on matching it,
+ * and a row the automatic fill wrote on somebody's day while the chore was
+ * theirs stays there after it stops being theirs.
+ *
+ * Measured on the live household the day it was reported: of 208 plan rows for
+ * that day, exactly one sat on the wrong person's day — "Water Indoor Plants -
+ * Upstairs", on Jake's, assigned to Emily. Which is what Jake described:
+ *
+ * > "today she said she tried to assign watering to just her for upstairs
+ * > plant and then also put water downstairs on today and I guess that wasn't
+ * > working properly"
+ *
+ * The timestamps tell the story: the fill added it to Jake at 13:25, to Emily
+ * at 16:24, and somewhere between those she made it hers alone. Nothing was
+ * wrong with her change; the stale row was never revisited.
+ *
+ * ## Why `addedBy` is the whole rule
+ *
+ * The obvious fix — drop anything on your day that is not yours — is wrong,
+ * and Jake said so before this was built:
+ *
+ * > "I should be able to add it to my own plan even if it's assigned to emily"
+ *
+ * Both things have to be true at once, and `added_by` already distinguishes
+ * them. **Null means the fill chose it**, from an assumption about who the
+ * chore belonged to; when that assumption stops holding the row has no reason
+ * to exist. **A person's id means a person chose it**, and a deliberate
+ * decision is not the app's to overrule — helping with your housemate's chore
+ * is a thing people do.
+ *
+ * ## A display rule, not a deletion
+ *
+ * Nothing is written. The same reasoning as `settle.ts`: a row removed from
+ * the database cannot come back if the chore is reassigned again, or if this
+ * rule turns out to be wrong. Hidden costs one render; deleted costs the
+ * ordering somebody built.
+ *
+ * It also means the fill will not re-add it — `autoPlannable` filters on
+ * `belongsTo` too, so the row it would replace is one it would never create
+ * today.
+ */
+
+import type { Ownable } from './autoplan';
+import type { PlanEntry, Plannable, PlannedItem } from './plan';
+
+/**
+ * The planned rows that still make sense on `ownerId`'s day.
+ *
+ * Keeps everything a person chose, and everything that is still theirs. Drops
+ * only what the fill added and the chore has since moved away from.
+ */
+export function dropReassignedAutoRows<T extends Plannable & Ownable>(
+  planned: readonly PlannedItem<T>[],
+  entries: readonly PlanEntry[],
+  ownerId: string,
+): readonly PlannedItem<T>[] {
+  /*
+   * Keyed by occurrence, which is what a plan row is addressed by — and
+   * `planFor` has already matched the two, so the lookup cannot miss for a
+   * reason that matters.
+   */
+  const chosenBy = new Map<string, string | null | undefined>(
+    entries.map((entry) => [entry.occurrenceKey, entry.addedBy]),
+  );
+
+  return planned.filter(({ item }) => {
+    const addedBy = chosenBy.get(item.occurrenceKey);
+    /*
+     * `undefined` is "this row did not say", which happens for any caller that
+     * has not threaded `addedBy` through. Treated as deliberate: keeping a row
+     * shows one extra thing, dropping one makes work vanish, and only one of
+     * those is recoverable by the person looking at it.
+     */
+    if (addedBy !== null) return true;
+
+    /*
+     * Dropped only when the occurrence demonstrably belongs to **somebody
+     * else**, which is narrower than `!belongsTo(item, ownerId)` and
+     * deliberately so.
+     *
+     * The first version used `belongsTo`, and its own test caught what that
+     * costs: a rotation with no segment covering the date resolves to
+     * `unassignable`, which belongs to nobody — so `belongsTo` is false for
+     * *both* people and the row would have been hidden from everyone. Work
+     * that exists and neither person can see is a worse failure than the one
+     * this module is fixing. `anyone` is kept for the same reason by the same
+     * test, and anything a future assignment kind produces is kept by default.
+     */
+    const assignee = item.assignee;
+    return !(assignee.kind === 'member' && assignee.memberId !== ownerId);
+  });
+}

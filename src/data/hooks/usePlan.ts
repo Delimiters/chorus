@@ -298,6 +298,11 @@ export function useAddToPlan(
           occurrenceKey: item.occurrenceKey,
           plannedFor: today,
           position: item.position,
+          /*
+           * The same value the write will carry, so an optimistic row is judged by
+           * `dropReassignedAutoRows` exactly as the stored one will be. Omitting it
+           * made a deliberate add flicker out and back if the chore was not yours.
+           */
           addedBy: automatic ? null : userId,
         })),
       );
@@ -339,6 +344,12 @@ export function useAddToPlan(
           // The same number that goes to the database. Previously the
           // optimistic row and the written row disagreed on every add.
           position: item.position,
+          /*
+           * The same value the write will carry, so an optimistic row is judged by
+           * `dropReassignedAutoRows` exactly as the stored one will be. Omitting it
+           * made a deliberate add flicker out and back if the chore was not yours.
+           */
+          addedBy: automatic ? null : userId,
         }));
         return [...existing, ...added];
       });

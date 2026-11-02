@@ -128,6 +128,9 @@ jest.mock('../api/plan', () => ({
             choreId: entry.choreId,
             occurrenceKey: entry.occurrenceKey,
             plannedFor: entry.plannedFor as PlanEntryRow['plannedFor'],
+            // What the real write carries: null for the fill, a person's id
+            // when somebody chose it. `dropReassignedAutoRows` reads it.
+            addedBy: entry.addedBy,
             position: entry.position,
           },
         ];
@@ -178,6 +181,7 @@ const row = (
   choreId: occurrenceKey.replace('v1:', ''),
   occurrenceKey,
   plannedFor,
+  addedBy: null,
   position,
 });
 

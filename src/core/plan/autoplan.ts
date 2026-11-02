@@ -43,7 +43,7 @@
 
 import type { CivilDate } from '../civil/types';
 
-interface Plannable {
+export interface Ownable {
   readonly occurrenceKey: string;
   readonly dueOn: CivilDate;
   readonly status: string;
@@ -56,7 +56,7 @@ interface Plannable {
  * `anyone` counts for everybody — an unassigned chore is on both your lists
  * until one of you does it, which is what "anyone" means.
  */
-export function belongsTo(item: Plannable, userId: string): boolean {
+export function belongsTo(item: Ownable, userId: string): boolean {
   return (
     item.assignee.kind === 'anyone' ||
     (item.assignee.kind === 'member' && item.assignee.memberId === userId)
@@ -94,7 +94,7 @@ interface Options {
  * `dueOn <= on` is not redundant with the status test: `showFrom` marks a chore
  * `due` before its date arrives, so without it a day fills up with next week.
  */
-export function autoPlannable<T extends Plannable>(
+export function autoPlannable<T extends Ownable>(
   items: readonly T[],
   { userId, on, planned }: Options,
 ): readonly T[] {
