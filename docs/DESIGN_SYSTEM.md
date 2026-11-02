@@ -107,6 +107,39 @@ Settled with Jake, 30 July 2026.
 
 ### Interaction
 
+**One scroller per screen.** A multiline `Field` grows to its content rather
+than scrolling inside itself — `scrollEnabled` defaults to `false` whenever
+`multiline` is set. iOS gives a multiline text view its own scroller, and a
+drag that starts on the text moves the text, so the page appears stuck and
+bounces. Jake hit it writing a long note:
+
+> "you often run into a scrollview within a scrollview issue where you're
+> trying to scroll and it's just bouncing because it's scrolling the text view
+> instead of the whole page"
+
+Removing the nesting rather than arbitrating it. The cost is that a long note
+makes a very tall field, which is what the page scroll is for. It is
+overridable, spread before the caller's props, so a fixed-height scrolling box
+is still available to anything that genuinely wants one.
+
+**The keyboard shrinks the page, it does not cover it.** Every scroll view that
+contains a text input sets `automaticallyAdjustKeyboardInsets` — notes,
+settings, the category editor. The four screens that centre their content
+(`SignIn`, `SignUp`, and both onboarding screens) use a `KeyboardAvoidingView`
+instead. **The two are alternatives, not complements**: running both makes the
+content jump during the keyboard animation, because one moves the container
+while the other insets the scroller inside it. Pick one per screen.
+
+**A control you always need lives in the header.** `BackBar` takes an `action`,
+and the note editor's Save uses it. At the foot of a scroll view, Save on a long
+note meant scrolling to the bottom to reach it — and with the keyboard up it was
+behind the keyboard, which meant dismissing the keyboard first, which meant
+scrolling back to the top to find something inert to tap.
+
+**A picker over a long list is searchable.** `ChoreLinkPicker` shows at most six
+matches and a count of what is not shown. It was every live chore as a chip,
+which on this household is 221 of them.
+
 - **Tap the checkbox to complete; tap the row body to open the sheet.** Two
   targets on one row. Ticking is one tap; skip / reschedule / edit are one tap
   away and not hidden behind a long-press.

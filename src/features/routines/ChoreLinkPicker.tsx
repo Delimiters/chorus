@@ -54,7 +54,17 @@ export function ChoreLinkPicker({ chores, value, onChange }: Props) {
   const [query, setQuery] = useState('');
 
   const live = useMemo(() => chores.filter((c) => !c.archived), [chores]);
-  const selected = useMemo(() => live.find((c) => c.id === value) ?? null, [live, value]);
+
+  /**
+   * Resolved against **every** chore, archived ones included.
+   *
+   * Only live chores are *offered*, but a link made before the chore was
+   * archived is still a link. Looking it up in `live` alone rendered such an
+   * item as unlinked — and since Clear only appears once something is found,
+   * the link could never be removed from this screen. A picker that cannot
+   * undo a state it can reach is a dead end.
+   */
+  const selected = useMemo(() => chores.find((c) => c.id === value) ?? null, [chores, value]);
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -128,7 +138,13 @@ export function ChoreLinkPicker({ chores, value, onChange }: Props) {
               numberOfLines={1}
               style={{ color: colors.surface, fontWeight: '700' }}
             >
-              {selected.title}
+              {/*
+                Named as archived when it is. The link still works — ticking
+                the item finds nothing due and becomes a routine tick — but a
+                chore that no longer exists on any list should not read as a
+                live one.
+              */}
+              {selected.archived ? `${selected.title} (archived)` : selected.title}
             </Txt>
           </View>
           <Pressable

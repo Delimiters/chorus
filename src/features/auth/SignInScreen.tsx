@@ -23,20 +23,19 @@ export function SignInScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }}>
+      {/*
+        A `KeyboardAvoidingView` here rather than the scroll view's
+        `automaticallyAdjustKeyboardInsets`, which every other scrolling screen
+        in the app uses. They are alternatives, not complements: this screen
+        centres its content with `flexGrow`, and running both made the content
+        jump during the keyboard animation — one moved the container while the
+        other inset the scroller inside it.
+      */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
-          /*
-          Shrinks the scroller by the keyboard rather than letting the keyboard
-          cover it. Applied to every scroll view in the app that contains a text
-          input, after Jake hit it on the notes page: *"keyboard needs to make
-          the whole view shrink so nothing's behind it (it should really do that
-          everywhere in the app probably)"*. Android resizes the window itself,
-          so this is iOS-only by design.
-        */
-          automaticallyAdjustKeyboardInsets
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: space.xl }}
           keyboardShouldPersistTaps="handled"
         >

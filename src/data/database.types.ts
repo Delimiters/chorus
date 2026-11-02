@@ -941,10 +941,10 @@ export type Database = {
           icon: string | null
           id: string
           linked_chore_id: string | null
+          nag_until_done: boolean
           notes: string | null
           position: number | null
           remind: boolean
-          nag_until_done: boolean
           schedule: Json
           schedule_kind: string | null
           starts_on: string | null
@@ -963,10 +963,10 @@ export type Database = {
           icon?: string | null
           id?: string
           linked_chore_id?: string | null
+          nag_until_done?: boolean
           notes?: string | null
           position?: number | null
           remind?: boolean
-          nag_until_done?: boolean
           schedule: Json
           schedule_kind?: string | null
           starts_on?: string | null
@@ -985,10 +985,10 @@ export type Database = {
           icon?: string | null
           id?: string
           linked_chore_id?: string | null
+          nag_until_done?: boolean
           notes?: string | null
           position?: number | null
           remind?: boolean
-          nag_until_done?: boolean
           schedule?: Json
           schedule_kind?: string | null
           starts_on?: string | null
