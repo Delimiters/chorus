@@ -102,10 +102,45 @@ export function NoteEditor({
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
-      <BackBar onPress={onBack} label={backLabel} />
+      {/*
+        Save lives here, not at the foot of the page.
+        
+        It was the last thing in a scroll view, which on a long note meant
+        scrolling to the bottom to save it — and with the keyboard up it was
+        *behind* the keyboard, so the only way to reach it was to dismiss the
+        keyboard first, which itself meant scrolling back to the top to find
+        something inert to tap. Jake described the whole loop.
+        
+        In the bar it is reachable at any scroll position and at any keyboard
+        state, which is the only property that matters for the one control you
+        always need.
+      */}
+      <View style={{ paddingHorizontal: space.lg, paddingTop: space.xs }}>
+        <BackBar
+          onPress={onBack}
+          label={backLabel}
+          action={
+            <Button
+              label={saving ? 'Saving…' : 'Save'}
+              onPress={() =>
+                onSave({ title: title.trim().length === 0 ? null : title.trim(), body })
+              }
+              loading={saving}
+              disabled={empty}
+            />
+          }
+        />
+      </View>
       <ScrollView
         contentContainerStyle={{ padding: space.lg, gap: space.md }}
         keyboardShouldPersistTaps="handled"
+        /*
+          Shrinks the scroller by the keyboard instead of letting the keyboard
+          sit on top of it. Same mechanism `ChoreForm` uses, and the reason the
+          note body's end is reachable while you are typing into it at all.
+          Android resizes the window itself, so this is iOS-only by design.
+        */
+        automaticallyAdjustKeyboardInsets
       >
         <Field
           label="Title"
@@ -164,13 +199,6 @@ export function NoteEditor({
             {error}
           </Txt>
         )}
-
-        <Button
-          label={saving ? 'Saving…' : 'Save'}
-          onPress={() => onSave({ title: title.trim().length === 0 ? null : title.trim(), body })}
-          loading={saving}
-          disabled={empty}
-        />
 
         {/*
           The footer, and the only protection against a silent overwrite.

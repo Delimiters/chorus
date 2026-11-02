@@ -36,6 +36,7 @@ const routine = (over: Partial<RoutineOccurrence> = {}): RoutineOccurrence =>
     linkedChoreId: null,
     icon: null,
     remind: true,
+    nagUntilDone: false,
     status: 'due',
     completedOn: null,
     sortKey: 120,
@@ -445,5 +446,124 @@ describe('the two planners, merged under a day break', () => {
     // a separate boundary and not the household's. The two are independent, and
     // this is what that looks like.
     expect(byId.get('r1')?.onDate).toBe(addDays(TODAY, 1));
+  });
+});
+
+describe('a routine item that keeps asking', () => {
+  it('ladders a timed item through the same six steps a chore gets', () => {
+    const plan = planRoutineReminders({
+      occurrences: [routine({ nagUntilDone: true })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+    });
+
+    /*
+     * Six, at the offsets `insist.ts` defines — not "more than one". The whole
+     * point of sharing `nagSteps` is that "keep asking" means one thing in the
+     * app, so this asserts the actual ladder rather than that laddering
+     * happened.
+     */
+    expect(plan.map((r) => r.atTime)).toEqual([
+      '07:00',
+      '07:03',
+      '07:08',
+      '07:16',
+      '07:27',
+      '07:40',
+    ]);
+    expect(plan.every((r) => r.insistent === true)).toBe(true);
+    // Distinct ids: the transport schedules by id, so two sharing one are one
+    // notification and the ladder silently collapses to its first step.
+    expect(new Set(plan.map((r) => r.id)).size).toBe(6);
+  });
+
+  it('leaves a bucket item as one grouped nudge, however the switch is set', () => {
+    /*
+     * A bucket item shares its notification with everything else in that part
+     * of the day, so there is no instant to ladder from — and laddering a
+     * shared notification would keep nagging about things already ticked. The
+     * form hides the switch for these; this is what makes the planner safe if
+     * a stored `true` ever reaches it anyway.
+     */
+    const plan = planRoutineReminders({
+      occurrences: [
+        routine({ timeOfDay: null, nagUntilDone: true }),
+        routine({
+          itemId: 'floss',
+          occurrenceKey: 'v1:floss',
+          timeOfDay: null,
+          nagUntilDone: true,
+        }),
+      ],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+    });
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0]?.insistent).toBeUndefined();
+    expect(plan[0]?.body).toBe('2 things to do');
+  });
+
+  it('asks once when the switch is off', () => {
+    const plan = planRoutineReminders({
+      occurrences: [routine()],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+    });
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0]?.insistent).toBeUndefined();
+  });
+
+  it('shares one daily ration with chores, and chores go first', () => {
+    /*
+     * `MAX_NAGGING_PER_DAY` is a budget against iOS's sixty-four pending
+     * notifications. Two planners each keeping their own count would spend it
+     * twice — three nagging chores plus three nagging routine items is
+     * thirty-six notifications for six things.
+     *
+     * Three chores claim the whole ration, so the routine item gets a single
+     * reminder. Chores first because a chore is the household's work and a
+     * routine item is one person's: if something loses its ladder, the shared
+     * commitment is the wrong thing to drop.
+     */
+    const plan = planAllReminders({
+      chores: [
+        chore({ choreId: 'a', occurrenceKey: 'v1:a', timesOfDay: ['09:00' as CivilTime] }),
+        chore({ choreId: 'b', occurrenceKey: 'v1:b', timesOfDay: ['10:00' as CivilTime] }),
+        chore({ choreId: 'c', occurrenceKey: 'v1:c', timesOfDay: ['11:00' as CivilTime] }),
+      ],
+      routines: [routine({ nagUntilDone: true })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 3,
+      insistChoreIds: new Set(['a', 'b', 'c']),
+    });
+
+    const mine = plan.filter((r) => r.id.includes('stretch'));
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.insistent).toBeUndefined();
+
+    // And the three chores did get their ladders, so this is a ration being
+    // spent rather than nagging being broken.
+    expect(plan.filter((r) => r.insistent === true)).toHaveLength(18);
+  });
+
+  it('ladders a routine item when the chores did not use the ration', () => {
+    const plan = planAllReminders({
+      chores: [chore({ timesOfDay: ['09:00' as CivilTime] })],
+      routines: [routine({ nagUntilDone: true })],
+      today: TODAY,
+      userId: ME,
+      policy: DEFAULT_POLICY,
+      dayStartsAtHour: 3,
+      insistChoreIds: new Set(),
+    });
+
+    expect(plan.filter((r) => r.insistent === true)).toHaveLength(6);
   });
 });

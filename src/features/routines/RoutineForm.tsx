@@ -10,8 +10,9 @@
  * a reminder would actually arrive.
  */
 
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMemo, useState } from 'react';
-import { ScrollView, Switch, View } from 'react-native';
+import { Platform, ScrollView, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ROUTINE_NOTES_MAX, ROUTINE_TITLE_MAX } from '@/core/text/limits';
@@ -33,12 +34,16 @@ import {
 } from '@/features/common/RecurrencePicker';
 import { SchedulePreview } from '@/features/common/SchedulePreview';
 import type { Chore } from '@/data/api/chores';
+import { fromPickerDate, toPickerDate } from '@/features/common/TimeField';
 import { ChoreLinkPicker } from './ChoreLinkPicker';
 
 /** "No particular time" is a real answer, so it needs a real option. */
 const NO_TIME = 'none';
 
-const TIME_CHOICES: readonly { value: string; label: string }[] = [
+/** The one that opens the wheel. Never a stored value. */
+const OTHER_TIME = 'other';
+
+const TIME_PRESETS: readonly { value: string; label: string }[] = [
   { value: NO_TIME, label: 'No set time' },
   { value: '07:00', label: '7am' },
   { value: '09:00', label: '9am' },
@@ -46,6 +51,28 @@ const TIME_CHOICES: readonly { value: string; label: string }[] = [
   { value: '17:00', label: '5pm' },
   { value: '21:00', label: '9pm' },
 ];
+
+/**
+ * The segments to offer, given what is currently chosen.
+ *
+ * The five presets were the *only* answers, so a routine at 06:30 was
+ * unexpressible. Jake: *"on routines it only lets you choose preset times for
+ * the notification/scheduling on it. You should be able to pick any time you
+ * want in addition to the preset options."*
+ *
+ * "In addition to" is the shape: the presets stay, because they are one tap
+ * and cover most of it, and `Other…` opens a wheel. A custom time becomes its
+ * own segment so the control can show it as selected — a `SegmentedControl`
+ * whose value is not among its segments renders nothing as chosen, which would
+ * read as the time having been forgotten.
+ */
+function timeChoices(time: CivilTime | null): readonly { value: string; label: string }[] {
+  const custom =
+    time !== null && !TIME_PRESETS.some((choice) => choice.value === time)
+      ? [{ value: time, label: formatCivilTime(time) }]
+      : [];
+  return [...TIME_PRESETS, ...custom, { value: OTHER_TIME, label: 'Other…' }];
+}
 
 interface Props {
   item?: RoutineItem | undefined;
@@ -96,6 +123,10 @@ export function RoutineForm({
 
   const [timeOfDay, setTimeOfDay] = useState<CivilTime | null>(item?.timeOfDay ?? null);
   const [bucket, setBucket] = useState<TimeBucket>(item?.bucket ?? 'morning');
+  /** Open while the wheel is showing; the segment reads as `Other…` then. */
+  const [nagUntilDone, setNagUntilDone] = useState<boolean>(item?.nagUntilDone ?? false);
+  const [pickingTime, setPickingTime] = useState(false);
+  const [timeDraft, setTimeDraft] = useState<CivilTime>(item?.timeOfDay ?? ('08:00' as CivilTime));
 
   const schedule: Schedule = useMemo(
     () => ({
@@ -128,6 +159,12 @@ export function RoutineForm({
       schedule,
       // Exactly one, matching the database constraint.
       timeOfDay,
+      /*
+       * Only ever sent for a timed item. A bucket item shares one grouped
+       * reminder, so there is no instant to ladder from — and storing `true`
+       * there would be a switch the planner silently ignores.
+       */
+      nagUntilDone: timeOfDay === null ? false : nagUntilDone,
       bucketChoice: timeOfDay === null ? bucket : null,
       icon,
       remind,
@@ -190,12 +227,67 @@ export function RoutineForm({
           }
         >
           <SegmentedControl
-            segments={TIME_CHOICES}
-            value={timeOfDay ?? NO_TIME}
-            onChange={(next) => setTimeOfDay(next === NO_TIME ? null : (next as CivilTime))}
+            segments={timeChoices(timeOfDay)}
+            value={pickingTime ? OTHER_TIME : (timeOfDay ?? NO_TIME)}
+            onChange={(next) => {
+              if (next === OTHER_TIME) {
+                /*
+                 * Seeded from the current time, or 8am when there is none —
+                 * opening a wheel on midnight makes every custom time a long
+                 * scroll from somewhere nobody meant.
+                 */
+                setTimeDraft(timeOfDay ?? ('08:00' as CivilTime));
+                setPickingTime(true);
+                return;
+              }
+              setPickingTime(false);
+              setTimeOfDay(next === NO_TIME ? null : (next as CivilTime));
+            }}
             label="Time of day"
             scrollable
           />
+
+          {pickingTime ? (
+            <View style={{ alignItems: 'center', gap: space.xs }}>
+              <DateTimePicker
+                value={toPickerDate(timeDraft)}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={(event, date) => {
+                  /*
+                   * A dismissal arrives *with* a date, so checking only for a
+                   * missing one lets Android's Cancel commit whatever the
+                   * dialog happened to be showing. Same defect, same shape, as
+                   * the ones fixed in `TimeField` and `SingleTimeField`.
+                   */
+                  if (event.type === 'dismissed') {
+                    setPickingTime(false);
+                    return;
+                  }
+                  if (date === undefined) return;
+                  const picked = fromPickerDate(date);
+                  setTimeDraft(picked);
+                  // Android's dialog reports once and closes itself, so the
+                  // choice is committed there rather than on a second tap.
+                  if (Platform.OS !== 'ios') {
+                    setTimeOfDay(picked);
+                    setPickingTime(false);
+                  }
+                }}
+                accessibilityLabel="Pick a time of day"
+              />
+              {Platform.OS === 'ios' ? (
+                <Button
+                  label={`Use ${formatCivilTime(timeDraft)}`}
+                  variant="secondary"
+                  onPress={() => {
+                    setTimeOfDay(timeDraft);
+                    setPickingTime(false);
+                  }}
+                />
+              ) : null}
+            </View>
+          ) : null}
         </FieldGroup>
 
         {/* Only when there is no specific time — a time decides the bucket by
@@ -241,6 +333,36 @@ export function RoutineForm({
             />
           </View>
         </FieldGroup>
+
+        {/*
+          Keep asking, the same switch chores have.
+
+          Shown only for a *timed* item, and only when reminders are on at all.
+          An item that names a bucket shares one grouped nudge with everything
+          else in that part of the day — there is no instant for a ladder to
+          climb from, and laddering a shared notification would keep nagging
+          about things already ticked. A switch the planner ignores is worse
+          than no switch, so it is not offered rather than offered and
+          disabled.
+        */}
+        {remind && timeOfDay !== null ? (
+          <FieldGroup
+            label="Keep asking"
+            hint={
+              nagUntilDone
+                ? 'Reminds again at 3, 8, 16, 27 and 40 minutes, with sound, breaking through Focus. Ticking it off stops the rest next time this phone opens the app. Three things a day can do this; iOS limits how many reminders an app may queue.'
+                : 'One reminder, at the time above.'
+            }
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-start' }}>
+              <Switch
+                value={nagUntilDone}
+                onValueChange={setNagUntilDone}
+                accessibilityLabel="Keep reminding me until this is done"
+              />
+            </View>
+          </FieldGroup>
+        ) : null}
 
         {recurrence.rule.kind === 'unscheduled' ? null : (
           <FieldGroup label="Next few times">

@@ -152,6 +152,21 @@ export interface PlanInput {
    * chore nags".
    */
   readonly insistChoreIds?: ReadonlySet<string>;
+  /**
+   * Ladders already spent per firing date, when something else shares the
+   * ration.
+   *
+   * `planAllReminders` passes one map through this planner and the routine one,
+   * because `MAX_NAGGING_PER_DAY` is a budget against iOS's sixty-four pending
+   * notifications and two planners each keeping their own count would spend it
+   * twice — three nagging chores plus three nagging routine items is
+   * thirty-six notifications for six things.
+   *
+   * Mutated, which is unusual in `core` and deliberate: the alternative is
+   * threading a count back out and in again, which is the same mutation with
+   * more places to forget it. Omitted by callers planning chores alone.
+   */
+  readonly naggedOn?: Map<CivilDate, number>;
 }
 
 /**
@@ -167,8 +182,8 @@ export function planReminders(input: PlanInput): readonly PlannedReminder[] {
   if (!policy.enabled) return [];
 
   const insist = input.insistChoreIds ?? new Set<string>();
-  /** How many chores have already claimed a ladder on each firing date. */
-  const naggedOn = new Map<CivilDate, number>();
+  /** How many things have already claimed a ladder on each firing date. */
+  const naggedOn = input.naggedOn ?? new Map<CivilDate, number>();
 
   const horizonEnd = addDays(today, Math.max(0, policy.horizonDays));
 

@@ -26,6 +26,7 @@ const EXISTING: RoutineItem = {
   bucket: 'morning',
   linkedChoreId: null,
   remind: false,
+  nagUntilDone: false,
   position: null,
   archived: false,
   archivedAt: null,

@@ -23,6 +23,14 @@ export function SignInScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }}>
+      {/*
+        A `KeyboardAvoidingView` here rather than the scroll view's
+        `automaticallyAdjustKeyboardInsets`, which every other scrolling screen
+        in the app uses. They are alternatives, not complements: this screen
+        centres its content with `flexGrow`, and running both made the content
+        jump during the keyboard animation — one moved the container while the
+        other inset the scroller inside it.
+      */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

@@ -941,6 +941,7 @@ export type Database = {
           icon: string | null
           id: string
           linked_chore_id: string | null
+          nag_until_done: boolean
           notes: string | null
           position: number | null
           remind: boolean
@@ -962,6 +963,7 @@ export type Database = {
           icon?: string | null
           id?: string
           linked_chore_id?: string | null
+          nag_until_done?: boolean
           notes?: string | null
           position?: number | null
           remind?: boolean
@@ -983,6 +985,7 @@ export type Database = {
           icon?: string | null
           id?: string
           linked_chore_id?: string | null
+          nag_until_done?: boolean
           notes?: string | null
           position?: number | null
           remind?: boolean

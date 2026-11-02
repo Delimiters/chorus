@@ -173,12 +173,73 @@ switch would mean one being nagged about something the other had quietly
 silenced. Either housemate can change it, which `nag-until-done.test.sql`
 asserts.
 
+## Routine items can nag too, as of build 78
+
+> "we should implement the super notification stuff we have for the chores for
+> routines as well"
+
+The same switch, the same six steps from `insist.ts`. One meaning of "keep
+asking" in the app rather than two similar ones. Three things about it differ
+from the chore version, and each was a decision.
+
+**Timed items only.** An item that names a *bucket* — "sometime this morning" —
+shares one grouped notification with everything else in that part of the day.
+There is no instant for a ladder to climb from, and laddering a shared
+notification would keep nagging about things that had already been ticked. The
+form hides the switch for those rather than offering one the planner ignores,
+and the planner ignores a stored `true` anyway, so the two cannot disagree.
+
+**Personal, not shared.** A chore's nag flag is a property of a shared job, so
+either housemate may change it. A routine item belongs to one person, and being
+nagged is something you choose for yourself — enforced by `routine_items`'s
+existing owner-only write policies rather than by anything new.
+`supabase/tests/routine-nag-until-done.test.sql` asserts the *value* after the
+housemate's update rather than expecting a throw, because an RLS-filtered write
+is a successful statement affecting no rows: a test expecting an error would
+pass against a policy that allowed it.
+
+**One ration, spent by both planners, chores first.** `MAX_NAGGING_PER_DAY` is a
+budget against iOS's sixty-four pending notifications, and the sentence below
+about "the ration times the ladder length stays under twenty slots" is now true
+*only because* the map is shared. Two planners each keeping their own count
+would have allowed three nagging chores **plus** three nagging routine items —
+thirty-six notifications for six things, most of the queue. Chores go first
+because if something has to lose its ladder, the household's shared commitment
+is the wrong thing to drop.
+
+The map is created inside `planAllReminders` on every call and never memoised,
+which matters: a map that survived between renders would accumulate, and
+nagging would quietly stop working as the day went on.
+
+### What it costs, which is not nothing
+
+A nagging routine item recurs across the whole three-day horizon and charges one
+ladder per date, so it passes the ration on every one of them and emits roughly
+twenty-four reminders. `ROUTINE_SHARE` is twenty. Measured on a realistic day —
+five timed items and three bucketed, all daily:
+
+| | kept | the nagging item | the other seven | days covered |
+|---|---|---|---|---|
+| switch off | 20 | 3 | 17 | 3 |
+| switch on | 20 | 12 | **8** | **2** |
+
+So turning it on for one item more than halves everything else's reminders and
+drops a day of coverage. Nothing is lost — the keep-alive tops the queue up as
+days pass — but it is the visible cost of the feature and it is not obvious from
+the switch. The chore planner has the same shape and has shipped that way since
+build 64.
+
+If this turns out to bite, the fix is a separate cap on how much of
+`ROUTINE_SHARE` nagging may claim, rather than a smaller ladder: the ladder's
+shape is the feature.
+
 ## Pinned by
 
 - `core/notify/insist.test.ts` — the ladder's shape, that the gaps widen and are
   all distinct, that a nag starting at 23:50 rolls onto the next date rather than
   producing `24:30`, which the engine's own time parser rejects, and that the
-  ration times the ladder length stays under twenty slots.
+  ration times the ladder length stays under twenty slots — which holds only
+  because chores and routines share one ration; see the routines section above.
 - `core/notify/plan.test.ts` — a ladder only when asked for, every step with its
   own identifier (two sharing one are one notification, and the chore would ask
   once and go quiet), the first step keeping the original id so a pending
@@ -199,6 +260,11 @@ global counter left all sixty-six tests green. And the transport change — the 
 line that makes any of this audible — had no test at all; stripping both `sound`
 and `interruptionLevel` left 293 tests green. Both are now covered, and both
 mutations fail.
+
+- `core/notify/routines.test.ts` — a timed routine item laddering through the
+  same six offsets, a bucket item staying one grouped nudge whatever the switch
+  says, the ration shared with chores and spent chores-first, and a routine item
+  laddering when the chores did not use it.
 
 ## What this is not
 

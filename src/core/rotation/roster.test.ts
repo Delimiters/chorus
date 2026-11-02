@@ -197,4 +197,19 @@ describe('spotting a rotation that has drifted from the household', () => {
     const empty = rotating([{ effectiveFrom: ANCHOR, memberIds: [], offset: 0 }] as never);
     expect(rosterIsStale(empty, [ALICE], d('2026-02-01'))).toBe(true);
   });
+
+  it('says nothing while the household is still loading', () => {
+    /*
+     * `[]` is what every caller passes while `useMembers` is in flight, and
+     * this used to report the rotation as stale: an empty set knows nobody, so
+     * every name in the roster looked like somebody who had left. The picker
+     * then told Jake his rotation did not match a household he had never
+     * changed.
+     *
+     * Asserted against a roster that *is* genuinely fine for the real
+     * household, so this cannot pass by the fixture being broken anyway.
+     */
+    expect(rosterIsStale(original, [], d('2026-02-01'))).toBe(false);
+    expect(rosterIsStale(original, [ALICE, BOB], d('2026-02-01'))).toBe(false);
+  });
 });

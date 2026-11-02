@@ -13,7 +13,7 @@
  */
 
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
 import { useActiveHouseholdId } from '@/stores/sessionStore';
@@ -68,6 +68,22 @@ export function useRealtimeHousehold(): void {
   const householdId = useActiveHouseholdId();
   const queryClient = useQueryClient();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Bumped to rebuild the channel after a failed join.
+   *
+   * A channel that has errored cannot be re-subscribed — the only way back is
+   * a new one — so the retry re-runs this effect rather than calling
+   * `subscribe` again on a corpse.
+   */
+  const [generation, setGeneration] = useState(0);
+  /**
+   * Consecutive failed joins, for the backoff.
+   *
+   * A ref rather than a local: the retry works by re-running this effect, so
+   * anything held in the effect's own closure resets on every attempt and the
+   * backoff never grows. Reset on a successful join.
+   */
+  const attempts = useRef(0);
 
   useEffect(() => {
     if (householdId === null) return;
@@ -111,7 +127,81 @@ export function useRealtimeHousehold(): void {
         schedule,
       );
     }
-    void channel.subscribe();
+    /**
+     * Subscribing, and noticing when it fails.
+     *
+     * `void channel.subscribe()` threw the status away. A channel that never
+     * joined — a dropped socket at the wrong moment, a token refresh landing
+     * mid-handshake — left the phone with **no realtime at all**, silently and
+     * for the life of the screen: this effect only re-runs when the household
+     * or the query client changes, which is to say never. Jake:
+     *
+     * > "sometimes when emily archives or edits a chore on her daily plan, it
+     * > still shows up on mine unchanged"
+     *
+     * `chores` is published and subscribed, so the delivery path was right;
+     * what was missing was noticing that nobody was listening.
+     *
+     * Two things happen here. A failure retries with backoff, because one
+     * failed join should not cost the session. And a *successful* join
+     * invalidates once — realtime does not replay what happened while the
+     * socket was down, so re-joining without catching up leaves exactly the
+     * stale screen this is meant to prevent.
+     */
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+
+    const join = () => {
+      channel.subscribe((status) => {
+        if (disposed) return;
+
+        if (status === 'SUBSCRIBED') {
+          attempts.current = 0;
+          /*
+           * Through the debounce, not straight to `invalidate`.
+           *
+           * A flapping connection joins repeatedly, and an un-debounced catch-up
+           * refetched the whole household on each one — the storm the debounce
+           * exists to stop, entered by the one path that skipped it.
+           */
+          schedule();
+          return;
+        }
+
+        /*
+         * `CLOSED` is also how a deliberate `removeChannel` reports itself, and
+         * `disposed` above is what tells the two apart — without it, unmounting
+         * would schedule a reconnect to a channel that no longer exists.
+         */
+        if (status !== 'CHANNEL_ERROR' && status !== 'TIMED_OUT' && status !== 'CLOSED') return;
+
+        /*
+         * 1s, 2s, 4s … capped at 30.
+         *
+         * The counter lives in a **ref**, not in this closure. As a local it
+         * was re-initialised to zero every time the effect re-ran — and the
+         * only thing that re-runs the effect is the retry itself, so the
+         * backoff was a flat one-second loop for ever. On a phone with no
+         * signal that is a websocket torn down and thirteen subscription
+         * filters re-sent once a second, all night: precisely the hammering
+         * this comment claimed to avoid.
+         */
+        const wait = Math.min(30_000, 1000 * 2 ** attempts.current);
+        attempts.current += 1;
+        if (retry !== null) clearTimeout(retry);
+        retry = setTimeout(() => {
+          retry = null;
+          if (disposed) return;
+          /*
+           * A failed channel cannot be re-subscribed, so this rebuilds from
+           * scratch by re-running the effect's own teardown and setup — which
+           * is what bumping `generation` does.
+           */
+          setGeneration((n) => n + 1);
+        }, wait);
+      });
+    };
+    join();
 
     /**
      * Realtime does not replay what happened while the socket was down, so
@@ -124,10 +214,12 @@ export function useRealtimeHousehold(): void {
     const subscription = AppState.addEventListener('change', onAppState);
 
     return () => {
+      disposed = true;
+      if (retry !== null) clearTimeout(retry);
       if (timer.current !== null) clearTimeout(timer.current);
       timer.current = null;
       subscription.remove();
       void supabase.removeChannel(channel);
     };
-  }, [householdId, queryClient]);
+  }, [householdId, queryClient, generation]);
 }
