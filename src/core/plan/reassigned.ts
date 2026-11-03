@@ -31,9 +31,14 @@
  * Both things have to be true at once, and `added_by` already distinguishes
  * them. **Null means the fill chose it**, from an assumption about who the
  * chore belonged to; when that assumption stops holding the row has no reason
- * to exist. **A person's id means a person chose it**, and a deliberate
+ * to exist. **Non-null means a person chose it**, and a deliberate
  * decision is not the app's to overrule — helping with your housemate's chore
  * is a thing people do.
+ *
+ * The stored id is whose *day* was written to rather than who tapped: Jake
+ * adding to Emily's day stores Emily's, because `useAddToPlan` writes
+ * `ownerId ?? me`. Only null-or-not matters to this rule, and nothing should
+ * read more into it than that.
  *
  * ## A display rule, not a deletion
  *
@@ -48,35 +53,28 @@
  */
 
 import type { Ownable } from './autoplan';
-import type { PlanEntry, Plannable, PlannedItem } from './plan';
+import type { Plannable, PlannedItem } from './plan';
 
 /**
  * The planned rows that still make sense on `ownerId`'s day.
  *
  * Keeps everything a person chose, and everything that is still theirs. Drops
  * only what the fill added and the chore has since moved away from.
+ *
+ * Takes the matched rows rather than the raw entries: `planFor` has already
+ * decided which entry each row came from, and that is the only place the
+ * answer is unambiguous.
  */
 export function dropReassignedAutoRows<T extends Plannable & Ownable>(
   planned: readonly PlannedItem<T>[],
-  entries: readonly PlanEntry[],
   ownerId: string,
 ): readonly PlannedItem<T>[] {
-  /*
-   * Keyed by occurrence, which is what a plan row is addressed by — and
-   * `planFor` has already matched the two, so the lookup cannot miss for a
-   * reason that matters.
-   */
-  const chosenBy = new Map<string, string | null | undefined>(
-    entries.map((entry) => [entry.occurrenceKey, entry.addedBy]),
-  );
-
-  return planned.filter(({ item }) => {
-    const addedBy = chosenBy.get(item.occurrenceKey);
+  return planned.filter(({ item, addedBy }) => {
     /*
-     * `undefined` is "this row did not say", which happens for any caller that
-     * has not threaded `addedBy` through. Treated as deliberate: keeping a row
-     * shows one extra thing, dropping one makes work vanish, and only one of
-     * those is recoverable by the person looking at it.
+     * A person chose it, so it stays. `addedBy` comes off the entry `planFor`
+     * actually matched rather than from a second lookup — see the note on
+     * `PlannedItem`, where re-deriving it meant an older automatic row for the
+     * same occurrence could overrule a deliberate one added today.
      */
     if (addedBy !== null) return true;
 

@@ -29,6 +29,9 @@ const row = (
   const { status = 'due', member = null, position = 1 } = opts;
   return {
     position,
+    // Deliberate, so the plan's reassignment rule never drops a widget fixture
+    // — the widget renders what the plan already decided to show.
+    addedBy: 'user-me',
     item: {
       choreId: key.split(':')[0] ?? key,
       occurrenceKey: key,

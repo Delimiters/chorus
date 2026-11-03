@@ -669,7 +669,13 @@ describe("yesterday's plan", () => {
      */
     mockEntries = [
       entry('dishes', 1),
-      { occurrenceKey: 'v1:trash', choreId: 'trash', plannedFor: YESTERDAY, position: 2 },
+      {
+        occurrenceKey: 'v1:trash',
+        choreId: 'trash',
+        plannedFor: YESTERDAY,
+        position: 2,
+        addedBy: ME,
+      },
     ];
     renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
 

@@ -139,6 +139,9 @@ const entry = (key: string, position: number): PlanEntry => ({
   choreId: key.split(':')[0] ?? key,
   plannedFor: TODAY as PlanEntry['plannedFor'],
   position,
+  // Deliberate: the widget shows what the plan decided to show, and the
+  // reassignment rule has already run by then.
+  addedBy: 'user-me',
 });
 
 interface Recorder extends WidgetTransport {

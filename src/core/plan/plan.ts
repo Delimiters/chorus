@@ -54,8 +54,14 @@ export interface PlanEntry {
    * one that does, and a row without it is treated as deliberate — the safe
    * direction, since the cost of keeping a row is a visible extra and the cost
    * of dropping one is work disappearing.
+   *
+   * **Required, not optional.** It was optional for one review round, which is
+   * exactly how the fix it exists for shipped as a no-op: `useMyPlanEntries`
+   * did not map it, tsc had nothing to say, and `dropReassignedAutoRows` read
+   * `undefined` for every row on your own plan and kept all of them. An
+   * optional field defeats the one check that would have caught that.
    */
-  readonly addedBy?: string | null;
+  readonly addedBy: string | null;
 }
 
 /** Anything that can be planned. The screen's rows carry much more. */
@@ -68,6 +74,19 @@ export interface Plannable {
 export interface PlannedItem<T extends Plannable> {
   readonly item: T;
   readonly position: number;
+  /**
+   * Who chose the entry this came from, carried out of the match.
+   *
+   * Here rather than looked up again, because `planFor` is the only thing that
+   * knows *which* entry won. The same occurrence key legitimately appears on
+   * several days — eight of them are fetched, which is what makes
+   * `unfinishedBefore` possible — so a caller re-deriving this from the entry
+   * list has to re-apply the date filter, and a map keyed on the occurrence
+   * alone silently takes whichever duplicate came last. Entries arrive ordered
+   * by position, not by date, so "last" is arbitrary: a row deliberately added
+   * today could be judged by an automatic row from last Tuesday and dropped.
+   */
+  readonly addedBy: string | null;
 }
 
 /**
@@ -91,7 +110,7 @@ export function planFor<T extends Plannable>(
     if (entry.plannedFor !== on) continue;
     const item = byKey.get(entry.occurrenceKey);
     if (item === undefined) continue;
-    planned.push({ item, position: entry.position });
+    planned.push({ item, position: entry.position, addedBy: entry.addedBy });
   }
 
   return planned.sort(

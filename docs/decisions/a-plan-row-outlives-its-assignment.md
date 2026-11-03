@@ -35,6 +35,17 @@ The fill added it to Jake at 13:25 while the chore was still his to do.
 Somewhere after that Emily made it hers alone. Nothing was wrong with her
 change — the stale row was simply never revisited.
 
+## What `added_by` actually records
+
+Worth stating precisely, because the fix leans on it and the name is slightly
+misleading. `useAddToPlan` writes `ownerId ?? me` as the row's `user_id` and
+`automatic ? null : userId` as its `added_by` — so when Jake adds something to
+Emily's day, the stored `added_by` is **Emily's** id, not his.
+
+That is harmless here, because this rule only asks null-or-not: did a person
+decide, or did the fill. It would not be harmless for anything that tried to
+attribute the decision, so nothing should.
+
 ## The rule, and the constraint that shapes it
 
 The obvious fix is to drop anything on your day that is not yours. That is
@@ -65,6 +76,24 @@ It now drops a row only when the occurrence demonstrably belongs to somebody
 else: `kind === 'member' && memberId !== ownerId`. `anyone` stays, `unassignable`
 stays, and anything a future assignment kind produces stays by default.
 
+### One list, not two
+
+The first version applied the rule in `sectionsFor` only. Review found that
+`progress` — the "3 of 6" in the header, the bar, the celebration, and the gate
+on the "Nothing planned yet" invitation — read a *separate*, unfiltered
+`planFor` call. So a hidden row was still counted, `progress.finished` could
+never become true, and a day whose only row was a stale one rendered a header
+over an empty page with the invitation suppressed, because the count said one.
+
+A row you cannot see and cannot tick must not be the thing standing between you
+and the end of your day. There is now one filtered list and everything reads it.
+
+The housemate's counts had the same split: `useTheirPlanCount` and
+`useTheirPlanTotal` feed `bothFinished`, so a stranded row on their day — which
+they cannot see or tick either — would have blocked the shared celebration for
+ever, while the heading built from the filtered sections already said they had
+finished. Both hooks apply the rule now.
+
 ### A display rule, not a deletion
 
 Nothing is written. Same reasoning as `settle.ts`: a deleted row cannot come
@@ -73,6 +102,32 @@ Hiding costs one render; deleting costs the ordering somebody built.
 
 It also cannot fight the fill, because `autoPlannable` filters on `belongsTo`
 too — the row being hidden is one the fill would never create today.
+
+## The review round that caught a no-op
+
+Worth recording, because it is the second time the same shape has cost a round.
+
+`PlanEntry.addedBy` was declared **optional**. `useMyPlanEntries` — the only
+source of `entries` for the plan screen — did not map it. tsc said nothing,
+`dropReassignedAutoRows` read `undefined` for every row, treated it as "a
+person chose this", and kept everything. **The fix was a no-op on the one day
+the bug had ever been measured on.** The six mutation tests all passed because
+every one of them ran inside a mocked seam that injected the field production
+could not produce.
+
+It is required now, which turns that omission into a type error, and
+`useMyPlanEntries` has its first test. The general lesson, which this project
+keeps paying for: an optional field defeats the compiler at exactly the moment
+you are relying on the compiler, and a test that mocks the layer below cannot
+see a layer that is not passing data up.
+
+A second defect from the same round: `addedBy` was being looked up from the
+entry list by occurrence key, across all eight fetched days. The same key
+legitimately appears on several of them, entries arrive ordered by position
+rather than date, and so an automatic row from last week could overrule a
+deliberate one added today. `planFor` now carries the matched entry's
+`addedBy` out on the row, because it is the only thing that knows which entry
+won.
 
 ## Two things this diagnosis ruled out
 

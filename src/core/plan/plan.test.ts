@@ -13,11 +13,17 @@ const d = (s: string): CivilDate => civilDate(s);
 const TODAY = d('2026-08-27');
 const YESTERDAY = d('2026-08-26');
 
-const entry = (key: string, position: number, plannedFor: CivilDate = TODAY): PlanEntry => ({
+const entry = (
+  key: string,
+  position: number,
+  plannedFor: CivilDate = TODAY,
+  addedBy: string | null = null,
+): PlanEntry => ({
   occurrenceKey: key,
   choreId: key.split(':')[0] ?? key,
   plannedFor,
   position,
+  addedBy,
 });
 
 const item = (key: string, status = 'due'): Plannable => ({
@@ -142,5 +148,38 @@ describe('what was left over', () => {
   it('drops one whose occurrence has gone', () => {
     const left = unfinishedBefore([entry('gone', 1, YESTERDAY)], TODAY, [item('a')]);
     expect(left).toEqual([]);
+  });
+});
+
+describe('who chose the row, carried out of the match', () => {
+  it("reports the matched day's chooser, not another day's", () => {
+    /*
+     * This is the test that would have caught the review round before it.
+     *
+     * The same occurrence key legitimately appears on several of the eight days
+     * fetched — that is what `unfinishedBefore` is for — and the first version
+     * of `dropReassignedAutoRows` built a map keyed on the occurrence alone,
+     * across every entry it was handed. Entries arrive ordered by position, not
+     * by date, so which duplicate won was arbitrary: a row deliberately added
+     * today could be judged by an automatic row from last Tuesday and silently
+     * dropped, with no way to re-add it (the add path skips anything already on
+     * the day) and no way to remove it (it was not rendered).
+     *
+     * The older automatic row is given the *lower* position so it sorts first,
+     * which is the order that produced the bug.
+     */
+    const earlier = entry('a', 1, '2026-08-20' as CivilDate, null);
+    const chosen = entry('a', 2, TODAY, 'jake');
+
+    const planned = planFor([earlier, chosen], TODAY, [item('a')]);
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.addedBy).toBe('jake');
+  });
+
+  it('reports null for a row the fill added', () => {
+    const planned = planFor([entry('a', 1)], TODAY, [item('a')]);
+
+    expect(planned[0]?.addedBy).toBeNull();
   });
 });

@@ -23,6 +23,9 @@ import type { PlanEntryRow } from '../api/plan';
 const HOUSE = 'house-1';
 const ME = 'user-me';
 const THEM = 'user-them';
+/** Shared work, which the reassignment rule never drops. */
+const ANYONE = { kind: 'anyone' } as const;
+
 const TODAY = civilDate('2026-08-27');
 const FROM = civilDate('2026-08-19'); // today − PLAN_LOOKBACK_DAYS
 
@@ -157,6 +160,7 @@ import {
   useRemoveFromPlan,
   useReorderPlan,
   useTheirPlanEntries,
+  useMyPlanEntries,
   useTheirPlanTotal,
 } from './usePlan';
 
@@ -175,13 +179,14 @@ const row = (
   position: number,
   userId = ME,
   plannedFor = TODAY,
+  addedBy: string | null = null,
 ): PlanEntryRow => ({
   id: `db:${occurrenceKey}`,
   userId,
   choreId: occurrenceKey.replace('v1:', ''),
   occurrenceKey,
   plannedFor,
-  addedBy: null,
+  addedBy,
   position,
 });
 
@@ -325,9 +330,12 @@ describe('how much the other person has on', () => {
     const { client, wrapper } = harness();
     seed(client, [row('v1:real', 1, THEM), row('v1:ghost', 2, THEM)]);
 
-    const { result } = renderHook(() => useTheirPlanTotal(TODAY, [{ occurrenceKey: 'v1:real' }]), {
-      wrapper,
-    });
+    const { result } = renderHook(
+      () => useTheirPlanTotal(TODAY, [{ occurrenceKey: 'v1:real', assignee: ANYONE }]),
+      {
+        wrapper,
+      },
+    );
 
     expect(result.current).toBe(1);
   });
@@ -338,7 +346,10 @@ describe('how much the other person has on', () => {
 
     const { result } = renderHook(
       () =>
-        useTheirPlanTotal(TODAY, [{ occurrenceKey: 'v1:mine' }, { occurrenceKey: 'v1:theirs' }]),
+        useTheirPlanTotal(TODAY, [
+          { occurrenceKey: 'v1:mine', assignee: ANYONE },
+          { occurrenceKey: 'v1:theirs', assignee: ANYONE },
+        ]),
       { wrapper },
     );
 
@@ -696,9 +707,9 @@ describe("your housemate's day, as data", () => {
    * feature, so every clause it makes is asserted here.
    */
   const available = [
-    { occurrenceKey: 'v1:bins' },
-    { occurrenceKey: 'v1:mopping' },
-    { occurrenceKey: 'v1:dishes' },
+    { occurrenceKey: 'v1:bins', assignee: ANYONE },
+    { occurrenceKey: 'v1:mopping', assignee: ANYONE },
+    { occurrenceKey: 'v1:dishes', assignee: ANYONE },
   ];
 
   const render = () => {
@@ -783,5 +794,40 @@ describe('who a plan row records as having chosen it', () => {
 
     await waitFor(() => expect(mockWrites).toHaveLength(1));
     expect(mockWrites[0]?.addedBy).toBe(ME);
+  });
+});
+
+describe('reading your own plan', () => {
+  it('carries who chose each row', () => {
+    /*
+     * The test this file did not have, and the omission that matters: this
+     * hook is the only source of `entries` for the plan screen, and for one
+     * review round it mapped every field *except* `addedBy`. Because
+     * `PlanEntry.addedBy` was optional at the time, tsc said nothing,
+     * `dropReassignedAutoRows` read `undefined` for every row — which it
+     * treats as "a person chose this" — and the fix for a measured production
+     * bug was a no-op on the only day it had ever been measured on.
+     *
+     * Both values, because a hook that returned a constant `null` would pass a
+     * test that only checked the automatic case.
+     */
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:filled', 1, ME, TODAY, null), row('v1:chosen', 2, ME, TODAY, ME)]);
+
+    const { result } = renderHook(() => useMyPlanEntries(TODAY), { wrapper });
+
+    expect(result.current.map((e) => [e.occurrenceKey, e.addedBy])).toEqual([
+      ['v1:filled', null],
+      ['v1:chosen', ME],
+    ]);
+  });
+
+  it("leaves out the housemate's rows", () => {
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:mine', 1, ME), row('v1:theirs', 2, THEM)]);
+
+    const { result } = renderHook(() => useMyPlanEntries(TODAY), { wrapper });
+
+    expect(result.current.map((e) => e.occurrenceKey)).toEqual(['v1:mine']);
   });
 });

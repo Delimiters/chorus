@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import type { CivilDate } from '../civil/types';
 import { dropReassignedAutoRows } from './reassigned';
-import type { PlanEntry, PlannedItem } from './plan';
+import type { PlannedItem } from './plan';
 
 const TODAY = '2026-11-02' as CivilDate;
 const JAKE = 'jake';
@@ -16,105 +16,115 @@ interface Row {
   readonly assignee: { readonly kind: string; readonly memberId?: string };
 }
 
-const item = (key: string, assignee: Row['assignee']): PlannedItem<Row> => ({
+/**
+ * A matched row, as `planFor` hands it over.
+ *
+ * `addedBy` rides on the row rather than being looked up from an entry list,
+ * which is what the second review round changed: the same occurrence key
+ * appears on several of the eight days fetched, and a map keyed on the
+ * occurrence alone took whichever duplicate came last — entries arrive ordered
+ * by position, not by date, so "last" was arbitrary. `planFor` is the only
+ * place that knows which entry won.
+ *
+ * Defaults to the automatic fill, because that is the case with a decision in
+ * it; a deliberate row is kept unconditionally.
+ */
+const row = (
+  key: string,
+  assignee: Row['assignee'],
+  addedBy: string | null = null,
+): PlannedItem<Row> => ({
   position: 1,
+  addedBy,
   item: { occurrenceKey: key, choreId: key, status: 'due', dueOn: TODAY, assignee },
 });
 
-const entry = (key: string, addedBy: string | null): PlanEntry => ({
-  occurrenceKey: key,
-  choreId: key,
-  plannedFor: TODAY,
-  position: 1,
-  addedBy,
-});
-
+const member = (id: string) => ({ kind: 'member', memberId: id }) as const;
 const keys = (rows: readonly PlannedItem<Row>[]) => rows.map((r) => r.item.occurrenceKey);
 
-describe('a chore that has been reassigned since the fill added it', () => {
+describe('a chore reassigned since the fill put it on a day', () => {
   it("drops an automatic row that is now somebody else's", () => {
     /*
      * The live case, measured the day it was reported: of 208 plan rows for
      * that day exactly one sat on the wrong person's day — "Water Indoor
      * Plants - Upstairs", on Jake's, assigned to Emily. The fill added it at
-     * 13:25 while the chore was still his to do; she made it hers alone
-     * afterwards, and nothing revisited the row.
+     * 13:25 while the chore was still his; she made it hers afterwards and
+     * nothing revisited the row.
+     *
+     * Two rows and only one dropped, so this cannot pass by everything going.
      */
-    const planned = [
-      item('mine', { kind: 'member', memberId: JAKE }),
-      item('hers', { kind: 'member', memberId: EMILY }),
-    ];
-    const entries = [entry('mine', null), entry('hers', null)];
+    const planned = [row('mine', member(JAKE)), row('hers', member(EMILY))];
 
-    expect(keys(dropReassignedAutoRows(planned, entries, JAKE))).toEqual(['mine']);
+    expect(keys(dropReassignedAutoRows(planned, JAKE))).toEqual(['mine']);
   });
 
-  it('keeps a row a person deliberately added, whoever the chore belongs to', () => {
+  it('keeps a row a person added, whoever the chore belongs to', () => {
     /*
-     * The constraint that rules out the obvious fix, in Jake's own words
-     * before any of this was built: *"I should be able to add it to my own
-     * plan even if it's assigned to emily"*. Helping with your housemate's
-     * chore is a thing people do, and a deliberate decision is not the app's
-     * to overrule.
+     * The constraint that rules out the obvious fix, in Jake's own words long
+     * before any of this: *"I should be able to add it to my own plan even if
+     * it's assigned to emily"*. Helping with your housemate's chore is a thing
+     * people do.
      *
-     * Same fixture as above with one field changed, so this cannot pass by
-     * being a case where nothing would have been dropped anyway.
+     * Same fixture as above with one field changed, so it cannot pass by being
+     * a case where nothing would have been dropped anyway.
      */
-    const planned = [
-      item('mine', { kind: 'member', memberId: JAKE }),
-      item('hers', { kind: 'member', memberId: EMILY }),
-    ];
-    const entries = [entry('mine', null), entry('hers', JAKE)];
+    const planned = [row('mine', member(JAKE)), row('hers', member(EMILY), JAKE)];
 
-    expect(keys(dropReassignedAutoRows(planned, entries, JAKE))).toEqual(['mine', 'hers']);
+    expect(keys(dropReassignedAutoRows(planned, JAKE))).toEqual(['mine', 'hers']);
+  });
+
+  it('keeps a row added by the housemate onto your day', () => {
+    /*
+     * `added_by` records whose day was written to as much as who tapped — Jake
+     * adding to Emily's day stores Emily's id. Either way it is non-null,
+     * which is the only thing this rule asks: somebody decided.
+     */
+    const planned = [row('hers', member(EMILY), EMILY)];
+
+    expect(keys(dropReassignedAutoRows(planned, JAKE))).toEqual(['hers']);
   });
 
   it('keeps shared work on both days', () => {
-    // `anyone` belongs to everybody until one of them does it — the rule the
-    // rest of the plan already follows.
-    const planned = [item('shared', { kind: 'anyone' })];
-    const entries = [entry('shared', null)];
+    // `anyone` belongs to everybody until one of them does it.
+    const planned = [row('shared', { kind: 'anyone' })];
 
-    expect(keys(dropReassignedAutoRows(planned, entries, JAKE))).toEqual(['shared']);
-    expect(keys(dropReassignedAutoRows(planned, entries, EMILY))).toEqual(['shared']);
+    expect(keys(dropReassignedAutoRows(planned, JAKE))).toEqual(['shared']);
+    expect(keys(dropReassignedAutoRows(planned, EMILY))).toEqual(['shared']);
   });
 
-  it('keeps a row whose entry says nothing about who chose it', () => {
+  it('keeps an unassignable row rather than hiding it from everyone', () => {
     /*
-     * `undefined` rather than `null` — a caller that has not threaded
-     * `addedBy` through. Treated as deliberate on purpose: showing one extra
-     * row is recoverable by the person looking at it, and work silently
-     * disappearing is not.
+     * A rotation with no segment covering the date resolves to `unassignable`,
+     * which belongs to nobody — so a strict `belongsTo` reading is false for
+     * *both* people and the row vanishes from the household. Work that exists
+     * and neither person can see is worse than the bug being fixed. This test
+     * is what caught that in the first implementation.
      */
-    const planned = [item('hers', { kind: 'member', memberId: EMILY })];
-    const entries = [{ occurrenceKey: 'hers', choreId: 'hers', plannedFor: TODAY, position: 1 }];
-
-    expect(keys(dropReassignedAutoRows(planned, entries, JAKE))).toEqual(['hers']);
+    for (const reason of ['no-applicable-segment', 'empty-roster'] as const) {
+      const planned = [row('orphan', { kind: 'unassignable', reason } as never)];
+      expect(keys(dropReassignedAutoRows(planned, JAKE))).toEqual(['orphan']);
+      expect(keys(dropReassignedAutoRows(planned, EMILY))).toEqual(['orphan']);
+    }
   });
 
-  it('keeps an unassignable row rather than quietly binning it', () => {
+  it('keeps a kind it has never heard of', () => {
     /*
-     * A rotation with no segment covering the date resolves to
-     * `unassignable`, which belongs to nobody — so `belongsTo` is false for
-     * both people and a strict reading would hide it from everyone. That is
-     * the worst outcome: work that exists and that neither person can see.
-     * Left visible, and the warning in the chore's own editor is what says
-     * something is wrong.
+     * Default-keep rather than default-drop. A new assignment kind should make
+     * rows linger visibly, not disappear silently, until somebody teaches this
+     * function about it.
      */
-    const planned = [item('orphan', { kind: 'unassignable' })];
-    const entries = [entry('orphan', null)];
+    const planned = [row('future', { kind: 'by-coin-toss' } as never)];
 
-    expect(keys(dropReassignedAutoRows(planned, entries, JAKE))).toEqual(['orphan']);
+    expect(keys(dropReassignedAutoRows(planned, JAKE))).toEqual(['future']);
   });
 
-  it('leaves an untouched day exactly as it was', () => {
+  it('leaves a day where nothing moved exactly as it was', () => {
     const planned = [
-      item('a', { kind: 'anyone' }),
-      item('b', { kind: 'member', memberId: JAKE }),
-      item('c', { kind: 'anyone' }),
+      row('a', { kind: 'anyone' }),
+      row('b', member(JAKE)),
+      row('c', { kind: 'anyone' }, JAKE),
     ];
-    const entries = [entry('a', null), entry('b', null), entry('c', JAKE)];
 
-    expect(keys(dropReassignedAutoRows(planned, entries, JAKE))).toEqual(['a', 'b', 'c']);
+    expect(keys(dropReassignedAutoRows(planned, JAKE))).toEqual(['a', 'b', 'c']);
   });
 });
