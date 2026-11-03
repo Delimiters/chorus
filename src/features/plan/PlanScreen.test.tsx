@@ -999,6 +999,44 @@ describe('finished work sinking to the bottom', () => {
     expect(screen.queryByText('Her watering')).toBeNull();
   });
 
+  it('leaves a dropped row out of the count as well as the list', () => {
+    /*
+     * The second review round's other HIGH. `progress` read a *separate*,
+     * unfiltered `planFor` call, so a hidden row was still counted: the header
+     * said "0 OF 1" over a page with no rows on it, `progress.finished` could
+     * never become true, and the "Nothing planned yet" invitation was
+     * suppressed because the count said there was something.
+     *
+     * One stranded row and nothing else, which is the shape that produced the
+     * dead end — and the assertion is on the header, because that is what the
+     * rows alone cannot tell you.
+     */
+    mockEntries = [entry('hers', 1, null)];
+    renderScreen([item('hers', 'Her watering', 'due', { kind: 'member', memberId: 'user-them' })]);
+
+    expect(screen.queryByText('Her watering')).toBeNull();
+    // Nothing planned, said consistently: no count, and the way in is offered.
+    expect(screen.queryByText(/OF 1/)).toBeNull();
+    expect(screen.getByText('Nothing planned yet.')).toBeOnTheScreen();
+  });
+
+  it('counts what it shows when some rows are dropped and some are not', () => {
+    /*
+     * Three rows, one dropped, one already done — so the count has to be "1 of
+     * 2" rather than any of 1 of 3, 2 of 3, or 1 of 1. A fixture where the
+     * dropped row was the only one could not tell those apart.
+     */
+    mockEntries = [entry('mine', 1, null), entry('done', 2, null), entry('hers', 3, null)];
+    renderScreen([
+      item('mine', 'Mine', 'due', { kind: 'member', memberId: ME }),
+      item('done', 'Finished', 'completed', { kind: 'member', memberId: ME }),
+      item('hers', 'Her watering', 'due', { kind: 'member', memberId: 'user-them' }),
+    ]);
+
+    expect(screen.queryByText('Her watering')).toBeNull();
+    expect(screen.getByText(/1 OF 2/)).toBeOnTheScreen();
+  });
+
   it("keeps a row you added yourself, even for the housemate's chore", () => {
     /*
      * Jake, before any of this was built: *"I should be able to add it to my

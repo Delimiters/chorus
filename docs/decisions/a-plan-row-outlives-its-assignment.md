@@ -43,8 +43,21 @@ misleading. `useAddToPlan` writes `ownerId ?? me` as the row's `user_id` and
 Emily's day, the stored `added_by` is **Emily's** id, not his.
 
 That is harmless here, because this rule only asks null-or-not: did a person
-decide, or did the fill. It would not be harmless for anything that tried to
-attribute the decision, so nothing should.
+decide, or did the fill.
+
+It is **not** harmless for anything that tries to attribute the decision, and
+one thing already does. `20260930090000_who_changed_your_day.sql` notifies you
+when your housemate puts something on your day, guarded by
+`if actor is null or actor = new.user_id then return new`. Since `added_by` is
+written as `ownerId ?? me`, it *always* equals the row's `user_id` — so that
+notification is structurally unreachable and has never fired. The removal path
+gets it right and says so, storing `dismissedBy: userId` with the comment
+"Whose day it came off is `owner`; this is who did it".
+
+Outside this change and not fixed here, but it is the same field, so it is
+written down rather than left to be rediscovered. Fixing it means writing the
+actor rather than the owner into `added_by`, which this rule would not notice
+and that trigger would.
 
 ## The rule, and the constraint that shapes it
 
@@ -75,6 +88,30 @@ can see is a worse failure than the one being fixed.
 It now drops a row only when the occurrence demonstrably belongs to somebody
 else: `kind === 'member' && memberId !== ownerId`. `anyone` stays, `unassignable`
 stays, and anything a future assignment kind produces stays by default.
+
+### Four surfaces, one list
+
+The rule has to be applied everywhere the plan is read, and "everywhere" was
+larger than it looked. Each review round found another one:
+
+| | |
+|---|---|
+| the rendered rows | `sectionsFor`, both days |
+| the counts | `inPlanOrder` → `progress`, the header, the bar, the celebration, the empty-state gate |
+| the housemate's counts | `useTheirPlanCount`, `useTheirPlanTotal` → `bothFinished` |
+| **the widget and the lock screen** | `useWidget` → `widgetSnapshot`, `activityState` |
+
+The widget was the last one found, and the most embarrassing: two of its test
+fixtures carried a comment asserting *"the reassignment rule has already run by
+then"* as the justification for hardcoding the field — written while it had not
+run. A stranded row stayed in the widget's `totalCount`, so the home screen read
+"5 of 6 done" for ever and could never say "Nothing left today", and if that
+chore nagged, `activityState` put somebody else's chore on your lock screen with
+nothing in the app able to clear it.
+
+One predicate, `stillBelongsAfterReassignment`, is now shared by all four. It
+was three inline copies for one round — identical by luck rather than by
+construction, which is how three copies of a rule become two rules.
 
 ### One list, not two
 

@@ -29,8 +29,15 @@ const row = (
   const { status = 'due', member = null, position = 1 } = opts;
   return {
     position,
-    // Deliberate, so the plan's reassignment rule never drops a widget fixture
-    // — the widget renders what the plan already decided to show.
+    /*
+     * Irrelevant to this module, which is handed an already-filtered list.
+     *
+     * It briefly carried a comment claiming the reassignment rule had already
+     * run by the time the widget saw these — which was false: `useWidget`
+     * composed `planFor` with no filter. The filtering now genuinely happens
+     * one layer up, in `useWidget`, and `useWidget.test.tsx` is where that is
+     * asserted.
+     */
     addedBy: 'user-me',
     item: {
       choreId: key.split(':')[0] ?? key,

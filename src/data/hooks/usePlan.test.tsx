@@ -161,6 +161,7 @@ import {
   useReorderPlan,
   useTheirPlanEntries,
   useMyPlanEntries,
+  useTheirPlanCount,
   useTheirPlanTotal,
 } from './usePlan';
 
@@ -829,5 +830,88 @@ describe('reading your own plan', () => {
     const { result } = renderHook(() => useMyPlanEntries(TODAY), { wrapper });
 
     expect(result.current.map((e) => e.occurrenceKey)).toEqual(['v1:mine']);
+  });
+});
+
+describe("counting the other person's day", () => {
+  /**
+   * `useTheirPlanCount` had **no test anywhere** in the repo — it is mocked by
+   * every screen test that renders it — which is how the drop rule was added
+   * to it unverified, in the same commit whose message named that exact
+   * lesson. These are the first.
+   */
+  const outstanding = (key: string, memberId: string) => ({
+    occurrenceKey: key,
+    status: 'due',
+    assignee: { kind: 'member', memberId },
+  });
+
+  it('counts what is left on their day', () => {
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:a', 1, THEM), row('v1:b', 2, THEM)]);
+
+    const { result } = renderHook(
+      () => useTheirPlanCount(TODAY, [outstanding('v1:a', THEM), outstanding('v1:b', THEM)]),
+      { wrapper },
+    );
+
+    expect(result.current).toBe(2);
+  });
+
+  it('does not count a row the fill stranded on their day', () => {
+    /*
+     * This feeds `bothFinished`, so a stranded row — invisible on their day
+     * and impossible for them to tick — would have blocked the shared
+     * celebration for ever, while the heading built from the filtered sections
+     * already said they had finished.
+     *
+     * Two rows, one stranded, so this cannot pass by counting nothing.
+     */
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:theirs', 1, THEM, TODAY, null), row('v1:mine', 2, THEM, TODAY, null)]);
+
+    const { result } = renderHook(
+      () =>
+        useTheirPlanCount(TODAY, [
+          outstanding('v1:theirs', THEM),
+          // Reassigned to me since the fill put it on their day.
+          outstanding('v1:mine', ME),
+        ]),
+      { wrapper },
+    );
+
+    expect(result.current).toBe(1);
+  });
+
+  it('still counts one they chose for themselves', () => {
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:mine', 1, THEM, TODAY, THEM)]);
+
+    const { result } = renderHook(() => useTheirPlanCount(TODAY, [outstanding('v1:mine', ME)]), {
+      wrapper,
+    });
+
+    expect(result.current).toBe(1);
+  });
+
+  it('leaves a stranded row out of the total too', () => {
+    /*
+     * The denominator and the numerator have to describe the same day — a
+     * total that counted it while the count did not would make `bothFinished`
+     * true on a day nobody finished.
+     */
+    const { client, wrapper } = harness();
+    seed(client, [row('v1:theirs', 1, THEM, TODAY, null), row('v1:mine', 2, THEM, TODAY, null)]);
+
+    const { result } = renderHook(
+      () =>
+        useTheirPlanTotal(TODAY, [
+          { occurrenceKey: 'v1:theirs', assignee: { kind: 'member', memberId: THEM } },
+          { occurrenceKey: 'v1:mine', assignee: { kind: 'member', memberId: ME } },
+        ]),
+      { wrapper },
+    );
+
+    expect(result.current).toBe(1);
   });
 });

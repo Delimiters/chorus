@@ -65,6 +65,38 @@ import type { Plannable, PlannedItem } from './plan';
  * decided which entry each row came from, and that is the only place the
  * answer is unambiguous.
  */
+/**
+ * Whether a row the **fill** added still makes sense on `ownerId`'s day.
+ *
+ * Exported because three places need the question answered and only one of
+ * them holds a `PlannedItem`: the two housemate-count hooks work on raw rows
+ * and a projected occurrence. They each re-implemented this predicate for one
+ * review round — identical by luck rather than by construction, which is how
+ * three copies of a rule become two rules.
+ *
+ * Takes the assignee rather than the row so the shape of the caller's data
+ * does not matter.
+ */
+export function stillBelongsAfterReassignment(
+  assignee: { readonly kind: string; readonly memberId?: string | undefined },
+  ownerId: string,
+): boolean {
+  /*
+   * Dropped only when the occurrence demonstrably belongs to **somebody
+   * else**, which is narrower than `!belongsTo(item, ownerId)` and
+   * deliberately so.
+   *
+   * The first version used `belongsTo`, and its own test caught what that
+   * costs: a rotation with no segment covering the date resolves to
+   * `unassignable`, which belongs to nobody — so `belongsTo` is false for
+   * *both* people and the row would have been hidden from everyone. Work that
+   * exists and neither person can see is a worse failure than the one this
+   * module is fixing. `anyone` is kept for the same reason by the same test,
+   * and anything a future assignment kind produces is kept by default.
+   */
+  return !(assignee.kind === 'member' && assignee.memberId !== ownerId);
+}
+
 export function dropReassignedAutoRows<T extends Plannable & Ownable>(
   planned: readonly PlannedItem<T>[],
   ownerId: string,
@@ -77,21 +109,6 @@ export function dropReassignedAutoRows<T extends Plannable & Ownable>(
      * same occurrence could overrule a deliberate one added today.
      */
     if (addedBy !== null) return true;
-
-    /*
-     * Dropped only when the occurrence demonstrably belongs to **somebody
-     * else**, which is narrower than `!belongsTo(item, ownerId)` and
-     * deliberately so.
-     *
-     * The first version used `belongsTo`, and its own test caught what that
-     * costs: a rotation with no segment covering the date resolves to
-     * `unassignable`, which belongs to nobody — so `belongsTo` is false for
-     * *both* people and the row would have been hidden from everyone. Work
-     * that exists and neither person can see is a worse failure than the one
-     * this module is fixing. `anyone` is kept for the same reason by the same
-     * test, and anything a future assignment kind produces is kept by default.
-     */
-    const assignee = item.assignee;
-    return !(assignee.kind === 'member' && assignee.memberId !== ownerId);
+    return stillBelongsAfterReassignment(item.assignee, ownerId);
   });
 }

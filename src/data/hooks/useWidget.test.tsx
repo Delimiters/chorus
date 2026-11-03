@@ -134,14 +134,25 @@ const item = (
     showFrom: null,
   }) as unknown as AgendaItem;
 
-const entry = (key: string, position: number): PlanEntry => ({
+const entry = (
+  key: string,
+  position: number,
+  /**
+   * Who chose it. Deliberate by default, which keeps every other test in this
+   * file about the thing it is about.
+   *
+   * It was hardcoded with a comment claiming "the reassignment rule has
+   * already run by then" — and it had not: the widget composed `planFor` with
+   * no filter, so a row stranded by a reassignment stayed in its counts. The
+   * parameter exists so that case can be written at all.
+   */
+  addedBy: string | null = 'user-me',
+): PlanEntry => ({
   occurrenceKey: key,
   choreId: key.split(':')[0] ?? key,
   plannedFor: TODAY as PlanEntry['plannedFor'],
   position,
-  // Deliberate: the widget shows what the plan decided to show, and the
-  // reassignment rule has already run by then.
-  addedBy: 'user-me',
+  addedBy,
 });
 
 interface Recorder extends WidgetTransport {
@@ -286,6 +297,69 @@ describe('publishing the plan', () => {
      * comparison on purpose: iOS budgets roughly 40-70 widget reloads a day.
      */
     expect(transport.published).toHaveLength(1);
+  });
+});
+
+describe('a chore reassigned since the fill added it', () => {
+  it('leaves it out of the widget, not just out of the plan screen', () => {
+    /*
+     * The same defect on a second surface. The plan screen filtered these and
+     * the widget did not, so the home screen counted a row that is invisible
+     * and untickable everywhere in the app — "1 of 2 done", for ever, and
+     * never "Nothing left today".
+     */
+    mockChores = [
+      { id: 'a', nagUntilDone: false },
+      { id: 'b', nagUntilDone: false },
+    ];
+    mockItems = [
+      item('a:1', 'Mine', { member: 'user-me' }),
+      item('b:1', 'Hers', { member: 'user-them' }),
+    ];
+    mockEntries = [entry('a:1', 1, null), entry('b:1', 2, null)];
+
+    const transport = recorder();
+    render(transport);
+
+    const snapshot = transport.published[0];
+    expect(snapshot?.rows.map((r) => r.title)).toEqual(['Mine']);
+    expect(snapshot?.totalCount).toBe(1);
+  });
+
+  it('keeps one you added yourself', () => {
+    mockChores = [{ id: 'b', nagUntilDone: false }];
+    mockItems = [item('b:1', 'Hers', { member: 'user-them' })];
+    mockEntries = [entry('b:1', 1, 'user-me')];
+
+    const transport = recorder();
+    render(transport);
+
+    expect(transport.published[0]?.rows.map((r) => r.title)).toEqual(['Hers']);
+  });
+
+  it('does not put a stranded nagging chore on the lock screen', async () => {
+    /*
+     * The worst version: `activityState` reads the same list, so a stranded
+     * row that happens to nag became the card's subject — somebody else's
+     * chore, on your lock screen, with nothing in the app able to clear it.
+     */
+    mockChores = [
+      { id: 'a', nagUntilDone: true },
+      { id: 'b', nagUntilDone: true },
+    ];
+    mockItems = [
+      item('a:1', 'Mine', { member: 'user-me' }),
+      item('b:1', 'Hers', { member: 'user-them' }),
+    ];
+    mockEntries = [entry('a:1', 1, null), entry('b:1', 2, null)];
+
+    const transport = recorder();
+    render(transport);
+
+    // The card goes through the serialising promise queue, so it is not there
+    // on the first tick — same as every other card test in this file.
+    await waitFor(() => expect(transport.shown).toHaveLength(1));
+    expect(transport.shown[0]?.title).toBe('Mine');
   });
 });
 

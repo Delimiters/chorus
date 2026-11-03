@@ -11,6 +11,7 @@ import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/reac
 import { useMemo } from 'react';
 
 import { nextPosition, type PlanEntry } from '@/core/plan/plan';
+import { stillBelongsAfterReassignment } from '@/core/plan/reassigned';
 import type { CivilDate } from '@/core/civil/types';
 import {
   addToPlan,
@@ -152,9 +153,11 @@ export function useTheirPlanCount(
        * sections already said they had finished. This hook's own docblock
        * warns about exactly that: a number meaning one thing in one line and
        * something else in the next.
+       *
+       * Through the shared predicate rather than a fourth copy of it.
        */
-      if (row.addedBy === null && item.assignee.kind === 'member') {
-        if (item.assignee.memberId !== row.userId) return false;
+      if (row.addedBy === null && !stillBelongsAfterReassignment(item.assignee, row.userId)) {
+        return false;
       }
       return item.status !== 'completed' && item.status !== 'skipped';
     }).length;
@@ -194,8 +197,8 @@ export function useTheirPlanTotal(
       if (item === undefined) return false;
       // The same drop rule as the count and the sections, for the same reason:
       // the denominator and the numerator have to describe the same day.
-      if (row.addedBy === null && item.assignee.kind === 'member') {
-        if (item.assignee.memberId !== row.userId) return false;
+      if (row.addedBy === null && !stillBelongsAfterReassignment(item.assignee, row.userId)) {
+        return false;
       }
       return true;
     }).length;

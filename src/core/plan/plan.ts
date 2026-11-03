@@ -50,16 +50,16 @@ export interface PlanEntry {
   /**
    * Who chose this, or null when the automatic fill did.
    *
-   * Optional because most callers do not care; `dropReassignedAutoRows` is the
-   * one that does, and a row without it is treated as deliberate — the safe
-   * direction, since the cost of keeping a row is a visible extra and the cost
-   * of dropping one is work disappearing.
+   * **Required, and that is the whole point.** It was optional for one review
+   * round, which is exactly how the fix it exists for shipped as a no-op:
+   * `useMyPlanEntries` — the only source of these for the plan screen — did
+   * not map it, tsc had nothing to say, and the rule read `undefined` for
+   * every row on your own plan and kept all of them. An optional field defeats
+   * the one check you are relying on.
    *
-   * **Required, not optional.** It was optional for one review round, which is
-   * exactly how the fix it exists for shipped as a no-op: `useMyPlanEntries`
-   * did not map it, tsc had nothing to say, and `dropReassignedAutoRows` read
-   * `undefined` for every row on your own plan and kept all of them. An
-   * optional field defeats the one check that would have caught that.
+   * `planFor` copies it onto the `PlannedItem` it produces, and that is what
+   * `dropReassignedAutoRows` reads — not this field directly. See the note
+   * there for why the lookup had to move.
    */
   readonly addedBy: string | null;
 }
