@@ -121,9 +121,10 @@ struct PlanRow: View {
             /*
              * Both directions, from the same place.
              *
-             * `TickIntent` and `UntickIntent` write to two queues that cancel
-             * each other, so tapping twice before the app next opens leaves
-             * nothing to replay rather than one of each.
+             * `TickIntent` and `UntickIntent` write to two queues, and each
+             * withdraws the key from the other — so tapping twice before the
+             * app next opens leaves the later intention queued rather than one
+             * of each.
              */
             if row.done {
                 Button(intent: UntickIntent(occurrenceKey: row.id)) {
@@ -158,9 +159,14 @@ struct PlanRow: View {
     }
 
     /// The box, inside a target big enough to mean it.
+    ///
+    /// `.leading`, so the extra width goes to the right of the box rather than
+    /// being split either side. Centred, the 20pt box sat 12pt off the ink
+    /// stripe and pushed the title 24pt right — paying twice for the same
+    /// 44pt on a widget already short of title room.
     private var target: some View {
         box
-            .frame(width: 44, height: 22)
+            .frame(width: 44, height: 22, alignment: .leading)
             .contentShape(Rectangle())
     }
 
@@ -181,8 +187,13 @@ struct PlanRow: View {
     }
 }
 
-/// The height one row occupies: the row itself plus the gap under it.
-private let rowPitch: CGFloat = 22 + 6
+/// One row's own height, and the gap drawn under it.
+private let rowHeight: CGFloat = 22
+private let rowGap: CGFloat = 6
+/// What a row occupies when something follows it.
+private let rowPitch: CGFloat = rowHeight + rowGap
+/// The "+N more" line: SF 12pt, whose line height is a shade over fourteen.
+private let footerHeight: CGFloat = 15
 
 struct ChorusWidgetView: View {
     let entry: PlanEntry
@@ -203,11 +214,24 @@ struct ChorusWidgetView: View {
      keep at least one row so a very short container still shows something.
      */
     private func visibleRows(in height: CGFloat, total: Int) -> Int {
-        let fits = Int(((height - rowPitch) / rowPitch).rounded(.down))
-        // No "+N more" line to reserve room for when everything is shown.
-        let withoutFooter = Int((height / rowPitch).rounded(.down))
-        if withoutFooter >= total { return total }
-        return max(1, fits)
+        /*
+         * `rowPitch` counts a row *and* the gap under it, so n rows occupy
+         * `n * rowPitch - rowGap` — there is no gap after the last one. The
+         * first version divided by the pitch without adding that gap back,
+         * and so lost a row whenever the remainder was at least `rowHeight`.
+         */
+        let withoutFooter = Int(((height + rowGap) / rowPitch).rounded(.down))
+        if withoutFooter >= total { return max(1, withoutFooter) }
+
+        /*
+         * Room for the "+N more" line, which needs its own height plus the gap
+         * above it — not a whole row's pitch, which is what the first version
+         * reserved. Over-reserving cost a second row, so a small widget showed
+         * two where three fit: fewer rows than the hard-coded number this
+         * replaced, while fixing a complaint about empty space.
+         */
+        let forRows = height + rowGap - (footerHeight + rowGap)
+        return max(1, Int((forRows / rowPitch).rounded(.down)))
     }
 
     var body: some View {

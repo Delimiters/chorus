@@ -29,7 +29,12 @@ import { useFlagsByChore, useFlagsLoading } from './useFlags';
 import { nativeWidget, widgetAvailable, type WidgetTransport } from '../widget';
 import { useToday } from '../today';
 import { useHousehold, useMembers } from './useHousehold';
-import { quantiseWindow, useOccurrences, useToggleCompletion } from './useOccurrences';
+import {
+  quantiseWindow,
+  useOccurrenceActions,
+  useOccurrences,
+  useToggleCompletion,
+} from './useOccurrences';
 import { useMyPlanEntries, usePlanLoading } from './usePlan';
 
 interface Options {
@@ -283,6 +288,13 @@ export function useWidgetSync({
     toggleRef.current = toggle;
   }, [toggle]);
 
+  /** Un-skipping, for a widget row that was skipped rather than completed. */
+  const { clear } = useOccurrenceActions();
+  const clearRef = useRef(clear);
+  useEffect(() => {
+    clearRef.current = clear;
+  }, [clear]);
+
   const itemsRef = useRef(items);
   useEffect(() => {
     itemsRef.current = items;
@@ -308,9 +320,9 @@ export function useWidgetSync({
       /*
        * Un-ticks first.
        *
-       * A tick and an un-tick of the same thing cannot both be queued — the
-       * widget's intents cancel the opposite queue as they write — so the
-       * order is not about correctness between the two. It is about the
+       * A tick and an un-tick of the same thing cannot both be queued — each
+       * widget intent withdraws the key from the other queue — so the order is
+       * not about correctness between the two. It is about the
        * accident: somebody who ticked the wrong row and took it back wants the
        * taking-back to land, and doing it first means a failure part-way
        * through a batch cannot leave the mistake written and the correction
@@ -319,17 +331,47 @@ export function useWidgetSync({
       for (const key of unticks) {
         const item = itemsRef.current.find((candidate) => candidate.occurrenceKey === key);
 
-        // Nothing to take back: no occurrence, or it is not completed anyway.
-        if (item === undefined || item.status !== 'completed') {
+        /*
+         * Two ways to be finished, and they are undone differently.
+         *
+         * `WidgetRow.done` is `completed || skipped`, so a **skipped** row
+         * draws a filled box and now offers to take it back — and for one
+         * review round only `completed` had a write behind it. The result was
+         * an undo that visibly worked and silently reverted: `markUndone`
+         * emptied the box and dropped the header count, the queued un-tick was
+         * acknowledged with no write, and the next publish filled it in again.
+         *
+         * That is the mirror of the bug a finished row being inert used to
+         * cause. A button with no write behind it is the same lie as a box
+         * with no button.
+         */
+        if (item === undefined) {
           transport.acknowledgeUnticks([key]);
           continue;
         }
 
         try {
-          await toggleRef.current.mutateAsync({ item, complete: false });
+          if (item.status === 'completed') {
+            await toggleRef.current.mutateAsync({ item, complete: false });
+          } else if (item.status === 'skipped') {
+            // One row in the exceptions table, so un-skip is the same delete
+            // as "put it back" — see `useOccurrenceActions`.
+            await clearRef.current.mutateAsync(item);
+          } else {
+            // Neither: nothing to take back, and retrying it for ever would
+            // block everything queued behind it.
+            transport.acknowledgeUnticks([key]);
+            continue;
+          }
           transport.acknowledgeUnticks([key]);
         } catch {
-          break;
+          /*
+           * `return`, not `break`. A failed un-tick means the backend is
+           * unreachable, and the ticks below would fail the same way — the two
+           * queues are key-disjoint so nothing is left half-applied either
+           * way, but a round trip is saved.
+           */
+          return;
         }
       }
 

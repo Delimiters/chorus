@@ -47,6 +47,34 @@ wherever that happened to put it. Un-ticks are drained first, so a failure
 part-way through a batch cannot leave the mistake written and the correction
 queued.
 
+### What the undo does not cover, and what it cost to get right
+
+Two things worth knowing, both found in review rather than on the phone.
+
+**A skipped row is finished too.** `WidgetRow.done` is `completed || skipped`,
+so a skipped chore draws a filled box — and for one round only `completed` had
+a write behind the undo. The result was an undo that visibly worked and
+silently reverted: the box emptied, the header count dropped, and the next
+publish filled it in again. That is the mirror of the bug a finished row being
+inert used to cause; **a button with no write behind it is the same lie as a
+box with no button.** A skip is one row in the exceptions table, so taking it
+back is a delete rather than an un-completion, and the drain branches on which.
+
+**A tick made on the home screen keeps its slot until the app publishes.**
+`markDone` rewrites `done` in place and does *not* re-sort, deliberately: the
+ordering rule lives in `core/widget/snapshot.ts` and a second copy in Swift is
+the drift this project has a postmortem about. So the sinking described in §4
+below lands on the next app launch, not on the tap — which is the one path the
+widget exists to avoid. Accepted rather than fixed, and stated here so it is
+not reported as a regression.
+
+**The queues leave one intention, not none.** Tick-then-un-tick before the app
+opens leaves an *un-tick* queued, which the drain no-ops because the occurrence
+is not completed. That guard is therefore load-bearing: without it the leftover
+un-tick would delete a completion the other person made in the meantime. Four
+comments said "nothing to replay" and have been corrected, because a reader who
+believed the queues cancelled to empty would reasonably delete that guard.
+
 ## 2. Blank space with work left to show
 
 > "The widget also has a lot of blank space at the bottom for some reason even
@@ -56,9 +84,30 @@ queued.
 families and every screen size Apple ships, and both directions fail silently:
 too few wastes the space, too many clips the last row.
 
-It is measured now, from `GeometryReader`. Subtract one row's pitch for the
-"+N more" line so it is never pushed off by the rows it describes, and keep at
-least one row so a very short container still shows something.
+It is measured now, from `GeometryReader`. Two off-by-ones in the first
+attempt made it *worse* than the number it replaced, both silently in the
+"too few" direction:
+
+- `n` rows occupy `n * pitch − gap`, not `n * pitch` — there is no gap after
+  the last one. Dividing by the pitch lost a row whenever the remainder was at
+  least a row's height.
+- The "+N more" line needs its own height plus one gap, about 21pt, not a whole
+  28pt row pitch. Over-reserving cost a *second* row.
+
+Together those showed **two** rows on a small or medium widget where three fit
+— fewer than the hard-coded number, while fixing a complaint about empty space.
+Corrected, and checked against the real content heights:
+
+| widget | available | rows shown | occupied |
+|---|---|---|---|
+| small/medium, 393pt phone | 103.7 | 3 + "+N more" | 99.0 |
+| small/medium, 16 Pro | 107.7 | 3 + "+N more" | 99.0 |
+| large, 354pt | 299.7 | 10 + "+N more" | 295.0 |
+| large, 382pt | 327.7 | 11 + "+N more" | 323.0 |
+
+There is no Swift test harness in this repo, so that arithmetic is checked by
+hand and by reasoning rather than by a test. It is the one part of this change
+that wants an eye on the actual phone.
 
 ## 3. "It seems to be random ones"
 

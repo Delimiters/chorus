@@ -35,10 +35,10 @@
  * decision is not the app's to overrule — helping with your housemate's chore
  * is a thing people do.
  *
- * The stored id is whose *day* was written to rather than who tapped: Jake
- * adding to Emily's day stores Emily's, because `useAddToPlan` writes
- * `ownerId ?? me`. Only null-or-not matters to this rule, and nothing should
- * read more into it than that.
+ * The stored id is the **actor** — who tapped, not whose day it landed on.
+ * It was the owner until build 82, which made one whole notification
+ * unreachable; see `docs/decisions/the-widget-you-can-undo-on.md`. Only
+ * null-or-not matters to this rule either way.
  *
  * ## A display rule, not a deletion
  *

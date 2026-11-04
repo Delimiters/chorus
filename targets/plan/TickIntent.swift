@@ -90,10 +90,17 @@ enum PendingTicks {
      A second queue rather than a signed value in the first, because the two
      are not opposites in the database: a tick inserts a completion and an
      un-tick deletes one, and the app replays each through the mutation that
-     already knows how. Keeping them apart also means a tick and an un-tick of
-     the same thing between two launches cancel to the right answer — whichever
-     the person did last wins, because each queue removes the key from the
-     other.
+     already knows how.
+
+     Keeping them apart also means a tick and an un-tick of
+     the same thing between two launches resolve to whichever the person did
+     last, because each `enqueue` withdraws the key from the other queue.
+
+     Precisely: it leaves **one** intention queued, not an empty pair. A
+     cancelled tick-then-un-tick leaves an un-tick, which the app's drain then
+     no-ops because the occurrence is not completed — so that guard is
+     load-bearing rather than redundant. Removing it would let the leftover
+     un-tick delete a completion the *other* person made in the meantime.
      */
     static let untickKey = "pendingUnticks"
 

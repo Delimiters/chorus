@@ -47,8 +47,9 @@ export interface WidgetTransport {
    *
    * A separate queue, because a tick inserts a completion and an un-tick
    * deletes one — the app replays each through the mutation that knows how.
-   * The widget's intents cancel the opposite queue as they write, so a tick
-   * and an un-tick of the same thing between launches leave nothing to replay.
+   * The widget's intents withdraw the key from the opposite queue as they
+   * write, so a tick and an un-tick of the same thing between launches leave
+   * the later intention queued rather than one of each.
    */
   pendingUnticks(): readonly string[];
   /** Forgets the un-ticks now safely written down. */

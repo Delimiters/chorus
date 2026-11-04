@@ -67,11 +67,6 @@ struct Snapshot: Codable {
         return try? JSONDecoder().decode(Snapshot.self, from: data)
     }
 
-    /// Ticks one row in place, so the widget can reflect a tap immediately.
-    ///
-    /// The app is the one that actually writes the completion to the database
-    /// — this only moves the local snapshot so the box fills the instant it is
-    /// tapped, rather than at the end of a round trip the user cannot see.
     /**
      Takes a tick back in place, so the widget reflects an undo immediately.
 
@@ -100,6 +95,18 @@ struct Snapshot: Codable {
         }
     }
 
+    /// Ticks one row in place, so the widget can reflect a tap immediately.
+    ///
+    /// The app is the one that actually writes the completion to the database
+    /// — this only moves the local snapshot so the box fills the instant it is
+    /// tapped, rather than at the end of a round trip the user cannot see.
+    ///
+    /// Neither this nor `markUndone` re-sorts `rows`, deliberately: the
+    /// ordering rule lives in `core/widget/snapshot.ts` and a second copy of
+    /// it here is the drift this project has a postmortem about. The
+    /// consequence is that a row ticked from the home screen keeps its slot
+    /// until the app next publishes — see the note in
+    /// `docs/decisions/the-widget-you-can-undo-on.md`.
     static func markDone(id: String) {
         guard let url = fileURL, let current = load() else { return }
         let rows = current.rows.map { row in

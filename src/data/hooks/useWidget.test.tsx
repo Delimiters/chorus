@@ -36,6 +36,10 @@ let mockToggleFails = false;
 const mockToggle = jest.fn(async (_input: { item: AgendaItem; complete: boolean }) => {
   if (mockToggleFails) throw new Error('offline');
 });
+/** Un-skipping, which is a delete of the exception rather than a completion. */
+const mockClear = jest.fn(async (_item: AgendaItem) => {
+  if (mockToggleFails) throw new Error('offline');
+});
 
 jest.mock('@/stores/sessionStore', () => ({
   useActiveHouseholdId: () => 'house-1',
@@ -57,6 +61,7 @@ jest.mock('./useOccurrences', () => ({
     isLoading: mockOccurrencesLoading,
   }),
   useToggleCompletion: () => ({ mutateAsync: mockToggle }),
+  useOccurrenceActions: () => ({ clear: { mutateAsync: mockClear } }),
 }));
 
 /** Chore ids anybody has flagged, as `useFlagsByChore` returns them. */
@@ -247,6 +252,7 @@ beforeEach(() => {
   mockPlanLoading = false;
   mockToggleFails = false;
   mockToggle.mockClear();
+  mockClear.mockClear();
 });
 
 describe('publishing the plan', () => {
@@ -708,6 +714,32 @@ describe('taking back a tick made on the home screen', () => {
       });
       expect(transport.unticks).toEqual([]);
     });
+  });
+
+  it('un-skips a skipped row, rather than pretending to', async () => {
+    /*
+     * `WidgetRow.done` is `completed || skipped`, so a skipped row draws a
+     * filled box and offers to take it back. For one review round only
+     * `completed` had a write behind it, and the result was an undo that
+     * visibly worked and silently reverted: the box emptied, the header count
+     * dropped, and the next publish filled it in again.
+     *
+     * A skip is one row in the exceptions table, so taking it back is a
+     * delete — a different mutation from un-completing, which is the whole
+     * reason this branch exists.
+     */
+    mockChores = [{ id: 'a', nagUntilDone: false }];
+    mockItems = [item('a:1', 'Hoover', { status: 'skipped' })];
+    mockEntries = [entry('a:1', 1)];
+
+    const transport = recorder();
+    transport.unticks = ['a:1'];
+    render(transport);
+
+    await waitFor(() => expect(mockClear).toHaveBeenCalledTimes(1));
+    // Not un-completed: there is no completion to remove.
+    expect(mockToggle).not.toHaveBeenCalled();
+    expect(transport.unticks).toEqual([]);
   });
 
   it('acknowledges without a write when there is nothing to take back', async () => {

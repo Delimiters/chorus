@@ -199,6 +199,24 @@ describe('the snapshot the widget reads', () => {
     expect(read(MODULE)).toContain('"pendingTicks"');
   });
 
+  it('drains the same un-tick queue the home-screen undo writes', () => {
+    /*
+     * The un-tick half had no pin at all for one review round: renaming the
+     * key on either side left every test green while **every undo a person
+     * made was discarded for ever**, with nothing logged on either side. That
+     * is verbatim the failure this file exists to prevent, on the half of the
+     * widget with no other safety net.
+     */
+    expect(read(WIDGET_TICK)).toContain('"pendingUnticks"');
+    expect(read(MODULE)).toContain('"pendingUnticks"');
+  });
+
+  it('offers both halves of the two-call protocol for un-ticks too', () => {
+    const bridge = code(MODULE);
+    expect(bridge).toContain('Function("pendingUnticks")');
+    expect(bridge).toContain('Function("acknowledgeUnticks")');
+  });
+
   it('reads and acknowledges ticks separately, never in one destructive call', () => {
     /*
      * One call that returned the queue *and* cleared it lost ticks twice over:

@@ -75,9 +75,9 @@ describe('a chore reassigned since the fill put it on a day', () => {
 
   it('keeps a row added by the housemate onto your day', () => {
     /*
-     * `added_by` records whose day was written to as much as who tapped — Jake
-     * adding to Emily's day stores Emily's id. Either way it is non-null,
-     * which is the only thing this rule asks: somebody decided.
+     * `added_by` records the actor, so this is "Emily added it to Jake's day".
+     * Either way it is non-null, which is the only thing this rule asks:
+     * somebody decided.
      */
     const planned = [row('hers', member(EMILY), EMILY)];
 

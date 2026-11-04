@@ -350,7 +350,17 @@ export function useAddToPlan(
       rows: readonly (Addable & { position: number })[];
       requested: readonly Addable[];
     }) => {
-      if (householdId === null || userId === null) throw new Error('Please sign in again.');
+      /*
+       * `actor` too, not only the owner. With `ownerId` passed explicitly the
+       * owner's fallback never runs, so a signed-out session would reach
+       * `addedBy` as null on a *deliberate* add — which
+       * `dropReassignedAutoRows` then reads as the fill's work and hides if
+       * the chore is somebody else's. The removal path guards both for the
+       * same reason and says so.
+       */
+      if (householdId === null || userId === null || actor === null) {
+        throw new Error('Please sign in again.');
+      }
       await addToPlan(
         planned.map((item) => ({
           householdId,
