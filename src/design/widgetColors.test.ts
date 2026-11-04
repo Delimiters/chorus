@@ -22,7 +22,8 @@
  *
  * It lives beside the tokens rather than in `src/core/widget/`, because it has
  * to compare against `@/design/tokens` and `src/core` may not import outward —
- * the rule that keeps the engine pure, and which eslint enforces.
+ * the rule that keeps the engine pure, and which eslint enforces. The tap
+ * target below is here for the same reason.
  */
 
 import { readFileSync } from 'node:fs';
@@ -30,7 +31,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
 
-import { palette } from '@/design/tokens';
+import { MIN_TARGET, palette } from '@/design/tokens';
 
 const repo = join(__dirname, '..', '..');
 const CATALOGUE = join(repo, 'targets', 'plan', 'Assets.xcassets');
@@ -149,4 +150,24 @@ describe('the widget colour assets', () => {
       expect(hexOf(night)).toBe(palette.dark[token].toUpperCase());
     });
   }
+});
+
+describe('the widget tap target', () => {
+  /**
+   * `MIN_TARGET` is 44, and `src/design/tapTargets.test.ts` walks `.tsx` only
+   * — so every Swift surface is outside the guard that exists for this
+   * project's most repeated failure. The widget's own comment points at the
+   * constant; this is what makes that comment enforceable.
+   *
+   * The height is deliberately not asserted. A widget row is 22pt because a
+   * small widget is about 155pt tall and has to hold a header and three rows,
+   * so 44 on the vertical axis is not available at any price — which is why
+   * the undo in `UntickIntent` is the load-bearing half of that fix rather
+   * than the target size.
+   */
+  it('is as wide as the app says a target must be', () => {
+    const swift = readFileSync(join(repo, 'targets', 'plan', 'ChorusWidget.swift'), 'utf8');
+
+    expect(swift).toContain(`width: ${String(MIN_TARGET)}`);
+  });
 });

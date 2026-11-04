@@ -42,6 +42,18 @@ export interface WidgetTransport {
   pendingTicks(): readonly string[];
   /** Forgets the keys now safely written down. */
   acknowledgeTicks(keys: readonly string[]): void;
+  /**
+   * Un-ticks made from the home screen.
+   *
+   * A separate queue, because a tick inserts a completion and an un-tick
+   * deletes one — the app replays each through the mutation that knows how.
+   * The widget's intents withdraw the key from the opposite queue as they
+   * write, so a tick and an un-tick of the same thing between launches leave
+   * the later intention queued rather than one of each.
+   */
+  pendingUnticks(): readonly string[];
+  /** Forgets the un-ticks now safely written down. */
+  acknowledgeUnticks(keys: readonly string[]): void;
 }
 
 /** False on web, in jest, and on a build without the native module. */
@@ -86,5 +98,15 @@ export const nativeWidget: WidgetTransport = {
   acknowledgeTicks(keys) {
     if (bridge === null || keys.length === 0) return;
     bridge.acknowledgeTicks(keys);
+  },
+
+  pendingUnticks() {
+    if (bridge === null) return [];
+    return bridge.pendingUnticks();
+  },
+
+  acknowledgeUnticks(keys) {
+    if (bridge === null || keys.length === 0) return;
+    bridge.acknowledgeUnticks(keys);
   },
 };

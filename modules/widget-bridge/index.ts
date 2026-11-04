@@ -17,6 +17,10 @@ export interface WidgetBridge {
   pendingTicks(): string[];
   /** Forgets the given keys, leaving any that arrived since. */
   acknowledgeTicks(keys: readonly string[]): void;
+  /** Un-ticks made from the home screen. Does not clear them. */
+  pendingUnticks(): string[];
+  /** Forgets the given un-ticks. */
+  acknowledgeUnticks(keys: readonly string[]): void;
   /** Starts the activity, or updates the one already running for `day`. */
   showActivity(
     day: string,

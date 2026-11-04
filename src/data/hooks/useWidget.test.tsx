@@ -36,6 +36,10 @@ let mockToggleFails = false;
 const mockToggle = jest.fn(async (_input: { item: AgendaItem; complete: boolean }) => {
   if (mockToggleFails) throw new Error('offline');
 });
+/** Un-skipping, which is a delete of the exception rather than a completion. */
+const mockClear = jest.fn(async (_item: AgendaItem) => {
+  if (mockToggleFails) throw new Error('offline');
+});
 
 jest.mock('@/stores/sessionStore', () => ({
   useActiveHouseholdId: () => 'house-1',
@@ -57,6 +61,7 @@ jest.mock('./useOccurrences', () => ({
     isLoading: mockOccurrencesLoading,
   }),
   useToggleCompletion: () => ({ mutateAsync: mockToggle }),
+  useOccurrenceActions: () => ({ clear: { mutateAsync: mockClear } }),
 }));
 
 /** Chore ids anybody has flagged, as `useFlagsByChore` returns them. */
@@ -160,6 +165,7 @@ interface Recorder extends WidgetTransport {
   readonly shown: ActivityState[];
   readonly ended: number[];
   pending: string[];
+  unticks: string[];
   /** The most ActivityKit calls ever in flight at once. Must stay 1. */
   maxConcurrent: number;
 }
@@ -174,6 +180,7 @@ const recorder = (): Recorder => {
     shown,
     ended,
     pending: [],
+    unticks: [],
     maxConcurrent: 0,
     publish(snapshot) {
       published.push(snapshot);
@@ -200,6 +207,12 @@ const recorder = (): Recorder => {
     },
     pendingTicks() {
       return self.pending;
+    },
+    pendingUnticks() {
+      return self.unticks;
+    },
+    acknowledgeUnticks(keys) {
+      self.unticks = self.unticks.filter((key) => !keys.includes(key));
     },
   };
   return self;
@@ -239,6 +252,7 @@ beforeEach(() => {
   mockPlanLoading = false;
   mockToggleFails = false;
   mockToggle.mockClear();
+  mockClear.mockClear();
 });
 
 describe('publishing the plan', () => {
@@ -464,8 +478,13 @@ describe('the persistent card', () => {
 
     await waitFor(() => expect(transport.shown).toHaveLength(2));
     expect(transport.shown[1]?.title).toBe('Later');
-    // The plan's content did not change, so the widget was not rewritten.
-    expect(transport.published).toHaveLength(1);
+    /*
+     * And the widget is rewritten, because a flag changes what it shows: rows
+     * are ordered flagged-first, so the flagged chore moves to the top of a
+     * window that is only a few rows deep.
+     */
+    expect(transport.published).toHaveLength(2);
+    expect(transport.published[1]?.rows.map((r) => r.title)).toEqual(['Later', 'Next in the plan']);
   });
 
   it('comes down when the switch is turned off mid-session', async () => {
@@ -669,6 +688,113 @@ describe('replaying a tick made from the lock screen', () => {
 
     await waitFor(() => expect(mockToggle).toHaveBeenCalledTimes(1));
     expect(transport.pending).toEqual([]);
+  });
+});
+
+describe('taking back a tick made on the home screen', () => {
+  it('replays it as an un-tick through the same mutation', () => {
+    /*
+     * Emily could not undo an accidental tick from the widget at all — a
+     * finished row was not a button — so the only thing to do was tap at it
+     * again and hit its neighbours. The widget can un-tick now, and the real
+     * write happens here, the same way a tick's does.
+     */
+    mockChores = [{ id: 'a', nagUntilDone: false }];
+    mockItems = [item('a:1', 'Dishes', { status: 'completed' })];
+    mockEntries = [entry('a:1', 1)];
+
+    const transport = recorder();
+    transport.unticks = ['a:1'];
+    render(transport);
+
+    return waitFor(() => expect(mockToggle).toHaveBeenCalledTimes(1)).then(() => {
+      expect(mockToggle.mock.calls[0]?.[0]).toMatchObject({
+        complete: false,
+        item: { occurrenceKey: 'a:1' },
+      });
+      expect(transport.unticks).toEqual([]);
+    });
+  });
+
+  it('un-skips a skipped row, rather than pretending to', async () => {
+    /*
+     * `WidgetRow.done` is `completed || skipped`, so a skipped row draws a
+     * filled box and offers to take it back. For one review round only
+     * `completed` had a write behind it, and the result was an undo that
+     * visibly worked and silently reverted: the box emptied, the header count
+     * dropped, and the next publish filled it in again.
+     *
+     * A skip is one row in the exceptions table, so taking it back is a
+     * delete — a different mutation from un-completing, which is the whole
+     * reason this branch exists.
+     */
+    mockChores = [{ id: 'a', nagUntilDone: false }];
+    mockItems = [item('a:1', 'Hoover', { status: 'skipped' })];
+    mockEntries = [entry('a:1', 1)];
+
+    const transport = recorder();
+    transport.unticks = ['a:1'];
+    render(transport);
+
+    await waitFor(() => expect(mockClear).toHaveBeenCalledTimes(1));
+    // Not un-completed: there is no completion to remove.
+    expect(mockToggle).not.toHaveBeenCalled();
+    expect(transport.unticks).toEqual([]);
+  });
+
+  it('acknowledges without a write when there is nothing to take back', async () => {
+    // Already not completed: the un-tick has nowhere to land, and retrying it
+    // for ever would block everything queued behind it.
+    mockChores = [{ id: 'a', nagUntilDone: false }];
+    mockItems = [item('a:1', 'Dishes')];
+    mockEntries = [entry('a:1', 1)];
+
+    const transport = recorder();
+    transport.unticks = ['a:1'];
+    render(transport);
+
+    await act(async () => {});
+    expect(mockToggle).not.toHaveBeenCalled();
+    expect(transport.unticks).toEqual([]);
+  });
+
+  it('leaves it queued when the write fails', async () => {
+    mockChores = [{ id: 'a', nagUntilDone: false }];
+    mockItems = [item('a:1', 'Dishes', { status: 'completed' })];
+    mockEntries = [entry('a:1', 1)];
+    mockToggleFails = true;
+
+    const transport = recorder();
+    transport.unticks = ['a:1'];
+    render(transport);
+
+    await waitFor(() => expect(mockToggle).toHaveBeenCalled());
+    await act(async () => {});
+    expect(transport.unticks).toEqual(['a:1']);
+  });
+
+  it('takes the correction before the mistake', async () => {
+    /*
+     * Un-ticks are drained first, so a failure part-way through a batch cannot
+     * leave the accidental tick written and the correction still queued.
+     */
+    mockChores = [
+      { id: 'a', nagUntilDone: false },
+      { id: 'b', nagUntilDone: false },
+    ];
+    mockItems = [item('a:1', 'Undo me', { status: 'completed' }), item('b:1', 'Tick me')];
+    mockEntries = [entry('a:1', 1), entry('b:1', 2)];
+
+    const transport = recorder();
+    transport.unticks = ['a:1'];
+    transport.pending = ['b:1'];
+    render(transport);
+
+    await waitFor(() => expect(mockToggle).toHaveBeenCalledTimes(2));
+    expect(mockToggle.mock.calls.map((c) => (c[0] as { complete: boolean }).complete)).toEqual([
+      false,
+      true,
+    ]);
   });
 });
 

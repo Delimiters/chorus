@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -76,50 +77,76 @@ func inkColor(_ light: String?, _ dark: String?, _ scheme: ColorScheme) -> Color
 
 /// One row: the ink stripe, the box, the title.
 ///
-/// **The whole row is the button**, not just the box. Three reasons, in order
-/// of how much they cost to learn:
+/// ## What is tappable, and what that cost to get right
 ///
-/// 1. `MIN_TARGET` is 44 and a 20pt box is less than half that. This is the
-///    project's most repeated failure, and `src/design/tapTargets.test.ts`
-///    cannot see Swift. A mis-tap here is worse than in the app: it completes
-///    the *wrong* chore, with no undo anywhere on the home screen, and an
-///    interval chore's next due date moves.
-/// 2. Padding the box to 44pt instead — the first attempt — took 24pt out of a
-///    small widget's ~130pt content width, cutting the title from about
-///    thirteen characters to eight. Silently, because the title is
-///    `lineLimit(1)`. The row is free; the box is not.
-/// 3. A row that is entirely tappable needs no affordance explaining which
-///    part of it to hit.
+/// **The box ticks. The title opens the app.** Two taps with different
+/// consequences, and the one that changes data is the smaller of them.
 ///
-/// A finished row is not a button at all. It used to be: tapping a filled box
-/// enqueued a key the app then skipped, so the tap did nothing and said
-/// nothing. Worse for a *skipped* row — the projection counts skipped as done,
-/// so the box was filled, and the drain's only guard was against `completed`:
-/// tapping it completed a chore you had deliberately skipped.
+/// It was the whole row for two builds, which fixed one problem and caused a
+/// worse one. Emily, on build 79:
+///
+/// > "on the widget it's too easy to accidentally check a row, and then when
+/// > she tried to uncheck that one she was accidentally checking other things"
+///
+/// Both halves are the same mistake. A 22pt-tall, full-width live target on a
+/// home screen you also swipe and long-press is easy to hit by accident; and
+/// **a finished row was deliberately not a button**, on the reasoning that a
+/// filled box which does nothing is a lie. True in isolation, and together
+/// they left an accidental tick with no way back except tapping at it again,
+/// which hit the rows either side.
+///
+/// So: a finished row is a button too, running `UntickIntent`. Recoverability
+/// first — the app has had an undo toast since Emily's *"i accidentally checked
+/// something off and it disappeared 😭"*, and the home screen needed the same
+/// thing rather than only a narrower target.
+///
+/// The tick region is 44pt wide — `MIN_TARGET` — and the full height of the
+/// row, which is as much as a 22pt row can give; `src/design/tapTargets.test.ts`
+/// cannot see Swift, so this is the note that says so. That costs 24pt of a
+/// small widget's ~130pt content width, which is the reason the whole row was
+/// tried instead: the title drops from about thirteen characters to eight.
+/// Measured against an accidental completion of the *wrong* chore, eight
+/// characters is the better trade — and the title is still the larger half of
+/// the row, so the safe thing to tap is also the easiest.
 struct PlanRow: View {
     let row: Snapshot.Row
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        if row.done {
-            content.accessibilityLabel("\(row.title), done")
-        } else {
-            Button(intent: TickIntent(occurrenceKey: row.id)) {
-                content
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Mark \(row.title) done")
-        }
-    }
-
-    private var content: some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(inkColor(row.ink, row.inkDark, scheme))
                 .frame(width: 3)
 
-            box
+            /*
+             * Both directions, from the same place.
+             *
+             * `TickIntent` and `UntickIntent` write to two queues, and each
+             * withdraws the key from the other — so tapping twice before the
+             * app next opens leaves the later intention queued rather than one
+             * of each.
+             */
+            if row.done {
+                Button(intent: UntickIntent(occurrenceKey: row.id)) {
+                    target
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(row.title), done. Take it back")
+            } else {
+                Button(intent: TickIntent(occurrenceKey: row.id)) {
+                    target
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Mark \(row.title) done")
+            }
 
+            /*
+             * Inert, so it falls through to opening the app.
+             *
+             * This is the half of the row that is safe to touch, and it is
+             * most of it. Without something inert there is nowhere on a small
+             * widget's face to tap that does not change data.
+             */
             Text(row.title)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(row.done ? Color.faint : Color.ink)
@@ -129,9 +156,18 @@ struct PlanRow: View {
             Spacer(minLength: 0)
         }
         .frame(height: 22)
-        // The row's own area is the hit region, which is wider than 44pt at
-        // every widget size and needs no padding to get there.
-        .contentShape(Rectangle())
+    }
+
+    /// The box, inside a target big enough to mean it.
+    ///
+    /// `.leading`, so the extra width goes to the right of the box rather than
+    /// being split either side. Centred, the 20pt box sat 12pt off the ink
+    /// stripe and pushed the title 24pt right — paying twice for the same
+    /// 44pt on a widget already short of title room.
+    private var target: some View {
+        box
+            .frame(width: 44, height: 22, alignment: .leading)
+            .contentShape(Rectangle())
     }
 
     private var box: some View {
@@ -151,11 +187,52 @@ struct PlanRow: View {
     }
 }
 
+/// One row's own height, and the gap drawn under it.
+private let rowHeight: CGFloat = 22
+private let rowGap: CGFloat = 6
+/// What a row occupies when something follows it.
+private let rowPitch: CGFloat = rowHeight + rowGap
+/// The "+N more" line: SF 12pt, whose line height is a shade over fourteen.
+private let footerHeight: CGFloat = 15
+
 struct ChorusWidgetView: View {
     let entry: PlanEntry
-    @Environment(\.widgetFamily) private var family
 
-    private var visibleRows: Int { family == .systemLarge ? 7 : 3 }
+    /**
+     How many rows actually fit, measured rather than guessed.
+
+     It was `family == .systemLarge ? 7 : 3`, which left a large widget with
+     about three rows' worth of empty space under the list. Jake: *"The widget
+     also has a lot of blank space at the bottom for some reason even though
+     there's more room for tasks."*
+
+     Two numbers cannot be right across three families and every screen size
+     Apple ships, and the failure is silent in both directions — too few wastes
+     the space, too many clips the last row. `GeometryReader` gives the real
+     height, so this is arithmetic instead of a guess: subtract the "+N more"
+     line's own pitch so it never gets pushed off by the rows it describes, and
+     keep at least one row so a very short container still shows something.
+     */
+    private func visibleRows(in height: CGFloat, total: Int) -> Int {
+        /*
+         * `rowPitch` counts a row *and* the gap under it, so n rows occupy
+         * `n * rowPitch - rowGap` — there is no gap after the last one. The
+         * first version divided by the pitch without adding that gap back,
+         * and so lost a row whenever the remainder was at least `rowHeight`.
+         */
+        let withoutFooter = Int(((height + rowGap) / rowPitch).rounded(.down))
+        if withoutFooter >= total { return max(1, withoutFooter) }
+
+        /*
+         * Room for the "+N more" line, which needs its own height plus the gap
+         * above it — not a whole row's pitch, which is what the first version
+         * reserved. Over-reserving cost a second row, so a small widget showed
+         * two where three fit: fewer rows than the hard-coded number this
+         * replaced, while fixing a complaint about empty space.
+         */
+        let forRows = height + rowGap - (footerHeight + rowGap)
+        return max(1, Int((forRows / rowPitch).rounded(.down)))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -169,16 +246,19 @@ struct ChorusWidgetView: View {
                         .foregroundStyle(Color.ink)
                     Spacer()
                 } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(snapshot.rows.prefix(visibleRows)) { row in
-                            PlanRow(row: row)
+                    GeometryReader { geometry in
+                        let shown = visibleRows(in: geometry.size.height, total: snapshot.rows.count)
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(snapshot.rows.prefix(shown)) { row in
+                                PlanRow(row: row)
+                            }
+                            if snapshot.rows.count > shown {
+                                Text("+\(snapshot.rows.count - shown) more")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Color.faint)
+                            }
+                            Spacer(minLength: 0)
                         }
-                    }
-                    Spacer(minLength: 0)
-                    if snapshot.rows.count > visibleRows {
-                        Text("+\(snapshot.rows.count - visibleRows) more")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color.faint)
                     }
                 }
             } else {

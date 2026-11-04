@@ -115,9 +115,65 @@ describe('the widget snapshot', () => {
       WRITTEN,
     );
 
-    expect(snapshot.rows.map((r) => r.done)).toEqual([true, true, false, false, false]);
+    /*
+     * Finished rows sink to the bottom rather than holding the top of a window
+     * three rows deep. Jake: *"once you check something it just stays on there
+     * indefinitely rather than being eventually replaced by another task"*.
+     *
+     * Kept rather than dropped, because the count says "2 of 5" and a widget
+     * showing none of the two would not add up — they simply fall off the end
+     * once there is enough outstanding work to push them there.
+     */
+    expect(snapshot.rows.map((r) => r.title)).toEqual([
+      'Due',
+      'Overdue',
+      'Upcoming',
+      'Done',
+      'Skipped',
+    ]);
+    expect(snapshot.rows.map((r) => r.done)).toEqual([false, false, false, true, true]);
     expect(snapshot.doneCount).toBe(2);
     expect(snapshot.totalCount).toBe(5);
+  });
+
+  it('puts flagged work first, then the rest, then what is finished', () => {
+    /*
+     * The widget shows the first few rows, so which few is the whole design.
+     * Plan order is the order the day was *built*, which through a window of
+     * three reads as arbitrary — Jake: *"It also seems to be random ones, it
+     * doesn't prioritize flagged or anything."*
+     *
+     * The flagged chore is deliberately **last** in plan order and the
+     * finished one **first**, so plan order alone could not produce this
+     * answer.
+     */
+    const snapshot = widgetSnapshot(
+      [
+        row('done:1', 'Already done', { status: 'completed' }),
+        row('plain:1', 'Ordinary'),
+        row('flag:1', 'Flagged'),
+      ],
+      DAY,
+      INKS,
+      WRITTEN,
+      new Set(['flag']),
+    );
+
+    expect(snapshot.rows.map((r) => r.title)).toEqual(['Flagged', 'Ordinary', 'Already done']);
+  });
+
+  it('keeps plan order within each band', () => {
+    // A stable partition, not a sort: two flagged things stay in the order the
+    // day put them in.
+    const snapshot = widgetSnapshot(
+      [row('a:1', 'First'), row('flag:1', 'Flagged early'), row('flag2:1', 'Flagged late')],
+      DAY,
+      INKS,
+      WRITTEN,
+      new Set(['flag', 'flag2']),
+    );
+
+    expect(snapshot.rows.map((r) => r.title)).toEqual(['Flagged early', 'Flagged late', 'First']);
   });
 
   it('gives each member their own ink', () => {

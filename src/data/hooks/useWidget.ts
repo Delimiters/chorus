@@ -29,7 +29,12 @@ import { useFlagsByChore, useFlagsLoading } from './useFlags';
 import { nativeWidget, widgetAvailable, type WidgetTransport } from '../widget';
 import { useToday } from '../today';
 import { useHousehold, useMembers } from './useHousehold';
-import { quantiseWindow, useOccurrences, useToggleCompletion } from './useOccurrences';
+import {
+  quantiseWindow,
+  useOccurrenceActions,
+  useOccurrences,
+  useToggleCompletion,
+} from './useOccurrences';
 import { useMyPlanEntries, usePlanLoading } from './usePlan';
 
 interface Options {
@@ -156,11 +161,6 @@ export function useWidgetSync({
    * iOS budgets roughly 40-70 reloads a day; spending them on no-ops is how a
    * widget ends up stale all evening.
    */
-  const snapshot = useMemo(
-    () => widgetSnapshot(planned, today, inkByMember, new Date().toISOString()),
-    [planned, today, inkByMember],
-  );
-
   const published = useRef<string>('');
   /** The card last asked for, as JSON. `'null'` means "asked for none". */
   const cardShown = useRef<string>('');
@@ -235,6 +235,11 @@ export function useWidgetSync({
     [flagKey],
   );
 
+  const snapshot = useMemo(
+    () => widgetSnapshot(planned, today, inkByMember, new Date().toISOString(), flaggedChoreIds),
+    [planned, today, inkByMember, flaggedChoreIds],
+  );
+
   const card = useMemo(
     () => activityState(planned, inkByMember, insistChoreIds, flaggedChoreIds),
     [planned, inkByMember, insistChoreIds, flaggedChoreIds],
@@ -260,7 +265,7 @@ export function useWidgetSync({
   }, [ready, snapshot, card, transport, syncCard]);
 
   /*
-   * Ticks made from the home screen or the lock screen.
+   * Ticks and un-ticks made from the home screen or the lock screen.
    *
    * The widget writes an occurrence key and reloads its own timeline; the real
    * completion — right day, right key, interval chores re-anchored — happens
@@ -283,6 +288,13 @@ export function useWidgetSync({
     toggleRef.current = toggle;
   }, [toggle]);
 
+  /** Un-skipping, for a widget row that was skipped rather than completed. */
+  const { clear } = useOccurrenceActions();
+  const clearRef = useRef(clear);
+  useEffect(() => {
+    clearRef.current = clear;
+  }, [clear]);
+
   const itemsRef = useRef(items);
   useEffect(() => {
     itemsRef.current = items;
@@ -300,10 +312,69 @@ export function useWidgetSync({
     if (draining.current) return;
 
     const keys = transport.pendingTicks();
-    if (keys.length === 0) return;
+    const unticks = transport.pendingUnticks();
+    if (keys.length === 0 && unticks.length === 0) return;
 
     draining.current = true;
     try {
+      /*
+       * Un-ticks first.
+       *
+       * A tick and an un-tick of the same thing cannot both be queued — each
+       * widget intent withdraws the key from the other queue — so the order is
+       * not about correctness between the two. It is about the
+       * accident: somebody who ticked the wrong row and took it back wants the
+       * taking-back to land, and doing it first means a failure part-way
+       * through a batch cannot leave the mistake written and the correction
+       * queued.
+       */
+      for (const key of unticks) {
+        const item = itemsRef.current.find((candidate) => candidate.occurrenceKey === key);
+
+        /*
+         * Two ways to be finished, and they are undone differently.
+         *
+         * `WidgetRow.done` is `completed || skipped`, so a **skipped** row
+         * draws a filled box and now offers to take it back — and for one
+         * review round only `completed` had a write behind it. The result was
+         * an undo that visibly worked and silently reverted: `markUndone`
+         * emptied the box and dropped the header count, the queued un-tick was
+         * acknowledged with no write, and the next publish filled it in again.
+         *
+         * That is the mirror of the bug a finished row being inert used to
+         * cause. A button with no write behind it is the same lie as a box
+         * with no button.
+         */
+        if (item === undefined) {
+          transport.acknowledgeUnticks([key]);
+          continue;
+        }
+
+        try {
+          if (item.status === 'completed') {
+            await toggleRef.current.mutateAsync({ item, complete: false });
+          } else if (item.status === 'skipped') {
+            // One row in the exceptions table, so un-skip is the same delete
+            // as "put it back" — see `useOccurrenceActions`.
+            await clearRef.current.mutateAsync(item);
+          } else {
+            // Neither: nothing to take back, and retrying it for ever would
+            // block everything queued behind it.
+            transport.acknowledgeUnticks([key]);
+            continue;
+          }
+          transport.acknowledgeUnticks([key]);
+        } catch {
+          /*
+           * `return`, not `break`. A failed un-tick means the backend is
+           * unreachable, and the ticks below would fail the same way — the two
+           * queues are key-disjoint so nothing is left half-applied either
+           * way, but a round trip is saved.
+           */
+          return;
+        }
+      }
+
       /**
        * Acknowledged one at a time, after the write lands.
        *

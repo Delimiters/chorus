@@ -33,6 +33,7 @@ public class WidgetBridgeModule: Module {
     private static let appGroup = "group.com.delimiters.chorus"
     private static let snapshotFile = "plan-snapshot.json"
     private static let pendingTicksKey = "pendingTicks"
+    private static let pendingUnticksKey = "pendingUnticks"
 
     private static var snapshotURL: URL? {
         FileManager.default
@@ -91,6 +92,33 @@ public class WidgetBridgeModule: Module {
         Function("pendingTicks") { () -> [String] in
             guard let defaults = UserDefaults(suiteName: Self.appGroup) else { return [] }
             return defaults.stringArray(forKey: Self.pendingTicksKey) ?? []
+        }
+
+        /**
+         Un-ticks made on the home screen. **Does not clear them.**
+
+         A second queue rather than a signed value in the first: a tick inserts
+         a completion and an un-tick deletes one, and the app replays each
+         through the mutation that already knows how. The widget's two intents
+         remove the key from the other queue as they write, so tapping twice
+         before the app opens leaves nothing to replay rather than one of each.
+         */
+        Function("pendingUnticks") { () -> [String] in
+            guard let defaults = UserDefaults(suiteName: Self.appGroup) else { return [] }
+            return defaults.stringArray(forKey: Self.pendingUnticksKey) ?? []
+        }
+
+        /// Forgets the un-ticks the app has now written down.
+        Function("acknowledgeUnticks") { (keys: [String]) in
+            guard let defaults = UserDefaults(suiteName: Self.appGroup) else { return }
+            let done = Set(keys)
+            let remaining = (defaults.stringArray(forKey: Self.pendingUnticksKey) ?? [])
+                .filter { !done.contains($0) }
+            if remaining.isEmpty {
+                defaults.removeObject(forKey: Self.pendingUnticksKey)
+            } else {
+                defaults.set(remaining, forKey: Self.pendingUnticksKey)
+            }
         }
 
         /**

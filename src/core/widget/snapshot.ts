@@ -74,20 +74,49 @@ export type InkByMember = Readonly<Record<string, { light: string; dark: string 
 const isFinished = (status: string): boolean => status === 'completed' || status === 'skipped';
 
 /**
- * The plan, flattened.
+ * The plan, flattened — **what is left first, flagged ahead of that**.
  *
- * Takes what `planFor` already ordered rather than re-deriving it, so the
- * widget's order is the screen's order by construction. Deriving a second
- * ordering here is the `useOccurrences.ts:152` shape: two views of one list,
- * one of them computed from the wrong thing and type-checking fine.
+ * The widget shows the first few rows and the rest are a "+N more", so which
+ * few is the whole design. It was plan order including finished work, and both
+ * halves of that were wrong on a real day. Jake:
+ *
+ * > "It also seems to be random ones, it doesn't prioritize flagged or
+ * > anything. Also once you check something it just stays on there
+ * > indefinitely rather than being eventually replaced by another task"
+ *
+ * "Random" is a fair reading of plan order through a window of three: the plan
+ * is ordered by position, which is the order the day was *built*, so the first
+ * three rows are whatever was added first — including things ticked hours ago,
+ * which then sat there while outstanding work queued behind them.
+ *
+ * So: outstanding before finished, and flagged before the rest of outstanding,
+ * which is the same precedence the lock-screen card uses and the same
+ * `flaggedFirst` partition the plan screen's sections use. Within each band
+ * plan order survives, because that is an ordering somebody built.
+ *
+ * Finished rows are kept rather than dropped — the count says "2 of 5" and a
+ * widget that showed none of the two would be confusing — they simply sink,
+ * and fall off the end as soon as there is enough outstanding work to push
+ * them there. That is the "eventually replaced" half.
  */
 export function widgetSnapshot(
   planned: readonly PlannedItem<AgendaItem>[],
   day: CivilDate,
   inkByMember: InkByMember,
   writtenAt: string,
+  flaggedChoreIds: ReadonlySet<string> = new Set(),
 ): WidgetSnapshot {
-  const rows = planned.map(({ item }): WidgetRow => {
+  const outstanding = planned.filter(({ item }) => !isFinished(item.status));
+  const finished = planned.filter(({ item }) => isFinished(item.status));
+  const ordered = [
+    ...flaggedFirst(
+      outstanding.map((p) => p.item),
+      flaggedChoreIds,
+    ),
+    ...finished.map((p) => p.item),
+  ];
+
+  const rows = ordered.map((item): WidgetRow => {
     const assignee = item.assignee;
     const ink = assignee.kind === 'member' ? (inkByMember[assignee.memberId] ?? null) : null;
     return {
