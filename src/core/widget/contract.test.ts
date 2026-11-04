@@ -252,6 +252,34 @@ describe('the widget bundle', () => {
     expect(body).not.toContain('#available');
   });
 
+  it('shows what is left, holding only the row just tapped', () => {
+    /*
+     * The widget's list is "what remains" — a finished row is not shown, so a
+     * chore ticked at breakfast stops holding a third of a three-row face all
+     * day. The one exception is the row under your finger, for the ten seconds
+     * the undo is reachable from the home screen.
+     *
+     * There is no Swift test harness in this repo, so this reads the source.
+     * Weak, and the available mechanism — the same one that pins the widget
+     * bundle registering the Live Activity unconditionally. Without it,
+     * deleting the filter is a silent return to the complaint.
+     */
+    const bundle = code(WIDGET_BUNDLE);
+    expect(bundle).toContain('snapshot.rows.filter { !$0.done || $0.id == entry.holding }');
+    // Two timeline entries are what retire the held row without spending a
+    // reload; one entry would leave it there until something else happened.
+    expect(bundle).toContain('PlanEntry(date: held.until, snapshot: snapshot, holding: nil)');
+  });
+
+  it('holds a just-tapped row for as long as the app says', () => {
+    /*
+     * Ten seconds, Jake's call over the app's five: reaching for an undo on a
+     * home screen you have just mis-tapped is slower than catching a toast in
+     * an app you are already looking at.
+     */
+    expect(code(WIDGET_TICK)).toContain('let holdSeconds: TimeInterval = 10');
+  });
+
   it('has exactly one @main, on the bundle', () => {
     // Two in one target do not compile, and whichever lost would take its
     // surface off the phone silently.

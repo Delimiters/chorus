@@ -30,6 +30,13 @@ struct TickIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
+        /*
+         * The hold first, then the snapshot. A finished row is otherwise
+         * hidden the instant it is written, so setting these the other way
+         * round would make the row vanish under the finger that tapped it —
+         * which is the thing the hold exists to prevent.
+         */
+        RecentTap.hold(occurrenceKey)
         PendingTicks.add(occurrenceKey)
         Snapshot.markDone(id: occurrenceKey)
         WidgetCenter.shared.reloadAllTimelines()
@@ -68,6 +75,9 @@ struct UntickIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
+        // Held too, so an un-tick and a re-tick in quick succession both keep
+        // the row under the finger rather than shuffling the list twice.
+        RecentTap.hold(occurrenceKey)
         PendingTicks.addUntick(occurrenceKey)
         Snapshot.markUndone(id: occurrenceKey)
         WidgetCenter.shared.reloadAllTimelines()
@@ -82,6 +92,54 @@ struct UntickIntent: AppIntent {
 /// it once. That idempotency is not incidental: `unique (chore_id,
 /// occurrence_key)` in the database is what makes the app's own optimistic
 /// ticking safe, and this rides on the same guarantee.
+/**
+ How long a row just touched on the home screen stays where it is.
+
+ Ten seconds, Jake's call. The app's undo toast is five, and matching it was the
+ argument for five here — but reaching for an undo on a home screen you have
+ just tapped by accident is a slower business than catching a toast in an app
+ you are already looking at.
+
+ It is the widget's whole undo window: after this the row is gone from the
+ widget and taking it back means opening the app. That is the trade for the row
+ not sitting there all day, which is what Jake reported.
+ */
+let holdSeconds: TimeInterval = 10
+
+/**
+ The row to keep showing even though it is finished, and until when.
+
+ **Widget-local state, deliberately not part of the snapshot.** The snapshot is
+ the app's description of the day and its field list is pinned by
+ `src/core/widget/contract.test.ts`; "I tapped this four seconds ago" is not a
+ fact about the day, it is a fact about this device's last few seconds. Putting
+ it here keeps the cross-process contract exactly as narrow as it was.
+ */
+enum RecentTap {
+    private static let keyName = "recentTapKey"
+    private static let untilName = "recentTapUntil"
+
+    private static var defaults: UserDefaults? {
+        UserDefaults(suiteName: Snapshot.appGroup)
+    }
+
+    static func hold(_ occurrenceKey: String) {
+        guard let defaults else { return }
+        defaults.set(occurrenceKey, forKey: keyName)
+        defaults.set(Date().addingTimeInterval(holdSeconds), forKey: untilName)
+    }
+
+    /// The key still being held, and when it expires — nil once it has.
+    static func current(now: Date = Date()) -> (key: String, until: Date)? {
+        guard let defaults,
+              let key = defaults.string(forKey: keyName),
+              let until = defaults.object(forKey: untilName) as? Date,
+              until > now
+        else { return nil }
+        return (key, until)
+    }
+}
+
 enum PendingTicks {
     static let key = "pendingTicks"
     /**

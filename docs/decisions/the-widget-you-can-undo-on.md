@@ -124,6 +124,64 @@ band.
 
 ## 4. A ticked row stays for ever
 
+Jake asked how this *should* work, and named two options: ticked rows
+disappearing after a few seconds, or the widget refreshing when you come back
+to the home screen.
+
+**The second is not available.** A widget gets no "became visible" event —
+nothing fires on unlock, on app-switch, or on returning to the home screen,
+because a widget is not running. Content changes exactly three ways: the app
+calls `reloadAllTimelines()` while it is running, the timeline's own schedule
+fires (30 minutes here, against a budget of roughly 40–70 reloads a day), or a
+tap runs an `AppIntent` inside the extension. Faking it by refreshing often
+would spend the day's budget before lunch and leave the widget stale all
+evening — worse than doing nothing.
+
+So: the first, built on the timeline rather than on a timer.
+
+**The list shows what is left.** A finished row is not shown at all. Sinking
+them to the bottom — the previous answer — only retired them once there was
+enough outstanding work to push them off the end; on a three-row widget with
+four things to do, a chore ticked at breakfast still held a third of the face
+all day. The header keeps saying "2 of 5", so nothing about the day is hidden;
+the *list* is about what remains, which is what a three-row window is good for.
+
+**Except the row under your finger, for ten seconds.** Hiding it the instant it
+is ticked would take the undo with it, and an accidental tick that cannot be
+undone is the complaint this whole section started from. Ten rather than the
+app's five is Jake's call, and the right one: reaching for an undo on a home
+screen you have just mis-tapped is slower than catching a toast in an app you
+are already looking at.
+
+**How it retires, and why it is free.** `getTimeline` returns *two* entries
+after a tap — one now with the row held, one at the moment the hold expires
+without it. WidgetKit pre-renders future entries and shows them at their dates
+without calling back, so the row steps aside on time having spent **no**
+reloads. A `Timer` or a short reload policy could not have done this at any
+acceptable cost.
+
+The hold lives in the App Group as widget-local state, not in the snapshot.
+"I tapped this four seconds ago" is a fact about this device's last few
+seconds rather than a fact about the day, and the snapshot's field list is a
+pinned cross-process contract worth keeping narrow.
+
+A consequence worth stating: **the widget's undo window is those ten seconds.**
+After that, taking a tick back means opening the app — where the undo toast,
+the plan screen and the row itself are all still there.
+
+### What this still does not fix
+
+A tick on the *other* phone reaches your widget only via the 30-minute timeline
+or your next app launch. Fixing that needs a push that wakes the app so it can
+reload the widget — and the send path for that already exists (Postgres calls
+Expo's push API directly through `pg_net`; no server anywhere). The ceiling is
+iOS, not infrastructure: a silent background push is explicitly best-effort,
+throttled by battery, Low Power Mode and how often the app is opened. It would
+make the widget *usually catch up sooner*, not live, which is a different
+promise from the one above.
+
+## 4b. The original version of this, kept for the record
+
 > "once you check something it just stays on there indefinitely rather than
 > being eventually replaced by another task"
 

@@ -7,6 +7,15 @@ import WidgetKit
 struct PlanEntry: TimelineEntry {
     let date: Date
     let snapshot: Snapshot?
+    /**
+     A finished row to keep showing anyway, because it was just tapped.
+
+     Nil in every entry but the first one after a tap. Two entries come back
+     from `getTimeline` in that case — this one now, and one without it at the
+     moment the hold expires — so the row stays put for ten seconds and then
+     steps aside with no reload spent: WidgetKit pre-renders future entries.
+     */
+    let holding: String?
 }
 
 /// When the widget asks itself what to show.
@@ -21,17 +30,50 @@ struct PlanEntry: TimelineEntry {
 /// resolution of a chore list.
 struct PlanProvider: TimelineProvider {
     func placeholder(in context: Context) -> PlanEntry {
-        PlanEntry(date: Date(), snapshot: nil)
+        PlanEntry(date: Date(), snapshot: nil, holding: nil)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (PlanEntry) -> Void) {
-        completion(PlanEntry(date: Date(), snapshot: Snapshot.load()))
+        completion(PlanEntry(date: Date(), snapshot: Snapshot.load(), holding: nil))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PlanEntry>) -> Void) {
-        let entry = PlanEntry(date: Date(), snapshot: Snapshot.load())
-        let next = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
-        completion(Timeline(entries: [entry], policy: .after(next)))
+        let now = Date()
+        let snapshot = Snapshot.load()
+        let next = Calendar.current.date(byAdding: .minute, value: 30, to: now) ?? now
+
+        /*
+         * Two entries when something was just tapped, one otherwise.
+         *
+         * This is the whole mechanism for "the row steps aside after ten
+         * seconds", and it costs nothing: WidgetKit renders future entries at
+         * their dates without calling back, so the budget of roughly 40–70
+         * reloads a day is untouched. A timer or a short reload interval would
+         * have spent that budget by lunchtime — see the note on this type.
+         *
+         * `holding` is dropped in the second entry rather than the snapshot
+         * being rewritten, so nothing about the day has to change for the row
+         * to leave.
+         */
+        guard let held = RecentTap.current(now: now) else {
+            completion(
+                Timeline(
+                    entries: [PlanEntry(date: now, snapshot: snapshot, holding: nil)],
+                    policy: .after(next)
+                )
+            )
+            return
+        }
+
+        completion(
+            Timeline(
+                entries: [
+                    PlanEntry(date: now, snapshot: snapshot, holding: held.key),
+                    PlanEntry(date: held.until, snapshot: snapshot, holding: nil),
+                ],
+                policy: .after(next)
+            )
+        )
     }
 }
 
@@ -234,6 +276,33 @@ struct ChorusWidgetView: View {
         return max(1, Int((forRows / rowPitch).rounded(.down)))
     }
 
+    /**
+     The rows worth a slot: what is left, plus whatever was just tapped.
+
+     A finished row is **not** shown. Jake: *"once you check something it just
+     stays on there indefinitely rather than being eventually replaced by
+     another task"* — and the previous answer, sinking them to the bottom,
+     only replaced them once there was enough outstanding work to push them
+     off. On a three-row widget with four things to do, a chore ticked at
+     breakfast still held a third of the face all day.
+
+     The header keeps saying "2 of 5", so nothing is hidden about the day; the
+     *list* is just about what remains, which is what a three-row window is
+     good for.
+
+     The exception is the row under your finger. Hiding it the instant it is
+     ticked would take the undo with it — and an accidental tick that cannot be
+     undone is the whole complaint this started from.
+
+     No ordering happens here. The app writes the rows outstanding-first, so
+     dropping the finished ones leaves the next ones in the order it chose; a
+     second copy of that rule in Swift is the drift `POSTMORTEM-SWIFT.md` is
+     about.
+     */
+    private func candidates(_ snapshot: Snapshot) -> [Snapshot.Row] {
+        snapshot.rows.filter { !$0.done || $0.id == entry.holding }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let snapshot = entry.snapshot {
@@ -245,15 +314,29 @@ struct ChorusWidgetView: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color.ink)
                     Spacer()
+                } else if candidates(snapshot).isEmpty {
+                    /*
+                     * Everything on the plan is finished. The header already
+                     * says "5 of 5", so this is the same state as an empty
+                     * plan from the widget's point of view — what is left is
+                     * nothing — and it should read as the achievement rather
+                     * than as a blank list.
+                     */
+                    Spacer()
+                    Text("All done today.")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.ink)
+                    Spacer()
                 } else {
+                    let rows = candidates(snapshot)
                     GeometryReader { geometry in
-                        let shown = visibleRows(in: geometry.size.height, total: snapshot.rows.count)
+                        let shown = visibleRows(in: geometry.size.height, total: rows.count)
                         VStack(alignment: .leading, spacing: 6) {
-                            ForEach(snapshot.rows.prefix(shown)) { row in
+                            ForEach(rows.prefix(shown)) { row in
                                 PlanRow(row: row)
                             }
-                            if snapshot.rows.count > shown {
-                                Text("+\(snapshot.rows.count - shown) more")
+                            if rows.count > shown {
+                                Text("+\(rows.count - shown) more")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(Color.faint)
                             }
