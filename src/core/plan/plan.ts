@@ -47,6 +47,21 @@ export interface PlanEntry {
    * routine items use one. Ties are broken by key so the order is total.
    */
   readonly position: number;
+  /**
+   * Who chose this, or null when the automatic fill did.
+   *
+   * **Required, and that is the whole point.** It was optional for one review
+   * round, which is exactly how the fix it exists for shipped as a no-op:
+   * `useMyPlanEntries` — the only source of these for the plan screen — did
+   * not map it, tsc had nothing to say, and the rule read `undefined` for
+   * every row on your own plan and kept all of them. An optional field defeats
+   * the one check you are relying on.
+   *
+   * `planFor` copies it onto the `PlannedItem` it produces, and that is what
+   * `dropReassignedAutoRows` reads — not this field directly. See the note
+   * there for why the lookup had to move.
+   */
+  readonly addedBy: string | null;
 }
 
 /** Anything that can be planned. The screen's rows carry much more. */
@@ -59,6 +74,19 @@ export interface Plannable {
 export interface PlannedItem<T extends Plannable> {
   readonly item: T;
   readonly position: number;
+  /**
+   * Who chose the entry this came from, carried out of the match.
+   *
+   * Here rather than looked up again, because `planFor` is the only thing that
+   * knows *which* entry won. The same occurrence key legitimately appears on
+   * several days — eight of them are fetched, which is what makes
+   * `unfinishedBefore` possible — so a caller re-deriving this from the entry
+   * list has to re-apply the date filter, and a map keyed on the occurrence
+   * alone silently takes whichever duplicate came last. Entries arrive ordered
+   * by position, not by date, so "last" is arbitrary: a row deliberately added
+   * today could be judged by an automatic row from last Tuesday and dropped.
+   */
+  readonly addedBy: string | null;
 }
 
 /**
@@ -82,7 +110,7 @@ export function planFor<T extends Plannable>(
     if (entry.plannedFor !== on) continue;
     const item = byKey.get(entry.occurrenceKey);
     if (item === undefined) continue;
-    planned.push({ item, position: entry.position });
+    planned.push({ item, position: entry.position, addedBy: entry.addedBy });
   }
 
   return planned.sort(

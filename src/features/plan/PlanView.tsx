@@ -95,7 +95,16 @@ export function PlanView() {
    * housemate's chores onto your own plan.
    */
   const housemateId = useMemo(
-    () => (members.data ?? []).find((m) => m.userId !== userId)?.userId,
+    /*
+     * The `userId === null` guard matters as much as the members one. Without
+     * it, `m.userId !== null` is true for the first member, so while the
+     * session is still restoring "the housemate" is whichever row sorts first
+     * — which on this household is Jake — and the fill that is supposed to be
+     * filling *her* day fills his again. Idempotent, and still wrong. Same
+     * shape as the guard in `PlanScreen` and in `rosterIsStale`.
+     */
+    () =>
+      userId === null ? undefined : (members.data ?? []).find((m) => m.userId !== userId)?.userId,
     [members.data, userId],
   );
   const allEntries = usePlanEntries(today);

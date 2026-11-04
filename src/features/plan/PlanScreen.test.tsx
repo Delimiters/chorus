@@ -203,11 +203,17 @@ const item = (
     assignee,
   }) as unknown as AgendaItem;
 
-const entry = (id: string, position: number): PlanEntry => ({
+const entry = (id: string, position: number, addedBy: string | null = ME): PlanEntry => ({
   occurrenceKey: `v1:${id}`,
   choreId: id,
   plannedFor: TODAY,
   position,
+  /*
+   * Deliberate by default. The fill's rows are the ones a reassignment can
+   * strand, so a test about that has to say `null` explicitly — and every
+   * other test in this file is about a day somebody built.
+   */
+  addedBy,
 });
 
 /** Notes by chore id, so a test can give one something worth reading. */
@@ -663,7 +669,13 @@ describe("yesterday's plan", () => {
      */
     mockEntries = [
       entry('dishes', 1),
-      { occurrenceKey: 'v1:trash', choreId: 'trash', plannedFor: YESTERDAY, position: 2 },
+      {
+        occurrenceKey: 'v1:trash',
+        choreId: 'trash',
+        plannedFor: YESTERDAY,
+        position: 2,
+        addedBy: ME,
+      },
     ];
     renderScreen([item('dishes', 'Dishes'), item('trash', 'Trash')]);
 
@@ -965,6 +977,88 @@ describe('finished work sinking to the bottom', () => {
 
     fireEvent.press(screen.getByRole('checkbox', { name: /Dishes/ }));
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+  });
+
+  it("drops a filled row for a chore that is now the housemate's", () => {
+    /*
+     * Measured on the live household the day it was reported: of 208 plan rows
+     * for that day, exactly one sat on the wrong person's day — assigned to
+     * Emily, on Jake's. The fill added it while the chore was still his; she
+     * made it hers alone afterwards and nothing revisited the row.
+     *
+     * Two rows, and only one should go, so this cannot pass by the day
+     * rendering empty.
+     */
+    mockEntries = [entry('dishes', 1, null), entry('hers', 2, null)];
+    renderScreen([
+      item('dishes', 'Dishes', 'due', { kind: 'member', memberId: ME }),
+      item('hers', 'Her watering', 'due', { kind: 'member', memberId: 'user-them' }),
+    ]);
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.queryByText('Her watering')).toBeNull();
+  });
+
+  it('leaves a dropped row out of the count as well as the list', () => {
+    /*
+     * The second review round's other HIGH. `progress` read a *separate*,
+     * unfiltered `planFor` call, so a hidden row was still counted: the header
+     * said "0 OF 1" over a page with no rows on it, `progress.finished` could
+     * never become true, and the "Nothing planned yet" invitation was
+     * suppressed because the count said there was something.
+     *
+     * One stranded row and nothing else, which is the shape that produced the
+     * dead end — and the assertion is on the header, because that is what the
+     * rows alone cannot tell you.
+     */
+    mockEntries = [entry('hers', 1, null)];
+    renderScreen([item('hers', 'Her watering', 'due', { kind: 'member', memberId: 'user-them' })]);
+
+    expect(screen.queryByText('Her watering')).toBeNull();
+    // Nothing planned, said consistently: no count, and the way in is offered.
+    expect(screen.queryByText(/OF 1/)).toBeNull();
+    expect(screen.getByText('Nothing planned yet.')).toBeOnTheScreen();
+  });
+
+  it('counts what it shows when some rows are dropped and some are not', () => {
+    /*
+     * Three rows, one dropped, one already done — so the count has to be "1 of
+     * 2" rather than any of 1 of 3, 2 of 3, or 1 of 1. A fixture where the
+     * dropped row was the only one could not tell those apart.
+     */
+    mockEntries = [entry('mine', 1, null), entry('done', 2, null), entry('hers', 3, null)];
+    renderScreen([
+      item('mine', 'Mine', 'due', { kind: 'member', memberId: ME }),
+      item('done', 'Finished', 'completed', { kind: 'member', memberId: ME }),
+      item('hers', 'Her watering', 'due', { kind: 'member', memberId: 'user-them' }),
+    ]);
+
+    expect(screen.queryByText('Her watering')).toBeNull();
+    expect(screen.getByText(/1 OF 2/)).toBeOnTheScreen();
+  });
+
+  it("keeps a row you added yourself, even for the housemate's chore", () => {
+    /*
+     * Jake, before any of this was built: *"I should be able to add it to my
+     * own plan even if it's assigned to emily"*. Same fixture as above with
+     * one field changed — `addedBy` set rather than null — so the two tests
+     * together pin the distinction rather than the outcome.
+     */
+    mockEntries = [entry('dishes', 1, null), entry('hers', 2, ME)];
+    renderScreen([
+      item('dishes', 'Dishes', 'due', { kind: 'member', memberId: ME }),
+      item('hers', 'Her watering', 'due', { kind: 'member', memberId: 'user-them' }),
+    ]);
+
+    expect(screen.getByText('Dishes')).toBeOnTheScreen();
+    expect(screen.getByText('Her watering')).toBeOnTheScreen();
+  });
+
+  it('keeps shared work on a filled day', () => {
+    mockEntries = [entry('shared', 1, null)];
+    renderScreen([item('shared', 'Shared thing', 'due', { kind: 'anyone' })]);
+
+    expect(screen.getByText('Shared thing')).toBeOnTheScreen();
   });
 
   it('sinks a just-ticked row at once, with no delay to be surprised by', () => {

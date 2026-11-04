@@ -16,6 +16,7 @@ import { AppState } from 'react-native';
 
 import { safeDayStart } from '@/core/civil/daybreak';
 import { planFor } from '@/core/plan/plan';
+import { dropReassignedAutoRows } from '@/core/plan/reassigned';
 import {
   activityState,
   widgetSnapshot,
@@ -89,7 +90,24 @@ export function useWidgetSync({
     !planLoading &&
     !flagsLoading;
 
-  const planned = useMemo(() => planFor(entries, today, items), [entries, today, items]);
+  /**
+   * The same list the plan screen renders, filtered the same way.
+   *
+   * `dropReassignedAutoRows` was applied on the plan screen and **not** here
+   * for one review round, which is the same defect on a second surface: a row
+   * the fill stranded on your day after a reassignment stayed in the widget's
+   * `totalCount`, so the home screen read "5 of 6 done" and could never say
+   * "Nothing left today" — for a row that is invisible and untickable
+   * everywhere in the app. Worse if that chore nags: `activityState` would put
+   * it on the lock screen as the next thing to do, with no way to clear it.
+   *
+   * The widget shows what the plan decided to show. That sentence was in two
+   * test fixtures here as a justification *before* it was true.
+   */
+  const planned = useMemo(
+    () => dropReassignedAutoRows(planFor(entries, today, items), userId ?? ''),
+    [entries, today, items, userId],
+  );
 
   /**
    * Which chores asked to be insisted on.

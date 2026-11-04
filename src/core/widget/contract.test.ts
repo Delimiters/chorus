@@ -129,6 +129,7 @@ describe('the snapshot the widget reads', () => {
       [
         {
           position: 1,
+          addedBy: null,
           item: {
             occurrenceKey: 'k',
             choreTitle: 't',

@@ -21,6 +21,7 @@ import { RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { planFor, progressOf, type PlanEntry } from '@/core/plan/plan';
+import { dropReassignedAutoRows } from '@/core/plan/reassigned';
 import { partitionSettled } from '@/core/plan/settle';
 import { celebrationFor } from '@/core/plan/celebrate';
 import { Confetti } from '@/design/Confetti';
@@ -163,8 +164,18 @@ export function PlanScreen({
    * what the old `?? 'They'` fallback produced for the second or so before the
    * query landed, in three places, two of them possessives.
    */
+  /**
+   * The other person, once it is known who *this* person is.
+   *
+   * The `userId === null` guard matters: without it, `m.userId !== null` is
+   * true for the first member, so while the session is still loading "the
+   * housemate" is whichever row sorts first — which on this household is Jake
+   * himself. Everything downstream then attributes his day to him twice. Same
+   * shape as the rotation that reported itself stale against an empty
+   * household; see `core/rotation/roster.ts`.
+   */
   const housemate = useMemo(
-    () => (members.data ?? []).find((m) => m.userId !== userId),
+    () => (userId === null ? undefined : (members.data ?? []).find((m) => m.userId !== userId)),
     [members.data, userId],
   );
   const theirName = housemate?.displayName ?? 'They';
@@ -217,9 +228,20 @@ export function PlanScreen({
     }
   }, [refetch]);
 
+  /**
+   * Your day, matched and then filtered — **one list, used by everything.**
+   *
+   * It was two: the sections applied `dropReassignedAutoRows` and this did
+   * not, so a row hidden from the list was still counted in "3 of 6", still
+   * held `progress.finished` false for ever, and — on a day with nothing else
+   * planned — produced a header over an empty page with the "Nothing planned
+   * yet" invitation suppressed, because `planned.length` was 1. A row you
+   * cannot see and cannot tick cannot be the thing standing between you and
+   * the end of your day.
+   */
   const inPlanOrder = useMemo(
-    () => planFor(entries, today as never, available),
-    [entries, today, available],
+    () => dropReassignedAutoRows(planFor(entries, today as never, available), userId ?? ''),
+    [entries, today, available, userId],
   );
 
   /**
@@ -337,8 +359,15 @@ export function PlanScreen({
    * `all` and `done` are counted before the partition, because a heading that
    * counts only the draggable half says "3 left" about a day of six.
    */
-  const sectionsFor = (rows: readonly PlanEntry[]) => {
-    const ordered = planFor(rows, today as never, available);
+  const sectionsFor = (rows: readonly PlanEntry[], ownerId: string) => {
+    /*
+     * Reassigning a chore does not change its occurrence key, so `planFor`
+     * goes on matching a row the fill wrote while the chore was somebody
+     * else's. `dropReassignedAutoRows` is what takes it off their day — and it
+     * is applied here *and* to `inPlanOrder` above from the same function, so
+     * the rows and the counts cannot disagree about what the day contains.
+     */
+    const ordered = dropReassignedAutoRows(planFor(rows, today as never, available), ownerId);
     const { active, sunk } = partitionSettled(ordered, (p) => p.item);
     return { active, sunk, all: ordered, done: ordered.filter((p) => isSettled(p.item)).length };
   };
@@ -348,14 +377,14 @@ export function PlanScreen({
    * `today` — both listed here, which is what actually decides these.
    */
   const mySections = useMemo(
-    () => sectionsFor(entries),
+    () => sectionsFor(entries, userId ?? ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entries, available, today],
+    [entries, available, today, userId],
   );
   const theirSections = useMemo(
-    () => sectionsFor(theirEntries),
+    () => sectionsFor(theirEntries, housemate?.userId ?? ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [theirEntries, available, today],
+    [theirEntries, available, today, housemate?.userId],
   );
 
   /*

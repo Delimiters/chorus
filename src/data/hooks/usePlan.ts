@@ -11,6 +11,7 @@ import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/reac
 import { useMemo } from 'react';
 
 import { nextPosition, type PlanEntry } from '@/core/plan/plan';
+import { stillBelongsAfterReassignment } from '@/core/plan/reassigned';
 import type { CivilDate } from '@/core/civil/types';
 import {
   addToPlan,
@@ -103,6 +104,14 @@ export function useMyPlanEntries(today: CivilDate): readonly PlanEntry[] {
           choreId: row.choreId,
           plannedFor: row.plannedFor,
           position: row.position,
+          /*
+           * Carried, which it was not for one review round — and that omission
+           * made `dropReassignedAutoRows` a no-op on your own plan, which is
+           * the only day the bug was ever measured on. `PlanEntry.addedBy` is
+           * required now, so leaving it out is a type error rather than a
+           * silent `undefined` the rule reads as "a person chose this".
+           */
+          addedBy: row.addedBy,
         })),
     [rows, userId],
   );
@@ -120,7 +129,11 @@ export function useMyPlanEntries(today: CivilDate): readonly PlanEntry[] {
  */
 export function useTheirPlanCount(
   today: CivilDate,
-  available: readonly { occurrenceKey: string; status: string }[],
+  available: readonly {
+    occurrenceKey: string;
+    status: string;
+    assignee: { kind: string; memberId?: string };
+  }[],
 ): number {
   const rows = usePlanEntries(today);
   const userId = useUserId();
@@ -129,7 +142,24 @@ export function useTheirPlanCount(
     return rows.filter((row) => {
       if (row.userId === userId || row.plannedFor !== today) return false;
       const item = byKey.get(row.occurrenceKey);
-      return item !== undefined && item.status !== 'completed' && item.status !== 'skipped';
+      if (item === undefined) return false;
+      /*
+       * Rows hidden from their day are not counted on it either.
+       *
+       * This feeds `bothFinished`, so a row the fill stranded on their day
+       * after a reassignment — invisible, and impossible for them to tick —
+       * would have kept the count above zero for ever and blocked the shared
+       * celebration permanently, while the heading built from the *filtered*
+       * sections already said they had finished. This hook's own docblock
+       * warns about exactly that: a number meaning one thing in one line and
+       * something else in the next.
+       *
+       * Through the shared predicate rather than a fourth copy of it.
+       */
+      if (row.addedBy === null && !stillBelongsAfterReassignment(item.assignee, row.userId)) {
+        return false;
+      }
+      return item.status !== 'completed' && item.status !== 'skipped';
     }).length;
   }, [rows, userId, today, available]);
 }
@@ -143,7 +173,10 @@ export function useTheirPlanCount(
  */
 export function useTheirPlanTotal(
   today: CivilDate,
-  available: readonly { occurrenceKey: string }[],
+  available: readonly {
+    occurrenceKey: string;
+    assignee: { kind: string; memberId?: string };
+  }[],
 ): number {
   const rows = usePlanEntries(today);
   const userId = useUserId();
@@ -157,10 +190,18 @@ export function useTheirPlanTotal(
      * in which they finished nothing. The sibling hook's own comment warns
      * about exactly this and the second one shipped without the check.
      */
-    const live = new Set(available.map((item) => item.occurrenceKey));
-    return rows.filter(
-      (row) => row.userId !== userId && row.plannedFor === today && live.has(row.occurrenceKey),
-    ).length;
+    const byKey = new Map(available.map((item) => [item.occurrenceKey, item]));
+    return rows.filter((row) => {
+      if (row.userId === userId || row.plannedFor !== today) return false;
+      const item = byKey.get(row.occurrenceKey);
+      if (item === undefined) return false;
+      // The same drop rule as the count and the sections, for the same reason:
+      // the denominator and the numerator have to describe the same day.
+      if (row.addedBy === null && !stillBelongsAfterReassignment(item.assignee, row.userId)) {
+        return false;
+      }
+      return true;
+    }).length;
   }, [rows, userId, today, available]);
 }
 
@@ -268,6 +309,10 @@ export function useAddToPlan(
         choreId: row.choreId,
         plannedFor: row.plannedFor,
         position: row.position,
+        // Only `position` and `plannedFor` matter to `nextPosition`; carried
+        // because `PlanEntry` is one shape and a partial one invites the gap
+        // that made this field optional in the first place.
+        addedBy: row.addedBy,
       }));
     const already = new Set(
       (rows ?? [])
@@ -298,6 +343,11 @@ export function useAddToPlan(
           occurrenceKey: item.occurrenceKey,
           plannedFor: today,
           position: item.position,
+          /*
+           * The same value the write will carry, so an optimistic row is judged by
+           * `dropReassignedAutoRows` exactly as the stored one will be. Omitting it
+           * made a deliberate add flicker out and back if the chore was not yours.
+           */
           addedBy: automatic ? null : userId,
         })),
       );
@@ -339,6 +389,12 @@ export function useAddToPlan(
           // The same number that goes to the database. Previously the
           // optimistic row and the written row disagreed on every add.
           position: item.position,
+          /*
+           * The same value the write will carry, so an optimistic row is judged by
+           * `dropReassignedAutoRows` exactly as the stored one will be. Omitting it
+           * made a deliberate add flicker out and back if the chore was not yours.
+           */
+          addedBy: automatic ? null : userId,
         }));
         return [...existing, ...added];
       });
