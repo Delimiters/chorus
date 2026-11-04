@@ -915,3 +915,52 @@ describe("counting the other person's day", () => {
     expect(result.current).toBe(1);
   });
 });
+
+describe('who gets credited for an add', () => {
+  /**
+   * `added_by` records the **actor**, not whose day it landed on.
+   *
+   * It recorded the owner for two months, which made one whole feature
+   * unreachable rather than wrong: `who_changed_your_day`'s trigger is guarded
+   * by `actor is null or actor = new.user_id`, so with `added_by` always equal
+   * to `user_id` the "Emily put this on your day" notification could never
+   * fire. Nobody noticed, because the absence of a notification looks exactly
+   * like nothing having happened.
+   */
+  it("names me when I add to my housemate's day", async () => {
+    const { wrapper } = harness();
+    const { result } = renderHook(() => useAddToPlan(TODAY, THEM), { wrapper });
+
+    act(() => result.current.mutate([{ occurrenceKey: 'v1:a', choreId: 'a' }]));
+    await waitFor(() => expect(mockWrites).toHaveLength(1));
+
+    // Their day, my decision — and the two differing is the whole reason the
+    // notification exists.
+    expect(mockWrites[0]).toMatchObject({ userId: THEM, addedBy: ME });
+  });
+
+  it('names me on my own day too, which the trigger then ignores', async () => {
+    const { wrapper } = harness();
+    const { result } = renderHook(() => useAddToPlan(TODAY), { wrapper });
+
+    act(() => result.current.mutate([{ occurrenceKey: 'v1:a', choreId: 'a' }]));
+    await waitFor(() => expect(mockWrites).toHaveLength(1));
+
+    expect(mockWrites[0]).toMatchObject({ userId: ME, addedBy: ME });
+  });
+
+  it('names nobody for the automatic fill', async () => {
+    /*
+     * Null is the meaningful case twice over: it is what keeps the fill from
+     * announcing itself every morning, and it is what
+     * `dropReassignedAutoRows` reads to tell a filled row from a chosen one.
+     */
+    const { wrapper } = harness();
+    const { result } = renderHook(() => useAddToPlan(TODAY, THEM, true), { wrapper });
+
+    act(() => result.current.mutate([{ occurrenceKey: 'v1:a', choreId: 'a' }]));
+    await waitFor(() => expect(mockWrites).toHaveLength(1));
+
+    expect(mockWrites[0]).toMatchObject({ userId: THEM, addedBy: null });
+  });
+});

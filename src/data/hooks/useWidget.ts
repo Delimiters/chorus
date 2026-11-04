@@ -156,11 +156,6 @@ export function useWidgetSync({
    * iOS budgets roughly 40-70 reloads a day; spending them on no-ops is how a
    * widget ends up stale all evening.
    */
-  const snapshot = useMemo(
-    () => widgetSnapshot(planned, today, inkByMember, new Date().toISOString()),
-    [planned, today, inkByMember],
-  );
-
   const published = useRef<string>('');
   /** The card last asked for, as JSON. `'null'` means "asked for none". */
   const cardShown = useRef<string>('');
@@ -235,6 +230,11 @@ export function useWidgetSync({
     [flagKey],
   );
 
+  const snapshot = useMemo(
+    () => widgetSnapshot(planned, today, inkByMember, new Date().toISOString(), flaggedChoreIds),
+    [planned, today, inkByMember, flaggedChoreIds],
+  );
+
   const card = useMemo(
     () => activityState(planned, inkByMember, insistChoreIds, flaggedChoreIds),
     [planned, inkByMember, insistChoreIds, flaggedChoreIds],
@@ -260,7 +260,7 @@ export function useWidgetSync({
   }, [ready, snapshot, card, transport, syncCard]);
 
   /*
-   * Ticks made from the home screen or the lock screen.
+   * Ticks and un-ticks made from the home screen or the lock screen.
    *
    * The widget writes an occurrence key and reloads its own timeline; the real
    * completion — right day, right key, interval chores re-anchored — happens
@@ -300,10 +300,39 @@ export function useWidgetSync({
     if (draining.current) return;
 
     const keys = transport.pendingTicks();
-    if (keys.length === 0) return;
+    const unticks = transport.pendingUnticks();
+    if (keys.length === 0 && unticks.length === 0) return;
 
     draining.current = true;
     try {
+      /*
+       * Un-ticks first.
+       *
+       * A tick and an un-tick of the same thing cannot both be queued — the
+       * widget's intents cancel the opposite queue as they write — so the
+       * order is not about correctness between the two. It is about the
+       * accident: somebody who ticked the wrong row and took it back wants the
+       * taking-back to land, and doing it first means a failure part-way
+       * through a batch cannot leave the mistake written and the correction
+       * queued.
+       */
+      for (const key of unticks) {
+        const item = itemsRef.current.find((candidate) => candidate.occurrenceKey === key);
+
+        // Nothing to take back: no occurrence, or it is not completed anyway.
+        if (item === undefined || item.status !== 'completed') {
+          transport.acknowledgeUnticks([key]);
+          continue;
+        }
+
+        try {
+          await toggleRef.current.mutateAsync({ item, complete: false });
+          transport.acknowledgeUnticks([key]);
+        } catch {
+          break;
+        }
+      }
+
       /**
        * Acknowledged one at a time, after the write lands.
        *

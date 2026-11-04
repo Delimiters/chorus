@@ -37,6 +37,44 @@ struct TickIntent: AppIntent {
     }
 }
 
+/**
+ Taking a tick back from the home screen.
+
+ Emily, on build 79: *"on the widget it's too easy to accidentally check a row,
+ and then when she tried to uncheck that one she was accidentally checking
+ other things"*.
+
+ The second half of that was the worse half, and it was a design mistake rather
+ than a mis-tap: a finished row was deliberately **not** a button, on the
+ reasoning that a filled box which does nothing is a lie. True, and it left the
+ widget with no way to undo at all — so the only thing to do with an accidental
+ tick was tap at it again, which hit the rows either side. The app has had an
+ undo toast since Emily's *"i accidentally checked something off and it
+ disappeared 😭"*; the home screen needs the same recoverability, not a
+ narrower target alone.
+ */
+@available(iOS 17.0, *)
+struct UntickIntent: AppIntent {
+    static var title: LocalizedStringResource = "Mark not done"
+    static var description = IntentDescription("Takes back a tick on today's plan.")
+
+    @Parameter(title: "Occurrence")
+    var occurrenceKey: String
+
+    init() {}
+
+    init(occurrenceKey: String) {
+        self.occurrenceKey = occurrenceKey
+    }
+
+    func perform() async throws -> some IntentResult {
+        PendingTicks.addUntick(occurrenceKey)
+        Snapshot.markUndone(id: occurrenceKey)
+        WidgetCenter.shared.reloadAllTimelines()
+        return .result()
+    }
+}
+
 /// Ticks made on the home screen that the app has not yet written down.
 ///
 /// A queue rather than a flag, because several can happen between two launches
@@ -46,16 +84,51 @@ struct TickIntent: AppIntent {
 /// ticking safe, and this rides on the same guarantee.
 enum PendingTicks {
     static let key = "pendingTicks"
+    /**
+     Un-ticks made on the home screen.
+
+     A second queue rather than a signed value in the first, because the two
+     are not opposites in the database: a tick inserts a completion and an
+     un-tick deletes one, and the app replays each through the mutation that
+     already knows how. Keeping them apart also means a tick and an un-tick of
+     the same thing between two launches cancel to the right answer — whichever
+     the person did last wins, because each queue removes the key from the
+     other.
+     */
+    static let untickKey = "pendingUnticks"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: Snapshot.appGroup)
     }
 
-    static func add(_ occurrenceKey: String) {
+    private static func enqueue(_ occurrenceKey: String, into queue: String, cancelling other: String) {
         guard let defaults else { return }
-        var keys = defaults.stringArray(forKey: key) ?? []
+
+        /*
+         * The opposite intention, withdrawn.
+         *
+         * Tick then un-tick before the app next opens should leave nothing to
+         * replay, not one of each — and without this the app would apply them
+         * in queue order and land wherever that happened to put it.
+         */
+        let opposite = (defaults.stringArray(forKey: other) ?? []).filter { $0 != occurrenceKey }
+        if opposite.isEmpty {
+            defaults.removeObject(forKey: other)
+        } else {
+            defaults.set(opposite, forKey: other)
+        }
+
+        var keys = defaults.stringArray(forKey: queue) ?? []
         guard !keys.contains(occurrenceKey) else { return }
         keys.append(occurrenceKey)
-        defaults.set(keys, forKey: key)
+        defaults.set(keys, forKey: queue)
+    }
+
+    static func add(_ occurrenceKey: String) {
+        enqueue(occurrenceKey, into: key, cancelling: untickKey)
+    }
+
+    static func addUntick(_ occurrenceKey: String) {
+        enqueue(occurrenceKey, into: untickKey, cancelling: key)
     }
 }

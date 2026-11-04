@@ -72,6 +72,34 @@ struct Snapshot: Codable {
     /// The app is the one that actually writes the completion to the database
     /// — this only moves the local snapshot so the box fills the instant it is
     /// tapped, rather than at the end of a round trip the user cannot see.
+    /**
+     Takes a tick back in place, so the widget reflects an undo immediately.
+
+     The mirror of `markDone`. Emily could not undo an accidental tick from the
+     home screen at all — a finished row was not a button — so the only thing
+     to do was tap at it again and hit its neighbours.
+     */
+    static func markUndone(id: String) {
+        guard let url = fileURL, let current = load() else { return }
+        let rows = current.rows.map { row in
+            row.id == id
+                ? Row(id: row.id, title: row.title, done: false, ink: row.ink, inkDark: row.inkDark)
+                : row
+        }
+        let next = Snapshot(
+            day: current.day,
+            // Only if it was actually counted, so a double tap cannot take the
+            // count below the truth.
+            doneCount: current.doneCount - (current.rows.first { $0.id == id }?.done == true ? 1 : 0),
+            totalCount: current.totalCount,
+            rows: rows,
+            writtenAt: current.writtenAt
+        )
+        if let data = try? JSONEncoder().encode(next) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
     static func markDone(id: String) {
         guard let url = fileURL, let current = load() else { return }
         let rows = current.rows.map { row in

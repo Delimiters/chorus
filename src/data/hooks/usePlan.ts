@@ -282,6 +282,22 @@ export function useAddToPlan(
    * silently wrote to your own, which reads as a dead button.
    */
   const userId = ownerId ?? me;
+  /**
+   * Who is doing the adding, as distinct from whose day is being added to.
+   *
+   * `userId` above is the *owner* — it shadows the name the removal hook uses
+   * for the actor, which is how `added_by` came to record the owner rather
+   * than the person. The consequence was a feature that has never once fired:
+   * `who_changed_your_day`'s trigger is guarded by
+   * `actor is null or actor = new.user_id`, and since `added_by` always equalled
+   * `user_id`, the "Emily put this on your day" notification could not be
+   * reached. The removal path got it right and says so, four hundred lines
+   * down: *"Whose day it came off is `owner`; this is who did it, and the two
+   * differing is exactly what makes it worth telling them about."*
+   *
+   * `dropReassignedAutoRows` is unaffected: it asks only null-or-not.
+   */
+  const actor = me;
   const queryClient = useQueryClient();
   const from = shiftDays(today, -PLAN_LOOKBACK_DAYS);
 
@@ -348,7 +364,7 @@ export function useAddToPlan(
            * `dropReassignedAutoRows` exactly as the stored one will be. Omitting it
            * made a deliberate add flicker out and back if the chore was not yours.
            */
-          addedBy: automatic ? null : userId,
+          addedBy: automatic ? null : actor,
         })),
       );
       /*
@@ -394,7 +410,7 @@ export function useAddToPlan(
            * `dropReassignedAutoRows` exactly as the stored one will be. Omitting it
            * made a deliberate add flicker out and back if the chore was not yours.
            */
-          addedBy: automatic ? null : userId,
+          addedBy: automatic ? null : actor,
         }));
         return [...existing, ...added];
       });
